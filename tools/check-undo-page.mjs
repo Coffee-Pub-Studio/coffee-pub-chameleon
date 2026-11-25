@@ -209,31 +209,28 @@ try {
       if (o.composer) assert.equal(hit(o.toast, o.composer), false, `the note is clear of the composer ${JSON.stringify(o.composer)}`);
     } else {
       assert.equal(hit(o.toast, o.composer), false, 'the note is clear of the composer');
-      // The Layout menu (the Layout button's popover) opens over the note: it is the top thing where they meet.
-      await tab.click('#layout-menu').catch(() => {});
+      // The tab menu (the Workspace tab caret's popover) opens over the note: it is the top thing where they meet.
+      await tab.click('[data-tab-menu="workspace"]').catch(() => {});
       await sleep(500);
       const m = await boxes();
       if (m.menu && hit(m.toast, m.menu)) {
         const top = await tab.eval(`(() => { const t = document.querySelector('.sdk-toast[data-undo]').getBoundingClientRect(); const m = document.querySelector('.host-menu').getBoundingClientRect(); const x = (Math.max(t.left, m.left) + Math.min(t.right, m.right)) / 2; const y = (Math.max(t.top, m.top) + Math.min(t.bottom, m.bottom)) / 2; const el = document.elementFromPoint(x, y); return Boolean(el && el.closest('.host-menu')); })()`);
         assert.equal(top, true, 'where the open menu and the note meet, the menu is on top');
       }
-      // Whatever is opened from the Layout menu is on top: a layout's "..." flyout, and the Save as new layout sheet.
-      const onTop = (sel) => tab.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); const at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2); return Boolean(at && (e === at || e.contains(at))) || (String(at && (at.tagName + '#' + at.id + ' in ' + (at.closest('dialog, #space-setup, body')||{}).tagName + ' dialogs=' + document.querySelectorAll('dialog[open]').length + ' e=' + e.className))); })()`);
-      await tab.eval(`document.querySelector('body > .host-menu:not(.host-menu-inline) .host-menu-more')?.click()`);
+      // Whatever is opened from the tab menu is on top: Arrange's flyout, and the New workspace sheet (from the tabs' "...").
+      const onTop = (sel) => tab.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); const at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2); return Boolean(at && e.contains(at)); })()`);
+      await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].reverse().find((b) => /^(Panels|Windows)$/.test(b.querySelector('.host-menu-label')?.textContent.trim() || ''))?.click()`);
       await sleep(400);
-      assert.equal(await onTop('.host-menu-flyout'), true, 'a layout\'s "..." menu opened from the Layout menu is on top');
-      // Its first entry opens a sheet (Rename for a system layout), then Save as new layout opens the other; each is on top.
-      const sheetOnTop = (what) => tab.eval(`(() => { const all = [...document.querySelectorAll('dialog.layout-sheet[open]')]; const e = all[all.length - 1]; if (!e) return null; const b = e.getBoundingClientRect(); const at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2); return Boolean(at && e.contains(at)); })()`).then((v) => assert.equal(v, true, `the ${what} sheet opened from the Layout menu is on top`));
-      await tab.eval(`document.querySelector('.host-menu-flyout .host-menu-item')?.click()`);
-      await sleep(600);
-      await sheetOnTop('Rename');
-      await tab.eval(`document.querySelectorAll('dialog.layout-sheet[open]').forEach((d) => d.close())`);
+      assert.equal(await onTop('.host-menu-flyout'), true, 'Arrange\'s flyout opened from the tab menu is on top');
+      const sheetOnTop = (what) => tab.eval(`(() => { const all = [...document.querySelectorAll('dialog.layout-sheet[open]')]; const e = all[all.length - 1]; if (!e) return null; const b = e.getBoundingClientRect(); const at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2); return Boolean(at && e.contains(at)); })()`).then((v) => assert.equal(v, true, `the ${what} sheet is on top`));
+      await tab.key('Escape').catch(() => {});
+      await tab.key('Escape').catch(() => {});
       await sleep(300);
-      await tab.click('#layout-menu').catch(() => {}); // the Rename sheet's pick closed the menu: open it again
+      await tab.click('#layout-tabs-more').catch(() => {});
       await sleep(500);
-      await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => /Save as new layout/.test(b.textContent))?.click()`);
+      await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => /New workspace/.test(b.textContent))?.click()`);
       await sleep(600);
-      await sheetOnTop('Save as new layout');
+      await sheetOnTop('New workspace');
     }
   });
 } catch (err) {

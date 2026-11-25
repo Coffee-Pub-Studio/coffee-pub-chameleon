@@ -1,12 +1,13 @@
-// The layout shapes (documentation/plans/plan-layout-picker.md, step 1): the six arrangements an owner can pick for a
-// template's Workspace or for a layout shared with everyone in a space, the one check of a stored shape, and the pure
-// answer to "who can't open this module". Nothing else reads this file yet.
+// The layout shapes (documentation/plans/plan-layout-picker.md, step 1; plan-workspaces.md, decision 42): the nine
+// arrangements a template's Workspace, a layout shared with everyone in a space or a person's own workspace can take,
+// the one check of a stored shape, and the pure answer to "who can't open this module".
 //
 // A shape is { id, areas, columns, stacked }. `columns` are the widths of the columns beside the chat and call column,
 // left to right, as percentages of the view and on the grid of full, halves and thirds (decision 11). `stacked` lists
-// the area numbers (counted from 1, left to right, then top to bottom) that share one column, each half its height.
-// Every area outside `stacked` is a column of its own, so columns.length is areas - stacked.length, plus one when
-// anything is stacked. The shares are fixed here and nowhere else (decision 7): a stored shape holds no widths.
+// the area numbers (counted from 1, left to right, then top to bottom) that share a column, in pairs: each two in turn
+// are one column, each half its height (a stack is two areas; Quarters has two such columns). Every area outside
+// `stacked` is a column of its own, so columns.length is areas - stacked.length / 2. The shares are fixed here and
+// nowhere else (decision 7): a stored shape holds no widths.
 //
 // The page has its own copy, public/layout-shapes.js; tools/check-layout-shapes.mjs fails when the two differ, when a
 // share is off the grid, and when a shape's columns do not add up to 100.
@@ -29,6 +30,11 @@ const SHAPES = Object.freeze([
   Object.freeze({ id: 'three-equal', areas: 3, columns: Object.freeze([THIRD, THIRD, THIRD]), stacked: Object.freeze([]) }),
   Object.freeze({ id: 'tall-split', areas: 3, columns: Object.freeze([50, 50]), stacked: Object.freeze([2, 3]) }),
   Object.freeze({ id: 'wide-split', areas: 3, columns: Object.freeze([TWO_THIRDS, THIRD]), stacked: Object.freeze([2, 3]) }),
+  // For wide monitors (plan-workspaces.md, decision 42): two full-height areas and a stack of two, on thirds, either way
+  // round; and four areas, two stacks of two side by side.
+  Object.freeze({ id: 'two-large-right-split', areas: 4, columns: Object.freeze([THIRD, THIRD, THIRD]), stacked: Object.freeze([3, 4]) }),
+  Object.freeze({ id: 'two-large-left-split', areas: 4, columns: Object.freeze([THIRD, THIRD, THIRD]), stacked: Object.freeze([1, 2]) }),
+  Object.freeze({ id: 'quarters', areas: 4, columns: Object.freeze([50, 50]), stacked: Object.freeze([1, 2, 3, 4]) }),
 ]);
 const SHAPE_IDS = Object.freeze(SHAPES.map((s) => s.id));
 const shapeById = (id) => SHAPES.find((s) => s.id === id) || null;
@@ -52,6 +58,14 @@ const ALWAYS_COMPOSITE = Object.freeze(['calendar', 'maps']);
 const FALLBACK_NAMES = Object.freeze({ todo: 'To-do' });
 // Whether `id` reads as a composite given `on`, the ids of the modules on (null: not known, so the parts all count).
 const readsAsComposite = (id, on) => id.startsWith('dest:') || ALWAYS_COMPOSITE.includes(id) || (COMPOSITE_PARTS.includes(id) && (!on || on.includes('calendar')));
+
+// The sentence for a module that can't share a column in a stacked area: where it can go in this shape instead.
+function stackedRefusal(name, def) {
+  const open = [];
+  for (let a = 1; a <= def.areas; a += 1) if (!def.stacked.includes(a)) open.push(a);
+  if (!open.length) return `${name} can't share a column, and every area of this shape does; pick another shape.`;
+  return `${name} can't share a column; put it in area ${open.length > 1 ? `${open.slice(0, -1).join(', ')} or ${open[open.length - 1]}` : open[0]}.`;
+}
 
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const SHAPE_KEYS = ['shape', 'areas'];
@@ -85,7 +99,7 @@ function cleanShape(input, options) {
     if (typeof id !== 'string') return { error: `Area ${i + 1} takes ${words.word('module', { a: true })} or nothing.` };
     if (COLUMN_IDS.includes(id)) return { error: "The chat and the call are in the column on the left; they can't go in an area." };
     if (!MODULE_ID.test(id) || (modules && !modules.includes(id))) return { error: `${quote(id)} is not ${words.word('module', { a: true })} you can use here.` };
-    if (def.stacked.includes(i + 1) && readsAsComposite(id, on)) return { error: `${nameOf(id)} can't share a column; put it in area 1.` };
+    if (def.stacked.includes(i + 1) && readsAsComposite(id, on)) return { error: stackedRefusal(nameOf(id), def) };
     if (seen.has(id)) return { error: `${quote(id)} is in two areas; ${words.word('module', { a: true })} can be in one area only.` };
     seen.add(id);
     areas.push(id);

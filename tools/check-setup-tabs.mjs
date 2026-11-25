@@ -6,7 +6,8 @@
  *     who made a space) Phases | Call | Layout | Modules; a member and a guest no Set up at all; no `show` tab anywhere
  *   - each setting on its tab, and each tab's one save cue at its top ("Saved with Save", and what happens at once)
  *   - every tab shows at 1280 and 1024 wide; at 390 the six fit the sheet without sideways scroll (the rest in the "...")
- *   - the Layout tab: Tabs in the bar (keyboard moves, hide, Opens first, Save) and First visit, marking the Layout tab unsaved
+ *   - the Layout tab: Tabs in the bar (keyboard moves, hide, Opens first, Save) and First visit, marking the Layout tab unsaved;
+ *     Layouts for everyone's Copy one of mine (nothing to copy said plainly, a workspace with a shape copied, one without disabled)
  *   - the Layout button for a member and a moderator: a popover with Open for you, Arrange and Layouts, each acting at once
  *   - addresses /?setup=<id>#<tab> open that tab; a refused field opens the tab that holds it, the keyboard on it
  *   - Manage is a gear button in the top bar for the admin, not in the profile menu, and not there for a member
@@ -141,7 +142,7 @@ try {
     layout: ['#setup-layout-rows', '#setup-first-visit'],
     modules: ['#setup-ai-off', '#setup-ai-sees-follow', '#setup-tags', '#setup-module-settings', '#setup-fixed-modules'],
   };
-  const CUES = { details: 'Saved with Save. Delete happens at once.', members: 'Saved with Save. Waiting to come in and Links happen at once.', phases: /^Saved with Save\./, call: 'Saved with Save.', layout: 'Saved with Save.', modules: 'Saved with Save. Tags and deleting a file happen at once.' };
+  const CUES = { details: 'Saved with Save. Delete happens at once.', members: 'Saved with Save. Waiting to come in and Links happen at once.', phases: /^Saved with Save\./, call: 'Saved with Save.', layout: 'Saved with Save. Copy one of mine happens at once.', modules: 'Saved with Save. Tags and deleting a file happen at once.' };
   await test('an owner: each setting is on its tab, and each tab says its save cue once at its top', async () => {
     const tab = await inSpace('admin', 1280);
     await openSetup(tab);
@@ -158,13 +159,13 @@ try {
     assert.equal(await tab.eval(`/Open for you|Panel Mode|Window Mode|New layout for everyone$|There is nothing to configure/.test(document.getElementById('space-setup').innerText)`), false, 'none of their words either');
   });
 
-  await test('Layout tab: Tabs in the bar, then First visit with Opens with as a read-only line; changing First visit marks Layout unsaved', async () => {
+  await test('Layout tab: Tabs in the bar, Layouts for everyone, then First visit with Opens with as a read-only line; changing First visit marks Layout unsaved', async () => {
     const tab = await inSpace('admin', 1280);
     await openSetup(tab);
     await tab.click('#setup-tab-layout');
     await sleep(900);
     const s = await tab.eval(`({ heads: [...document.querySelectorAll('#setup-content-layout .setup-heading')].map((h) => h.textContent), dot: !document.querySelector('#setup-tab-layout .setup-tab-dot').hidden })`);
-    assert.deepEqual(s.heads.slice(0, 2), ['Tabs in the bar', 'First visit']);
+    assert.deepEqual(s.heads.slice(0, 3), ['Tabs in the bar', 'Layouts for everyone', 'First visit']);
     assert.equal(s.dot, false, 'nothing changed yet');
     // Opens with is read only (plan-templates-redesign.md, step 8): one line with the template's list and why, no switches.
     const line = await tab.eval(`({ text: document.getElementById('setup-opens-with')?.textContent, inputs: document.querySelectorAll('#setup-opens-with input, #setup-opens-with button').length, why: document.getElementById('setup-opens-with-hint')?.textContent })`);
@@ -231,7 +232,8 @@ try {
     assert.ok(rows.slice(1).every((r) => !r.showDisabled), 'the others can be turned off');
     const heads = await tab.eval(`[...document.querySelectorAll('#setup-content-layout .setup-heading')].map((h) => h.textContent)`);
     assert.equal(heads[0], 'Tabs in the bar');
-    assert.equal(heads[1], 'First visit');
+    assert.equal(heads[1], 'Layouts for everyone');
+    assert.equal(heads[2], 'First visit');
     const words = await tab.eval(`document.getElementById('setup-layout-rows').textContent.replace(/\\s+/g, ' ')`);
     for (const w of ['Show in the bar', 'Opens first', 'Move up', 'Move down', 'The Workspace is always shown.']) assert.ok(words.includes(w), w);
     const groups = await tab.eval(`[...new Set([...document.querySelectorAll('#space-setup input[type=radio][name=setup-first-visit]')].map((r) => r.name))].length`);
@@ -293,14 +295,9 @@ try {
     const want = member.system.filter((l) => l.tab !== false).map((l) => l.id);
     assert.deepEqual(bar.slice(0, want.length), want, 'the bar is in the owner\'s order');
     const r = await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts/${hideId}/favorite`, { method: 'PUT', headers: { cookie: cookieOf('sam') } });
-    assert.equal(r.status, 409, 'the owner\'s hide wins');
+    assert.equal(r.status, 404, 'there is no favorite to turn a hidden tab on with (plan-workspaces.md, decision 44)');
     assert.equal(await tab.eval(`Boolean(document.querySelector('[data-nav-tool="setup"]')?.getClientRects().length)`), false, 'a member has no Set up (decision 38)');
-    assert.equal(await tab.eval(`Boolean(document.getElementById('layout-menu')?.getClientRects().length)`), true, 'and keeps the Layout button');
-    await tab.click('#layout-menu');
-    await sleep(600);
-    const row = await tab.eval(`(() => { const r = [...document.querySelectorAll('.host-menu .host-menu-item')].reverse().find((b) => b.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify(member.system.find((l) => l.id === hideId)?.name || '')}); return r ? r.textContent : null; })()`);
-    if (row !== null) assert.match(row, /Hidden in Set up/, 'the hidden layout\'s row in the Layout menu says why it has no tab');
-    await tab.key('Escape');
+    assert.equal(await tab.eval(`Boolean(document.querySelector('[data-tab-menu="workspace"]')?.getClientRects().length)`), true, 'and has the Workspace tab\'s menu');
   });
   await test('Layouts: a moderator has the section and the same save; the Layout menu row of a hidden layout says why and its Favorite is off', async () => {
     const tab = await inSpace('mia', 1280);
@@ -316,39 +313,43 @@ try {
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, 'layouts-moderator-1280.png'), await tab.shoot(false)); }
   });
 
-  // The Layout button (decision 38): the personal controls left Set up for the Layout button's menu, a popover under it with no
-  // Save, for everyone in the space. Each entry acts at once on this person's own canvas.
+  // The tab menu (plan-workspaces.md, decisions 38, 40 and 44): the personal controls left Set up for the menu on the
+  // Workspace's tab, a popover under its caret with no Save, for everyone in the space. Each entry acts at once.
+  const caretSel = '[data-tab-menu="workspace"]';
   const layoutMenu = async (tab) => {
-    await tab.click('#layout-menu');
+    await tab.click(caretSel);
     await tab.waitFor('.host-menu:not(.host-menu-inline) .host-menu-item');
     await sleep(500);
     return tab.eval(`(() => {
       const m = document.querySelector('.host-menu:not(.host-menu-inline)');
-      const b = document.getElementById('layout-menu').getBoundingClientRect();
+      const b = document.querySelector('${caretSel}').getBoundingClientRect();
       const r = m.getBoundingClientRect();
       return {
         heads: [...m.querySelectorAll('.host-menu-heading')].map((h) => h.textContent.trim()),
         labels: [...m.querySelectorAll('.host-menu-item')].map((e) => e.querySelector('.host-menu-label')?.textContent.trim() || ''),
         save: Boolean(m.querySelector('.action-bar, [id$="-save"]')),
-        expanded: document.getElementById('layout-menu').getAttribute('aria-expanded'),
-        below: r.top >= b.bottom - 1, covers: r.top < b.bottom && r.bottom > b.top && r.left < b.right && r.right > b.left,
+        expanded: document.querySelector('${caretSel}').getAttribute('aria-expanded'),
+        covers: r.top < b.bottom && r.bottom > b.top && r.left < b.right && r.right > b.left,
         inSetup: Boolean(m.closest('#space-setup')),
       };
     })()`);
   };
-  // The row with these words; the last one, since a layout (Calendar) comes after a module of the same name in Open for you.
+  // The row with these words; the last one.
   const rowOf = (label) => `[...document.querySelectorAll('.host-menu:not(.host-menu-inline) .host-menu-item')].reverse().find((e) => e.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify(label)})`;
+  const flyRow = (label) => `[...document.querySelectorAll('.host-menu-flyout .host-menu-item')].find((e) => e.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify(label)})`;
   for (const as of ['sam', 'mia']) {
-    await test(`the Layout button (${as === 'sam' ? 'a member' : 'a moderator'}): a popover under it with Open for you, Arrange and Layouts, no Save; each acts at once`, async () => {
+    await test(`the Workspace tab's menu (${as === 'sam' ? 'a member' : 'a moderator'}): a popover under its caret with Open for you first and Arrange last, no Save; each acts at once`, async () => {
       const tab = await inSpace(as, 1280);
       const m = await layoutMenu(tab);
-      assert.deepEqual(m.heads.slice(0, 3), ['Open for you', 'Arrange', 'Layouts'], `the sections: ${JSON.stringify(m.heads)}`);
+      assert.equal(m.heads[0], 'Open for you', `the sections: ${JSON.stringify(m.heads)}`);
+      assert.equal(m.heads[m.heads.length - 1], 'Arrange', 'Arrange last');
       assert.equal(m.save, false, 'no Save frame: nothing waits');
       assert.equal(m.inSetup, false, 'a popover, not the Set up panel');
-      assert.equal(m.expanded, 'true', 'the button says its menu is open');
-      assert.equal(m.covers, false, 'the menu never covers its button');
-      for (const w of ['Panel Mode', 'Window Mode', 'Workspace', 'New layout', 'Save as new layout']) assert.ok(m.labels.includes(w), `${w} is offered`);
-      if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, `layout-menu-${as}-1280.png`), await tab.shoot(false)); }
+      assert.equal(m.expanded, 'true', 'the caret says its menu is open');
+      assert.equal(m.covers, false, 'the menu never covers its caret');
+      assert.ok(m.labels.includes('Panels'), 'Arrange names the mode');
+      for (const w of ['New layout', 'Save as new layout', 'Rename', 'Delete']) assert.ok(!m.labels.includes(w), `${w} is not offered on the Workspace`);
+      if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, `tab-menu-${as}-1280.png`), await tab.shoot(false)); }
       // Open for you: a switch opens (or shows) a module on this person's canvas at once, and the menu stays open.
       const mod = await tab.eval(`(() => { const r = ${rowOf('Polls')}; return r ? { on: r.getAttribute('aria-checked') } : null; })()`);
       assert.ok(mod, 'Polls is in Open for you');
@@ -357,25 +358,24 @@ try {
       assert.equal(await tab.eval(`window.hostModules.isOpen('polls')`), mod.on !== 'true', 'Polls opened (or closed) at once');
       assert.equal(await tab.eval(`Boolean(document.querySelector('.host-menu:not(.host-menu-inline)'))`), true, 'the menu stays open after a switch');
       assert.equal(await tab.eval(`${rowOf('Polls')}.getAttribute('aria-checked')`), mod.on === 'true' ? 'false' : 'true', 'and shows what happened');
-      // Arrange: Window Mode at once, then Panel Mode back.
-      await tab.eval(`${rowOf('Window Mode')}.click()`);
+      // Arrange: its row's flyout; Windows at once, then Panels back.
+      await tab.eval(`${rowOf('Panels')}.click()`);
+      await sleep(500);
+      await tab.eval(`${flyRow('Windows')}.click()`);
       await sleep(600);
-      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'window', 'Window Mode at once');
-      await tab.eval(`${rowOf('Panel Mode')}.click()`);
+      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'window', 'Windows at once');
+      await layoutMenu(tab);
+      await tab.eval(`${rowOf('Windows')}.click()`);
+      await sleep(500);
+      await tab.eval(`${flyRow('Panels')}.click()`);
       await sleep(600);
-      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'panel', 'Panel Mode at once');
-      // Escape closes it, the keyboard back on the button.
+      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'panel', 'Panels at once');
+      // Escape closes it, the keyboard back on the caret.
+      await layoutMenu(tab);
       await tab.key('Escape');
       await sleep(300);
       assert.equal(await tab.eval(`Boolean(document.querySelector('.host-menu:not(.host-menu-inline)'))`), false, 'Escape closes it');
-      assert.equal(await tab.eval(`document.activeElement?.id`), 'layout-menu', 'and the keyboard is back on the button');
-      // Layouts: a layout with a tab in the bar is shown at once (the last of them, so not the one shown now).
-      const target = await tab.eval(`(() => { const t = [...document.querySelectorAll('#layout-tabs > [data-layout-tab]')].filter((b) => b.dataset.layoutTab !== 'workspace' && !b.getAttribute('aria-current')).pop(); return t ? { id: t.dataset.layoutTab, name: t.textContent.trim() } : null; })()`);
-      assert.ok(target, 'a layout other than the Workspace has a tab');
-      await layoutMenu(tab);
-      await tab.eval(`${rowOf(target.name)}.click()`);
-      await sleep(1500);
-      assert.equal(await tab.eval(`document.querySelector('[data-layout-tab="${target.id}"]')?.getAttribute('aria-current')`), 'page', `${target.name} is shown at once`);
+      assert.equal(await tab.eval(`document.activeElement?.dataset?.tabMenu`), 'workspace', 'and the keyboard is back on the caret');
     });
   }
 
@@ -396,13 +396,13 @@ try {
     await openSetup(sam);
     const samTabs = await tabsOf(sam);
     assert.deepEqual(samTabs.filter((t) => t !== 'phases'), MODERATOR.filter((t) => t !== 'phases'), `the maker's tabs: ${JSON.stringify(samTabs)}`);
-    // A guest: no Set up, and the Layout button.
+    // A guest: no Set up.
     const link = await fetch(`${server.base}/api/spaces/${ctx.trip}/guest-link`, { method: 'POST', headers: { cookie: cookieOf('admin'), 'content-type': 'application/json', origin: server.base }, body: '{}' }).then((r) => r.json());
     const token = link.space && link.space.guestToken;
     if (token) {
       const guest = await open(`/guest/${token}`, 'none', 1280);
       await sleep(2500);
-      const g = await guest.eval(`({ setup: Boolean(document.querySelector('[data-nav-tool="setup"]')?.getClientRects().length), layout: Boolean(document.getElementById('layout-menu')?.getClientRects().length), url: location.pathname })`);
+      const g = await guest.eval(`({ setup: Boolean(document.querySelector('[data-nav-tool="setup"]')?.getClientRects().length), url: location.pathname })`);
       assert.equal(g.setup, false, `a guest has no Set up (${g.url})`);
     }
   });
@@ -522,6 +522,38 @@ try {
       assert.ok(Math.abs(above - first.swR) <= 3, `the module switches line up with the switches above (${first.swR} vs ${above})`);
     });
   }
+
+  // Copy one of mine (plan-workspaces.md, decisions 39 and 49): with no workspace of their own, the line under the button says so
+  // and nothing is sent; then one with a shape is copied as a layout for everyone under its name (its row shows, and every
+  // member's list has it), and one with no shape is offered but can't be picked. A member has no Set up, so no copy.
+  await test('Layout tab: Copy one of mine refuses plainly with nothing to copy, copies a workspace with a shape as a layout for everyone, and offers one with no shape disabled', async () => {
+    const tab = await inSpace('admin', 1280);
+    await openSetup(tab);
+    await tab.click('#setup-tab-layout');
+    await sleep(700);
+    assert.equal(await tab.eval(`document.getElementById('setup-shared-section').hidden`), false, 'the admin may make a layout for everyone');
+    await tab.click('#setup-copy-mine');
+    await sleep(900);
+    assert.match(await tab.eval(`document.getElementById('setup-copy-status').textContent`), /^You have no workspace of your own here to copy\./);
+    assert.equal(await tab.eval(`document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item').length`), 0, 'no menu with nothing in it');
+    const ws = (body) => tab.eval(`fetch('/api/spaces/${ctx.trip}/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${JSON.stringify(JSON.stringify(body))} }).then((r) => r.status)`);
+    assert.equal(await ws({ name: 'Copy desk', shape: { shape: 'two-equal', areas: ['travel', 'maps'] } }), 201);
+    assert.equal(await ws({ name: 'Bare desk' }), 201);
+    await tab.click('#setup-copy-mine');
+    await tab.waitFor('body > .host-menu:not(.host-menu-inline) .host-menu-item');
+    await sleep(300);
+    const items = await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].map((b) => ({ text: b.querySelector('.host-menu-label')?.textContent.trim(), off: b.disabled }))`);
+    assert.deepEqual(items, [{ text: 'Copy desk', off: false }, { text: 'Bare desk', off: true }], 'the person\'s own workspaces, never the Workspace; one with no layout can\'t be copied');
+    await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => b.textContent.includes('Copy desk')).click()`);
+    await sleep(1200);
+    assert.equal(await tab.eval(`document.getElementById('setup-copy-status').textContent`), 'Copy desk is now a layout for everyone.');
+    assert.ok((await tab.eval(`[...document.querySelectorAll('#setup-shared-rows .setup-layout-name')].map((n) => n.textContent)`)).includes('Copy desk'), 'its row shows');
+    const shared = (await (await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts`, { headers: { cookie: cookies.mia.map((c) => `${c.name}=${c.value}`).join('; ') } })).json()).shared;
+    const got = shared.find((l) => l.name === 'Copy desk');
+    assert.ok(got && got.shape === 'two-equal' && JSON.stringify(got.areas) === JSON.stringify(['travel', 'maps']), `the layout for everyone has the workspace's shape: ${JSON.stringify(got)}`);
+    assert.equal(await tab.eval(`document.getElementById('setup-tab-layout').querySelector('.setup-tab-dot').hidden`), true, 'it happened at once: nothing to save');
+    await tab.close();
+  });
 
   if (SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });

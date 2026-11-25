@@ -2173,6 +2173,57 @@ body.in-space .subnav {
   max-width: none;
 }
 
+/* Manage tabs (space.js, manageTabs; public/manage-tabs.js): the layout sheet holding Set up's tab rows, the owner's
+   locked and the person's own with Move up, Move down and Remove. In a narrow sheet the buttons wrap under the name. */
+.manage-tabs-section + .manage-tabs-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.manage-tabs-line {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+  line-height: var(--leading-body);
+}
+
+.manage-tabs-locked {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+}
+
+.manage-tabs-sheet .setup-layout-move {
+  flex-wrap: wrap;
+}
+
+.manage-tabs-sheet .layout-form-error {
+  max-width: none;
+}
+
+.manage-tabs-live:empty {
+  display: none;
+}
+
+.manage-tabs-live {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+}
+
+@media (max-width: 640px) {
+  .manage-tabs-sheet .setup-layout-move {
+    width: 100%;
+  }
+
+  .manage-tabs-sheet .setup-layout-move .btn {
+    --btn-h: 44px;
+    flex: 1 1 auto;
+  }
+}
+
 .layout-shape-picker {
   min-width: 0;
 }
@@ -7610,7 +7661,7 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   line-height: 1;
 }
 
-/* Step 1: the six shapes, two rows of three at any width. */
+/* Step 1: the nine shapes, three rows of three at any width. */
 .layout-picker-shapes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -10220,16 +10271,6 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
   white-space: nowrap;
 }
 .layout-tabs > .layout-modified[hidden] { display: none; }
-.layout-tabs > .layout-modified > .layout-update {
-  all: unset;
-  cursor: pointer;
-  color: var(--text-link);
-  text-decoration: underline;
-  font: inherit;
-}
-.layout-tabs > .layout-modified > .layout-update:hover { color: var(--text); }
-.layout-tabs > .layout-modified > .layout-update:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; border-radius: var(--radius-small); }
-.layout-tabs > .layout-tab-pin { flex: none; }
 .setup-layout-pinned { font-size: 0.75em; color: var(--text-muted); margin-left: 4px; }
 /* Who is on each tab (plan-workspaces.md, decision 47; space.js, paintTabSides): inside the tab's pill, after its name, the
    faces of the people on it (the shared .sdk-avatar-stack: 22px faces overlapping 8px, the ring in the bar's colour, three
@@ -10254,12 +10295,10 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
   color: var(--text-muted);
   font: inherit;
   cursor: pointer;
-  --av-surface: var(--surface-bar-top);
-  --av-ring: var(--surface-bar-top); /* the bar's own colour, so each face's edge reads where two overlap */
-  --av-ring-w: 2px;
-  --av-overlap: calc(var(--space-2) * -1);
+  --av-surface: var(--surface-bar-top); /* the bar's own colour: it is also each face's ring, so the edge reads where two overlap */
 }
-.layout-tabs > .layout-tab:has(+ .layout-tab-side:not([hidden])) { padding-right: calc(var(--side-w, 0px) + var(--space-2) * 2); }
+.layout-tabs > .layout-tab:has(+ .layout-tab-side:not([hidden])),
+.layout-tabs > .layout-tab:has(+ .layout-tab-side + .layout-tab-menu) { padding-right: calc(var(--side-w, 0px) + var(--space-2) * 2); }
 .layout-tabs > .layout-tab + .layout-tab-side { margin-left: calc((var(--side-w, 0px) + var(--space-2)) * -1); }
 .layout-tabs > .layout-tab-side[hidden],
 .layout-tabs > .layout-tab-side.layout-tab-out { display: none; } /* a tab in the "..." takes its button with it */
@@ -10270,6 +10309,33 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
 .layout-tabs > .layout-tab-side > .tab-faces > .sdk-avatar { --av: 22px; --av-font: var(--text-11); }
 .layout-tabs > .layout-tab-side > .tab-faces > .sdk-badge-micro { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 18%, var(--surface-bar-top)); box-shadow: 0 0 0 2px var(--surface-bar-top); }
 .layout-tabs > .layout-tab-side > .layout-tab-caret { font-size: var(--text-11); }
+/* An editable workspace's menu (plan-workspaces.md, decision 40; space.js, openTabMenu): a caret after the tab's faces,
+   drawn over the tab's right end as the faces are (the tab's --side-w counts both). Right after the faces it closes the
+   gap between them; with no faces it takes the faces' place. It leaves with its tab into the "...". */
+.layout-tabs > .layout-tab-menu {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--tab-h-small);
+  min-width: var(--space-5);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-11);
+  cursor: pointer;
+}
+.layout-tabs > .layout-tab-side:not([hidden]) + .layout-tab-menu { margin-left: calc(var(--tabs-gap) * -1); }
+.layout-tabs > .layout-tab-side[hidden] + .layout-tab-menu { margin-left: calc((var(--side-w, 0px) + var(--space-2)) * -1); }
+.layout-tabs > .layout-tab-menu.layout-tab-out { display: none; }
+.layout-tabs > .layout-tab-menu:hover { color: var(--text-primary); background: color-mix(in srgb, var(--tab-ink) 10%, transparent); }
+.layout-tabs > .layout-tab-menu:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -2px; }
+.layout-tabs > .layout-tab-menu[aria-expanded="true"] { color: var(--text-primary); }
 .who-here-tab {
   flex: none;
   min-width: 0;
@@ -10279,8 +10345,6 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
   color: var(--text-dim);
   font-size: var(--text-12);
 }
-.layout-tabs > .layout-tab-pin > i { opacity: 0.55; }
-.layout-tabs > .layout-tab-pin:hover > i, .layout-tabs > .layout-tab-pin:focus-visible > i { opacity: 1; }
 
 /* The guest door's landing (/guest, public/guest.html): the spaces open to a guest, one row each. */
 .guest-space-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }

@@ -69,14 +69,9 @@ function migrateStoredKeys() {
       const m = /^tavern([.:])(.*)$/.exec(key); // the old product name, read only to move the key
       if (m) moveStoredKey(localStorage, key, `app${m[1]}${m[2]}`);
     }
-    // Keys renamed by the Names plan, read only to move them: the call's preferences (step 3), and each space's
-    // remembered canvas (step 5b; `app.panels` alone is the layout from before layouts were kept per space). The chat
-    // keys (app:chat:<id>:..., app:chatclear:<id>:...) keep their names: a space's id did not change.
-    const moves = { 'host.table': 'app.call', 'app.panels': 'app.canvas' };
-    for (const [from, to] of Object.entries(moves)) moveStoredKey(localStorage, from, to);
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('app.panels.')) moveStoredKey(localStorage, key, `app.canvas.${key.slice('app.panels.'.length)}`);
-    }
+    // A key renamed by the Names plan, read only to move it: the call's preferences (step 3). The chat keys
+    // (app:chat:<id>:..., app:chatclear:<id>:...) keep their names: a space's id did not change.
+    moveStoredKey(localStorage, 'host.table', 'app.call');
   } catch {
     // no storage: nothing to move
   }

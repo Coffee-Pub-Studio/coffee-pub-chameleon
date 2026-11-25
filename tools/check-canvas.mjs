@@ -876,12 +876,13 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const parts = [...new Set(COMPOSITES.flatMap((c) => c.parts))];
   const place = (shape, areas, width, opts = {}, canOpen = () => true) => placeShape({ shape, areas }, width, canOpen, { shape: shapeById(shape), ...opts });
   const ids = ['documents', 'goals', 'polls'];
+  const four = [...ids, 'budget']; // enough for the shapes of four areas
   const close = (a, b, tol = 1) => Math.abs(a - b) <= tol;
   // Every shape, at every width the plan names: the columns, their widths from the percentages, the stacks.
   for (const s of SHAPES) {
     for (const W of [1600, 1000, 800, 700, 390]) {
       const label = `${s.id} at ${W}px`;
-      const got = place(s.id, ids.slice(0, s.areas), W);
+      const got = place(s.id, four.slice(0, s.areas), W);
       if (got.shape !== s.id) { fail(F, `${label}: placed nothing`); continue; }
       const phone = W <= 640;
       if (got.narrow !== phone) fail(F, `${label}: narrow is ${got.narrow}`);
@@ -892,11 +893,13 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
         if (c.flex !== (i === 0)) fail(F, `${label}: the first column is the flexible one`);
       });
       if (Math.abs(got.columns.reduce((a, c) => a + c.width, 0) - W) > got.columns.length) fail(F, `${label}: the columns fill the view`);
-      if (got.slots.map((x) => x.id).join() !== ids.slice(0, s.areas).join()) fail(F, `${label}: the modules in area order (${got.slots.map((x) => x.id)})`);
+      if (got.slots.map((x) => x.id).join() !== four.slice(0, s.areas).join()) fail(F, `${label}: the modules in area order (${got.slots.map((x) => x.id)})`);
       if ('dockW' in got.slots[0] || got.slots.slice(1).some((x) => x.column > 0 && !(x.dockW >= DOCK_MIN))) fail(F, `${label}: the flexible column has no width of its own, every other its share (at least DOCK_MIN): ${JSON.stringify(got.slots)}`);
       const stackSlots = got.slots.filter((x) => x.stack);
       if (s.stacked.length) {
-        if (stackSlots.map((x) => x.area).join() !== s.stacked.join() || stackSlots.some((x) => x.h !== 0.5) || stackSlots.map((x) => x.at).join() !== '0,1' || new Set(stackSlots.map((x) => x.stack)).size !== 1) fail(F, `${label}: areas ${s.stacked} are one stack, top first, half the column's height each: ${JSON.stringify(stackSlots)}`);
+        // `stacked` is in pairs: each two areas in turn are one stack, top first (Quarters has two).
+        const pairs = s.stacked.length / 2;
+        if (stackSlots.map((x) => x.area).join() !== s.stacked.join() || stackSlots.some((x) => x.h !== 0.5) || stackSlots.map((x) => x.at).join() !== Array(pairs).fill('0,1').join() || new Set(stackSlots.map((x) => x.stack)).size !== pairs) fail(F, `${label}: areas ${s.stacked} are stacks of two, top first, half the column's height each: ${JSON.stringify(stackSlots)}`);
       } else if (stackSlots.length) fail(F, `${label}: no stack`);
       if (got.empty.length || got.closed.length || got.left.length) fail(F, `${label}: nothing empty or closed`);
       if (phone && got.waiting.length) fail(F, `${label}: nothing waits on a phone`);
@@ -1390,17 +1393,29 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if ((setUp.match(/placeSubnav\(\)/g) || []).length < 2) fail('public/space.js', 'popping out and back must re-place the space bar for the window it is now in (placeSubnav())');
   // On a narrow canvas a switch on a module open but hidden behind the view shows it, never closes it (switching the
   // conference off hangs up).
-  const click = canvasJs.slice(canvasJs.indexOf('  function flipShown(id'), canvasJs.indexOf('  function layoutMenuItems() {'));
+  const click = canvasJs.slice(canvasJs.indexOf('  function flipShown(id'), canvasJs.indexOf('  function arrangeItems() {'));
   if (!/hiddenByView\(id\)\) setView\(id\)/.test(click)) fail('public/canvas.js', 'a switch on a module hidden behind the narrow canvas\'s view must show it (setView), not close it');
   if (!/checked: shown\(def\.id\)/.test(canvasJs)) fail('public/canvas.js', 'a switch reads off while its module is hidden behind the narrow canvas\'s view');
-  // The Layout menu is the Layout button's popover (plan-workspaces.md, decision 38): the personal controls left Set up.
-  if (/modules-toggle/.test(spaceJs)) fail('public/space.js', 'no #modules-toggle: the Layout button is #layout-menu');
-  if (!/nav\.register\(\{ id: 'layout-menu',[^\n]*onClick: \(\) => openLayoutMenu\(\) \}\);/.test(spaceJs) || !/canvas\.openMenu\(anchor\);/.test(spaceJs)) fail('public/space.js', 'the Layout button opens the canvas\'s menu under it (canvas.openMenu)');
+  // The menu is each editable workspace tab's (plan-workspaces.md, decisions 40 and 44): the Layout button is gone.
+  if (/modules-toggle|id: 'layout-menu'/.test(spaceJs)) fail('public/space.js', 'no #modules-toggle and no Layout button: the menu is on the tab');
+  if (!/canvas\.openMenu\(caret, \(\) => tabMenuItems\(id\)\);/.test(spaceJs)) fail('public/space.js', 'an editable tab\'s caret opens the canvas\'s menu under it (canvas.openMenu)');
   if (/mountMenu|canShowTab/.test(spaceJs)) fail('public/space.js', 'Set up draws no menu of modules (no Modules tab of personal controls)');
-  if (!/openHostMenu\(trigger, layoutMenuItems\);/.test(canvasJs)) fail('public/canvas.js', 'the Layout menu is the page\'s shared menu (host-menu.js openHostMenu), drawn from layoutMenuItems()');
-  for (const needle of ["{ heading: 'Open for you' }", "{ heading: 'Arrange' }", "label: 'Panel Mode'", "label: 'Window Mode'", "label: 'Snap to grid'", "label: 'Clean up'"]) if (!canvasJs.includes(needle)) fail('public/canvas.js', `the Layout menu has ${needle}`);
-  const arrangeItems = canvasJs.slice(canvasJs.indexOf("{ heading: 'Arrange' }"), canvasJs.indexOf("const extra = typeof menuItems"));
-  if (!/if \(windowMode\) \{[\s\S]*label: 'Snap to grid'[\s\S]*label: 'Clean up'[\s\S]*\}/.test(arrangeItems)) fail('public/canvas.js', 'Snap to grid and Clean up are offered in Window Mode only');
+  if (!/openHostMenu\(trigger, menuEntries\);/.test(canvasJs)) fail('public/canvas.js', 'the tab menu is the page\'s shared menu (host-menu.js openHostMenu), drawn from menuEntries()');
+  for (const needle of ["{ heading: 'Open for you' }", "{ heading: 'Arrange' }", "label: 'Panels'", "label: 'Windows'", "label: 'Snap to grid'", "label: 'Clean up'"]) if (!canvasJs.includes(needle)) fail('public/canvas.js', `the tab menu has ${needle}`);
+  const arrangeItems = canvasJs.slice(canvasJs.indexOf('  function arrangeItems() {'), canvasJs.indexOf('  function menuEntries() {'));
+  if (!/if \(windowMode\) \{[\s\S]*label: 'Snap to grid'[\s\S]*label: 'Clean up'[\s\S]*\}/.test(arrangeItems)) fail('public/canvas.js', 'Snap to grid is offered in Window Mode only, with its Clean up');
+  if (!/if \(!windowMode\) \{\n\s*items\.push\(\{ divider: true \}, \{ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: \(\) => tidyUp\(\) \}\);/.test(arrangeItems)) fail('public/canvas.js', 'Clean up is offered in Panel Mode too (plan-workspaces.md, decision 41)');
+  // Clean up in Panels and its Undo (decision 41): the stacks' own arrange() with even heights and one width, the folded
+  // sections opened, nothing closed; Undo puts the arrangement from before back once, through the shared toast
+  // (brand.js's actionToast) and a row in Arrange, and any other change ends it.
+  const panels = canvasJs.slice(canvasJs.indexOf('  function cleanUpPanels() {'), canvasJs.indexOf('  // Undo for Clean up and Unstack all'));
+  if (!/arrange\(cols\.map\(\(c\) => \(\{ \.\.\.c, even: c\.ids\.length > 1, width: /.test(panels)) fail('public/canvas.js', 'cleanUpPanels() goes through arrange(), even heights in every stack and one width');
+  if (!/folded: false/.test(panels) || /closeModule|setMode\(/.test(panels)) fail('public/canvas.js', 'cleanUpPanels() opens folded sections and closes or floats nothing');
+  const undo = canvasJs.slice(canvasJs.indexOf('  // Undo for Clean up and Unstack all'), canvasJs.indexOf('  // The grid\'s size, from the space bar\'s slider'));
+  if (!/actionToast\(\{[\s\S]*actions: \[\{ id: 'undo', label: 'Undo', primary: true \}\]/.test(undo)) fail('public/canvas.js', 'Clean up\'s Undo is the shared toast\'s (actionToast) Undo');
+  if (!/return undoable\(\(\) => \(windows \? cleanUp\(\) : cleanUpPanels\(\)\), \{ said: 'Cleaned up', label: 'Undo clean up' \}\);/.test(undo)) fail('public/canvas.js', 'tidyUp() runs the mode\'s Clean up, undoably');
+  if (!/if \(undoArrange && !undoArrange\.busy && arrangeSig\(\) !== undoArrange\.after\) dropUndo\(\);/.test(canvasJs)) fail('public/canvas.js', 'any other change to the arrangement ends Undo (persist)');
+  if (!/dropUndo\(\); \/\/ Undo is the shown workspace's/.test(canvasJs)) fail('public/canvas.js', 'another workspace shown ends Undo');
   if (!/const arrangeMode = \(\) => \(saved\.__mode === 'window' \? 'window' : 'panel'\);/.test(canvasJs)) fail('public/canvas.js', 'the arrange mode is remembered with the space\'s layout (__mode), Panel Mode unless said otherwise');
   if (/guest-mic-note/.test(spaceHtml + spaceJs)) fail('public/space.html', 'entering never joins the call, so the guest form must not say the browser will ask for the microphone');
 }
@@ -2282,7 +2297,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     const sync = spaceJs.slice(spaceJs.indexOf('function syncConferenceView()'), spaceJs.indexOf('const POPUP_BLOCKED'));
     if (!sync || /stopCall|hangUp|closeBuiltin|leftCall/.test(sync)) fail(F, 'showing and leaving the Conference layout never hangs up or closes the call (syncConferenceView)');
     const press = spaceJs.slice(spaceJs.indexOf('function pressLayoutTab('), spaceJs.indexOf('// Modified (Thomas, 2026-11-11)'));
-    if (!/currentLayoutTab = 'workspace';\n    syncConferenceView\(\);[^\n]*\n    canvas\.resumeMemory\(\);/.test(press)) fail(F, 'back on the Workspace the canvas is shown again before its arrangement is put back');
+    if (!/currentLayoutTab = id;\n    syncConferenceView\(\);[^\n]*\n    canvas\.showWorkspace\(id\);/.test(press)) fail(F, 'back on an editable workspace the canvas is shown again before its arrangement is put back');
     if (!/canvas\.holdMemory\(\);/.test(press) || !/if \(id !== 'conference'\) syncConferenceView\(\);\n  try \{\n    if \(load\) canvas\.loadLayout\(layout\);\n  \} finally \{\n    noteUnderFavorites = false;\n    if \(id === 'conference'\) syncConferenceView\(\);/.test(press) || !/if \(id === 'conference'\) layoutNote\('Conference layout\.'\);/.test(press)) fail(F, 'the Conference tab holds the Workspace\'s memory as every other tab does, then shows the Conference layout and says so; another tab gets the canvas back before it loads');
     if (/stopCall|hangUp|closeBuiltin\('conference'\)/.test(press)) fail(F, 'pressing a layout tab never hangs up');
   }
