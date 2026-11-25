@@ -1,13 +1,12 @@
 
   // Budget's actions: what an agent or another module may ask of it (plan-agent-edit-delete.md, decision 4 and step 2). One
-  // copy of each rule, run on the page (host.actions.fromLibrary, budget.js) and, once the server gives what it reads, by the
+  // copy of each rule, run on the page (host.actions.fromLibrary, budget.js) and by the
   // server's runner (server/module-actions.js). No page in it: each handler reads the costs through `ctx` and answers what to
   // write. A throw is the refusal; its message is the sentence the asker reads. It expects budget-lib.js in scope.
   //
   // Beside the runner's ctx it reads `ctx.settings.categories`, the environment's list of categories as host.settings.get()
   // gives it: a cost keeps its category's words (`categoryName`) for the other modules that show it. The page hands it
-  // (budget.js); the server's runner does not yet, so Budget declares no actions.server: without it a cost would be named by
-  // the default list, not the environment's. Amounts are in the space's one currency (its budget's): a cost has none of its own.
+  // (budget.js) and the server's runner gives it too. Amounts are in the space's one currency (its budget's): a cost has none of its own.
   const BudgetActions = (() => {
     const has = (x) => x !== undefined && x !== null;
     const refOf = (ctx, id) => ({ module: 'budget', kind: 'cost', id, scope: 'space', space: ctx.space.id });

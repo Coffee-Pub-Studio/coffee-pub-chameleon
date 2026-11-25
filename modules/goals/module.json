@@ -61,6 +61,7 @@
     "clear": "clear"
   },
   "actions": {
+    "server": "src/goals-lib-actions.js",
     "provides": [
       {
         "name": "addGoal",

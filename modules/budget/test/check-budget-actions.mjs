@@ -5,17 +5,18 @@
  * outcomeOf check) and through the SDK's page adapter (host.actions.fromLibrary) on a stand-in host, both from
  * tools/module-actions-harness.mjs, expecting the same answer. Then addCost as before and updateCost: only the fields given, the
  * form's sentences, "" clearing, `amount` read as addCost reads it, and the environment's categories (ctx.settings, which the
- * page hands it) naming the cost. Budget declares no actions.server: the runner does not give the categories yet. Exits 1 on
+ * page hands it) naming the cost. Budget declares actions.server: every handler is run both ways, the runner with carrier 'server'. Exits 1 on
  * failure.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { both, onPage, handlersOf, library } from '../../../tools/module-actions-harness.mjs';
+import { onPage, onRunner, handlersOf, library } from '../../../tools/module-actions-harness.mjs';
 
 let n = 0;
 const test = async (name, fn) => { try { await fn(); n += 1; } catch (e) { process.exitCode = 1; console.error(`FAIL ${name}\n${e.stack || e}`); } };
 async function same(action, input, world) {
-  const r = await both('budget', action, input, world, { name: 'Budget', kinds: ['cost'] });
+  // The runner as the server's own: carrier 'server', so a handler that leaves work for a page must say so (none may).
+  const r = { page: await onPage('budget', action, input, world, { name: 'Budget', kinds: ['cost'] }), runner: await onRunner('budget', action, input, world, { ...{ name: 'Budget', kinds: ['cost'] }, carrier: 'server' }) };
   assert.ok(!r.runner.fault, `${action}: the runner faulted (${r.runner.fault})`);
   if (r.page.refused !== undefined || r.runner.refused !== undefined) {
     assert.equal(r.runner.refused, r.page.refused, `${action}: the same refusal`);
@@ -102,7 +103,7 @@ await test('on the page: the environment\'s categories name the cost (ctx.settin
   assert.match(page, /function afterAction[\s\S]*if \(cost\.ref\) host\.objects\.setLinks\(pointer\(id\), \[cost\.ref\]\)/, 'a cost made from an object points at it');
 });
 
-await test('the manifest: updateCost within the caps; no actions.server yet', async () => {
+await test('the manifest: updateCost within the caps; actions.server is the library', async () => {
   const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
   const u = m.actions.provides.find((a) => a.name === 'updateCost');
   assert.deepEqual(u.input, { cost: 'ref:budget:cost', title: 'string?', amount: 'number?', planned: 'number?', actual: 'number?', category: 'string?', payer: 'string?', sharedBy: 'string?', date: 'date?', notes: 'text?' });
@@ -111,7 +112,7 @@ await test('the manifest: updateCost within the caps; no actions.server yet', as
     assert.match(a.description, /^[^.]+\.$/, `${a.name}: one sentence`);
     for (const [k, v] of Object.entries(a.inputHints || {})) assert.ok(k in a.input && v.length <= 200, `${a.name}.${k}`);
   }
-  assert.equal(m.actions.server, undefined, 'carried on the page until the runner gives the categories');
+  assert.equal(m.actions.server, 'src/budget-lib-actions.js', 'carried out on the server too');
   const lib = library('budget').js;
   for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib, new RegExp(`\\n      ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
 });

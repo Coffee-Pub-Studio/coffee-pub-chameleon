@@ -5,20 +5,22 @@
  * outcomeOf check) and through the SDK's page adapter (host.actions.fromLibrary) on a stand-in host, both from
  * tools/module-actions-harness.mjs, expecting the same answer. Then createPoll as before (the form's limits, the settings a new
  * poll starts from, a closing time on the request's clock) and updatePoll: only the fields given, the form's sentences, the
- * options only added to once anyone has voted, End poll and Reopen poll, "" taking the closing time off. Polls declares no
- * actions.server: its handlers read ctx.settings, which the server's runner does not give yet. Exits 1 on failure.
+ * options only added to once anyone has voted, End poll and Reopen poll, "" taking the closing time off. Polls declares
+ * actions.server and the runner is run with carrier 'server': the same answer, except updatePoll `closed: true`, which the server
+ * refuses (the closing announcement in Chat is the page's). Exits 1 on failure.
  */
 process.env.TZ = 'America/Chicago';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { both, onPage, onRunner, handlersOf, library } from '../../../tools/module-actions-harness.mjs';
+import { onPage, onRunner, handlersOf, library } from '../../../tools/module-actions-harness.mjs';
 
 let n = 0;
 const test = async (name, fn) => { try { await fn(); n += 1; } catch (e) { process.exitCode = 1; console.error(`FAIL ${name}\n${e.stack || e}`); } };
 // createdAt is the moment each way carried it out: the same field, a moment apart.
 const timeless = (writes) => (writes || []).map((w) => ({ key: w.key, value: w.value && typeof w.value === 'object' ? { ...w.value, createdAt: typeof w.value.createdAt } : w.value }));
 async function same(action, input, world) {
-  const r = await both('polls', action, input, world, { name: 'Polls', kinds: ['poll'] });
+  // The runner as the server's own: carrier 'server', so a handler that leaves work for a page must say so (none may).
+  const r = { page: await onPage('polls', action, input, world, { name: 'Polls', kinds: ['poll'] }), runner: await onRunner('polls', action, input, world, { ...{ name: 'Polls', kinds: ['poll'] }, carrier: 'server' }) };
   assert.ok(!r.runner.fault, `${action}: the runner faulted (${r.runner.fault})`);
   if (r.page.refused !== undefined || r.runner.refused !== undefined) {
     assert.equal(r.runner.refused, r.page.refused, `${action}: the same refusal`);
@@ -111,7 +113,7 @@ await test('updatePoll: once anyone has voted, options are only added to and the
 });
 await test('updatePoll: End poll and Reopen poll; "" takes the closing time off (the manifest\'s clears)', async () => {
   const timed = { ...POLL, closesAt: noon(LATER) };
-  const ended = await same('updatePoll', { poll: ref('p1'), closed: true }, world({ 'poll:p1': timed }));
+  const ended = await onPage('polls', 'updatePoll', { poll: ref('p1'), closed: true }, world({ 'poll:p1': timed }), { name: 'Polls', kinds: ['poll'] }); // the server refuses this one (below)
   assert.deepEqual(written(ended, 'poll:p1'), { ...timed, closed: true, announced: true }, 'as End poll: closed, its time kept, told');
   const closed = { ...timed, closed: true, announced: true };
   const reopened = await same('updatePoll', { poll: ref('p1'), closed: false }, world({ 'poll:p1': closed }));
@@ -139,7 +141,27 @@ await test('updatePoll: the refusals', async () => {
   await refuses('updatePoll', { poll: ref('p1'), question: 'x'.repeat(201) }, w, 'A question can be 200 letters at most.');
 });
 
-await test('the manifest: updatePoll, its clears and hints; no actions.server (ctx.settings is the page\'s)', async () => {
+await test('on the server: the settings reach createPoll, and ending a poll is refused (its announcement is the page\'s)', async () => {
+  const settings = { addableByDefault: true, closeAfterDays: 3 };
+  const w = { ...world(), settings };
+  const r = await onRunner('polls', 'createPoll', { question: 'Q', options: 'A, B' }, w, { carrier: 'server', kinds: ['poll'] });
+  const v = written(r, 'poll:n1');
+  assert.equal(v.addable, true);
+  assert.ok(v.closesAt > Date.now() + 2 * DAY, 'it closes after the days the settings say');
+  const open = world({ 'poll:p1': POLL });
+  const end = await onRunner('polls', 'updatePoll', { poll: ref('p1'), closed: true }, open, { carrier: 'server', kinds: ['poll'] });
+  assert.equal(end.refused, "Ending a poll tells the space in Chat, which can't be done from here yet. Ask a person to press End poll, or give it a closing time with closes.");
+  assert.equal(end.writes, undefined, 'nothing written');
+  const page = await onPage('polls', 'updatePoll', { poll: ref('p1'), closed: true }, open, { name: 'Polls', kinds: ['poll'] });
+  assert.equal(page.writes[0].value.closed, true, 'on the page it still ends');
+  // Ending one that is closed already, or changing anything else, is the same on the server.
+  const closed = { ...POLL, closed: true };
+  await same('updatePoll', { poll: ref('p1'), closed: true }, world({ 'poll:p1': closed }));
+  await same('updatePoll', { poll: ref('p1'), question: 'Where next?', closes: LATER }, open);
+  await same('updatePoll', { poll: ref('p1'), closed: false }, world({ 'poll:p1': closed }));
+});
+
+await test('the manifest: updatePoll, its clears and hints; actions.server is the library', async () => {
   const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
   const act = (name) => m.actions.provides.find((a) => a.name === name);
   const u = act('updatePoll');
@@ -148,7 +170,7 @@ await test('the manifest: updatePoll, its clears and hints; no actions.server (c
   assert.equal(u.effect, 'write');
   assert.match(u.description, /^[^.]+\.$/, 'one sentence');
   for (const [k, v] of Object.entries(u.inputHints)) assert.ok(k in u.input && v.length <= 200, `hint ${k}`);
-  assert.equal(m.actions.server, undefined, 'carried on the page until the runner gives ctx.settings');
+  assert.equal(m.actions.server, 'src/polls-lib-actions.js', 'carried out on the server too');
   const lib = library('polls').js;
   for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
   const page = fs.readFileSync(new URL('../src/polls.js', import.meta.url), 'utf8');
