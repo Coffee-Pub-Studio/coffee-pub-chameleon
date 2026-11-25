@@ -75,6 +75,9 @@ services:
       # AGENT_TOKENS: "true"
       # Set-up agents (an agent that makes and names spaces; needs AGENT_TOKENS too): "true" lets owners turn them on.
       # AGENT_SETUP: "true"
+      # Modules' actions for agents run in a process with no network. "namespace" also demands a kernel network namespace
+      # for it: Docker's default seccomp profile allows none, so with it set there no such action runs. Leave it unset there.
+      # ACTION_RUNNER_NETWORK: "namespace"
       # The Vault's files live in their own folder, so the in-app backups stay small. Back up both folders together.
       VAULT_DIR: "/app/vault"
       # Modules' live messages (pointers, nudges; never stored). Optional limits, shown with their defaults.

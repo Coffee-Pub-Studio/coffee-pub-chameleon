@@ -4,7 +4,10 @@
 // server/module-actions.js, with a small heap (--max-old-space-size), code generation from strings off for the whole
 // process, Node's permission model with nothing allowed but reading this one file (no other file, no child process, no
 // worker, no addon), no environment variables and a temporary folder as its working folder, and killed by its parent after
-// a wall-clock limit whatever it does. It reads one JSON message on stdin and writes one JSON line on stdout.
+// a wall-clock limit whatever it does. Before this file, the process loads server/module-actions-lockdown.js (--require),
+// which takes Node's socket calls, name lookups and inspector away for good, and where the kernel allows it the process is
+// started in a network namespace of its own with no interface (server/module-actions.js networkSeal; GitHub #1100). It
+// reads one JSON message on stdin and writes one JSON line on stdout.
 //
 // Inside it, the module's library runs in a vm context of its own and never in this process's own scope: the context is
 // made from an object with no prototype (so `this.constructor.constructor` is the context's own Function, not this
@@ -57,7 +60,8 @@ const RUN = `
   const inputText = g.__input;
   const ctxText = g.__ctx;
   const dataText = g.__data;
-  delete g.__action; delete g.__input; delete g.__ctx; delete g.__data;
+  const sharedText = g.__shared;
+  delete g.__action; delete g.__input; delete g.__ctx; delete g.__data; delete g.__shared;
   const parse = JSON.parse;
   const stringify = JSON.stringify;
   const own = Object.prototype.hasOwnProperty;
@@ -71,13 +75,17 @@ const RUN = `
   const fn = handlers !== null && handlers !== undefined && own.call(handlers, name) ? handlers[name] : null;
   if (typeof fn !== 'function') { say({ fault: 'missing' }); return; }
   const data = parse(dataText);
+  // The module's environment objects marked for this space (scope 'environment'); the space's own data otherwise.
+  const shared = parse(sharedText);
+  const from = (scope) => (scope === 'environment' ? shared : data);
   const copy = (v) => (v === undefined ? null : parse(stringify(v)));
   const ctx = parse(ctxText);
   ctx.util = g.__util;
-  ctx.read = (key) => (typeof key === 'string' && own.call(data, key) ? copy(data[key]) : null);
-  ctx.list = (prefix) => {
+  ctx.read = (key, scope) => (typeof key === 'string' && own.call(from(scope), key) ? copy(from(scope)[key]) : null);
+  ctx.list = (prefix, scope) => {
     const p = typeof prefix === 'string' ? prefix : '';
-    return Object.keys(data).filter((k) => k.startsWith(p)).map((k) => ({ key: k, value: copy(data[k]) }));
+    const rows = from(scope);
+    return Object.keys(rows).filter((k) => k.startsWith(p)).map((k) => ({ key: k, value: copy(rows[k]) }));
   };
   let out;
   try { out = fn(parse(inputText), ctx); } catch (err) { refuse(err); return; }
@@ -94,7 +102,7 @@ const RUN = `
 const { types } = require('node:util');
 
 // The run, as one answer: { text } (what the handler left, as JSON text) or { fault }.
-function run({ code, filename, action, inputText, ctxText, dataText, sdk, localeText, timeoutMs }) {
+function run({ code, filename, action, inputText, ctxText, dataText, sharedText, sdk, localeText, timeoutMs }) {
   const sandbox = Object.create(null);
   let context;
   try {
@@ -123,6 +131,7 @@ function run({ code, filename, action, inputText, ctxText, dataText, sdk, locale
   sandbox.__input = String(inputText);
   sandbox.__ctx = String(ctxText);
   sandbox.__data = String(dataText);
+  sandbox.__shared = typeof sharedText === 'string' && sharedText ? sharedText : '{}';
   try {
     script.runInContext(context, { timeout: timeoutMs, breakOnSigint: false });
   } catch (err) {

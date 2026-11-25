@@ -174,6 +174,19 @@ const ACTION_HANDLERS = {
     const plan = JSON.parse(input.plan);
     return { ...plan, data: { note: 'Planned.' } };
   },
+  // The place search the server did before this ran (ctx.lookups, only for an action that declares `lookups`), written down
+  // as it came, with what the handler could reach to ask for more: nothing but ctx.read and ctx.list.
+  find(input, ctx) {
+    const reach = { fetch: typeof fetch, XMLHttpRequest: typeof XMLHttpRequest, WebSocket: typeof WebSocket, require: typeof require, process: typeof process, setTimeout: typeof setTimeout };
+    const functions = Object.keys(ctx).filter((k) => typeof ctx[k] === 'function').sort();
+    const deep = JSON.stringify(ctx.lookups === undefined ? null : ctx.lookups) === JSON.stringify(JSON.parse(JSON.stringify(ctx.lookups === undefined ? null : ctx.lookups)));
+    return { writes: [{ key: 'probe:find', value: { has: 'lookups' in ctx, lookups: ctx.lookups === undefined ? null : ctx.lookups, reach, functions, plain: deep } }] };
+  },
+  // The module's environment objects as the handler may read them (those marked for this space), and whether it was given
+  // a place search it did not declare.
+  shared(input, ctx) {
+    return { writes: [{ key: 'probe:shared', value: { keys: ctx.list('', 'environment').map((x) => x.key).sort(), one: ctx.read(input.key || '', 'environment'), inSpace: ctx.read(input.key || ''), lookups: 'lookups' in ctx } }] };
+  },
   hidden(input) {
     return { writes: [{ key: 'probe:hidden', value: { title: input.title } }] };
   },

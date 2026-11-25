@@ -246,6 +246,12 @@ const {
   // Set-up agents (documentation/plans/plan-admin-agent.md, decision 7): AGENT_SETUP=true, on top of AGENT_TOKENS=true, lets
   // each environment's owner turn on Set-up agents and make set-up agents, which make and name spaces. Off unless 'true'.
   AGENT_SETUP = '',
+  // How the process that runs a module's server actions is kept off the network (server/module-actions.js; GitHub #1100).
+  // It always runs with Node's own socket calls taken away (server/module-actions-lockdown.js) and, where the kernel lets
+  // this server make one, in a network namespace of its own with no interface. 'namespace' makes that a must: where the
+  // server can't make one (a usual Docker container can't), no server action runs and each says so. Unset or 'auto': a
+  // namespace where there is one.
+  ACTION_RUNNER_NETWORK = '',
 } = process.env;
 // The product's own name -- configuration, never code: PRODUCT_NAME, or the default when it is unset, empty or only
 // spaces. One rule, productName() in server/product-name.js, for everything the server answers and says.
@@ -342,7 +348,9 @@ const DEFAULT_SLUG = '';
 const BUNDLED_DIR = path.join(__dirname, '..', 'modules');
 // The server runner for agents' requests to bundled modules (server/module-actions.js; plan-agent-edit-delete.md, decision
 // 4): its code only ever comes from here, the deployment's own modules, never from what an environment has installed.
-const moduleActions = createModuleActions({ bundledDir: BUNDLED_DIR });
+const moduleActions = createModuleActions({ bundledDir: BUNDLED_DIR, network: ACTION_RUNNER_NETWORK.trim().toLowerCase() || 'auto' });
+if (!moduleActions.network.known) console.warn(`ACTION_RUNNER_NETWORK is "${ACTION_RUNNER_NETWORK}", which is not auto or namespace: read as auto.`);
+if (moduleActions.network.mode === 'namespace' && !moduleActions.network.namespace) console.warn('ACTION_RUNNER_NETWORK is namespace, but this server can\'t make a network namespace (unshare is missing or not allowed), so no module\'s server action will run.');
 // (Up here for the same reason: environmentFor() gives a module's display icon its built-in icons, at module load.)
 // The two panes that ship with the app, listed beside the installed modules. They are always on and
 // cannot be removed (for now); their permissions are the built-in ones on the Roles tab.
@@ -9618,7 +9626,8 @@ app.post('/api/spaces/:id/action', async (req, res) => {
 const carriedNow = (found) => Boolean(moduleActions.libraryFor(found));
 // The code for this request, or null to leave it on the queue for a page as before: the module's server actions, for a
 // `write` an agent may ask for (never local, asker-only, destructive or a delete), whose pointers into the module's own
-// objects are all in the request's space (an environment object marked for the space keeps the page path).
+// objects are all in the request's space, or the environment's and marked for that space (the handler reads those with
+// ctx.read(key, 'environment'); any other keeps the page path).
 function serverCarries(found, def, input, spaceId) {
   if (!agentMayAsk(def)) return null;
   const lib = moduleActions.libraryFor(found);
@@ -9626,7 +9635,7 @@ function serverCarries(found, def, input, spaceId) {
   for (const [field, type] of Object.entries(def.input || {})) {
     if (!actionOwnKind(found.manifest.id, type)) continue;
     const v = input[field];
-    if (v && (v.scope !== 'space' || v.space !== spaceId)) return null;
+    if (v && !(v.scope === 'space' ? v.space === spaceId : v.scope === 'environment' && markedForSpace(v, spaceId))) return null;
   }
   return lib;
 }
@@ -9675,6 +9684,10 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
   const first = moduleAccessAt(found, who, 'space', space, 'own');
   if (first.error) return end(first.status, { ok: false, error: first.error });
   const scopeKey = first.ctx.scopeKey;
+  // The place search the action declares (its `lookups`), done here, by the server, before anything is read for the handler
+  // and before the handler starts: the run's process has no network and no way to ask for another.
+  const looked = await actionLookups(found, who, space, def, input);
+  if (looked.refusal) return end(looked.refusal.status, { ok: false, error: looked.refusal.error });
   // What the handler may read: this module's data in this space, as the agent may read it (no copy whose original it may
   // not see, no hidden field), and each key's version, so a write is made only over what it read.
   const data = Object.create(null);
@@ -9684,7 +9697,22 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     versions.set(row.key, row.version);
   }
   const dataText = JSON.stringify(data);
-  if (dataText.length > MODULE_ACTION_LIMITS.dataBytes) return fault('size');
+  // And the module's environment objects marked for this space (its kinds that carry space marks), read as the agent may:
+  // what ctx.read(key, 'environment') and ctx.list(prefix, 'environment') answer, and all an environment write may change.
+  const shared = Object.create(null);
+  const sharedVersions = new Map();
+  const sharedAt = manifest.scope.includes('environment') && manifest.refs.produces.some((p) => p.summary.spaces) ? moduleAccessAt(found, who, 'environment', null, 'read') : null;
+  if (sharedAt && sharedAt.ctx) {
+    for (const row of moduleData.list(id, 'environment')) {
+      const kind = sharedKindAt(manifest, row.key);
+      const marks = kind && row.value && typeof row.value === 'object' ? row.value[kind.summary.spaces] : null;
+      if (!Array.isArray(marks) || !marks.includes(space.id)) continue;
+      shared[row.key] = hideItem(row, sharedAt.ctx.hide).value;
+      sharedVersions.set(row.key, row.version);
+    }
+  }
+  const sharedText = JSON.stringify(shared);
+  if (dataText.length + sharedText.length > MODULE_ACTION_LIMITS.dataBytes) return fault('size');
   const agent = who.user;
   // The facts beside the data, as a page's adapter gives them (public/sdk/host.js libraryFacts), and the environment's clock and
   // words for ctx.util. `carrier` says the server is carrying it (a phase's end is still only a page's).
@@ -9692,10 +9720,10 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
   // none of its own); `labels` the module's words as the space's template renames them (host.locale().labels), for ctx.util.label.
   const facts = actionFacts(who, space, manifest, input);
   const settings = moduleSettingValues(manifest, { spaceId: space.id, userKey: null });
-  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, carrier: 'server', ...facts, settings, action: def.name });
+  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, carrier: 'server', ...facts, settings, ...(looked.lookups ? { lookups: looked.lookups } : {}), action: def.name });
   const look = store.lookOf(space.id);
   const localeText = JSON.stringify({ clock: store.settings.clock === '24' ? '24' : '12', words: look.words, labels: effectiveLabels(manifest, look.labels[manifest.id]) });
-  const answer = await moduleActions.run({ code: lib.code, filename: lib.filename, action: def.name, inputText: JSON.stringify(input), ctxText, dataText, localeText });
+  const answer = await moduleActions.run({ code: lib.code, filename: lib.filename, action: def.name, inputText: JSON.stringify(input), ctxText, dataText, sharedText, localeText });
   const after = () => {
     // Ended meanwhile (Revoke, Turn off, taken off the space): nothing is written.
     if (request.cancelled || request.status !== 'claimed') return end(409, { ok: false, error: AGENT_ASK_ENDED });
@@ -9708,37 +9736,69 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     const at = here ? moduleAccessAt(now, who, 'space', here, 'own') : { status: 404, error: `no such ${word('space')}` };
     if (at.error) return end(at.status, { ok: false, error: at.error });
     const ctx = at.ctx;
-    const outcome = moduleActionOutcome(answer, { own: (ref) => refShape(ref) && ref.module === id && ref.scope === 'space' && ref.space === space.id && now.manifest.refs.produces.some((p) => p.kind === ref.kind) });
+    const outcome = moduleActionOutcome(answer, {
+      own: (ref) => refShape(ref) && ref.module === id && ref.scope === 'space' && ref.space === space.id && now.manifest.refs.produces.some((p) => p.kind === ref.kind),
+      shared: (ref) => {
+        const p = refShape(ref) && ref.module === id && ref.scope === 'environment' && !ref.space ? now.manifest.refs.produces.find((x) => x.kind === ref.kind && x.summary.spaces) : null;
+        return p ? p.key.replace('{id}', String(ref.id)) : null;
+      },
+    });
     if (outcome.fault) {
       console.warn(`${env.slug ? `[${env.slug}] ` : ''}${id}:${def.name} could not be carried out on the server (${outcome.fault}).`);
       return fault(outcome.fault);
     }
     if (outcome.refused !== undefined) return end(422, { ok: false, error: outcome.refused || `${shown} could not do that.` });
+    // A write for the person: an agent's person scope is no one's (plan-agent-server-actions.md, section 4).
+    if (outcome.denied === 'person') return end(403, { ok: false, error: AGENT_NO_PERSON_DATA() });
+    // Writes outside the space (section 4), all checked before anything is written: only with the module's own permission
+    // to write its environment data, as the agent; only one of the module's own kinds that carry space marks; only a value
+    // that marks this space; and never a change to which other spaces it is marked for (a new one marks this space alone).
+    // The handler must have read what it writes over, so an object not marked for this space is never changed from here.
+    let sharedCtx = null;
+    if (outcome.writes.some((w) => w.scope === 'environment')) {
+      if (!now.manifest.scope.includes('environment')) return fault('place');
+      const atEnvironment = moduleAccessAt(now, who, 'environment', null, 'own');
+      if (atEnvironment.error) return end(atEnvironment.status, { ok: false, error: atEnvironment.error });
+      sharedCtx = atEnvironment.ctx;
+    }
+    const placeOf = (w) => (w.scope === 'environment' ? { at: sharedCtx, seen: sharedVersions } : { at: ctx, seen: versions });
     for (const w of outcome.writes) {
+      const { at: where, seen } = placeOf(w);
       let current;
-      try { current = moduleData.get(id, scopeKey, w.key); } catch (err) { if (!(err instanceof StoreError)) throw err; return end(400, { ok: false, error: err.message }); }
-      if ((current?.version || 0) !== (versions.get(w.key) || 0)) return end(409, { ok: false, error: ACTION_CHANGED });
+      try { current = moduleData.get(id, where.scopeKey, w.key); } catch (err) { if (!(err instanceof StoreError)) throw err; return end(400, { ok: false, error: err.message }); }
+      if (w.scope === 'environment') {
+        const kind = sharedKindAt(now.manifest, w.key);
+        if (!kind) return fault('shared');
+        const marksOf = (v) => (v && typeof v === 'object' && !Array.isArray(v) && Array.isArray(v[kind.summary.spaces]) ? v[kind.summary.spaces] : null);
+        const marks = marksOf(w.value);
+        if (!marks || marks.some((m) => typeof m !== 'string') || !marks.includes(space.id)) return fault('unmarked');
+        if ((current?.version || 0) !== (seen.get(w.key) || 0)) return end(409, { ok: false, error: ACTION_CHANGED });
+        const others = (list) => [...new Set((list || []).filter((m) => m !== space.id))].sort().join('\n');
+        if (others(marks) !== others(current ? marksOf(current.value) : [])) return fault('marks');
+      }
+      if ((current?.version || 0) !== (seen.get(w.key) || 0)) return end(409, { ok: false, error: ACTION_CHANGED });
     }
     // The review list's records (plan-agent-edit-delete.md, step 5): an edit's earlier value is held before it is written.
-    const pending = agentChangesBefore(ctx, outcome.writes.map((w) => w.key), agent);
+    const pending = agentChangesBefore(ctx, outcome.writes.filter((w) => w.scope === 'space').map((w) => w.key), agent);
     const applied = [];
     for (const w of outcome.writes) {
+      const { at: where, seen } = placeOf(w);
       let refusal = null;
       const slow = overLimit(id, ctx.by, 'write');
       if (slow) refusal = { status: 429, error: limitMessage() };
       else {
-        const had = moduleData.get(id, scopeKey, w.key);
+        const had = moduleData.get(id, where.scopeKey, w.key);
         try {
-          const out = putModuleValue(ctx, w.key, w.value, { expected: versions.get(w.key) || 0, tz: ACTION_TZ });
+          const out = putModuleValue(where, w.key, w.value, { expected: seen.get(w.key) || 0, tz: ACTION_TZ });
           if (out.error) refusal = { status: out.status, error: out.error };
-          else applied.push({ key: w.key, had, item: out.item });
+          else applied.push({ key: w.key, had, item: out.item, at: where });
         } catch (err) {
           if (err instanceof StoreError) refusal = { status: err.status, error: err.message };
           else {
             console.error(`${env.slug ? `[${env.slug}] ` : ''}${id}:${def.name}: a write on the server failed: ${err.stack || err.message}`);
             // putModuleValue may throw after it stored the value (objectSync.afterWrite): put it back too.
-            const stored = moduleData.get(id, scopeKey, w.key);
-            if (stored && stored.version !== (had?.version || 0)) applied.push({ key: w.key, had, item: stored });
+            const stored = moduleData.get(id, where.scopeKey, w.key);
+            if (stored && stored.version !== (had?.version || 0)) applied.push({ key: w.key, had, item: stored, at: where });
             refusal = { status: 500, error: `${shown} could not carry that out: the server could not save it.` };
           }
         }
@@ -9753,7 +9813,8 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     // (server/action-effects.js). A schedule about an object this request changed was set from the object as it was (a
     // reminder: its time, its title, whether there is one at all), so it is taken off first rather than left to fire wrongly;
     // the handler answers it again if one should stand. One refusal puts back everything, the writes included.
-    const changed = applied.filter((a) => a.had).map((a) => ownRefAt(now.manifest, scopeKey, a.key)).filter(Boolean);
+    const inSpaceApplied = applied.filter((a) => a.at === ctx);
+    const changed = inSpaceApplied.filter((a) => a.had).map((a) => ownRefAt(now.manifest, scopeKey, a.key)).filter(Boolean);
     // An edit or add is recorded for the review list only once its effects stood too; refused (or failed), its holds go.
     let effects;
     try { effects = actionEffects().apply({ effects: outcome.effects, who, space: here, found: now, ctx, changed }); } catch (err) { agentChangesAbandon(ctx, pending); throw err; }
@@ -9762,7 +9823,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
       agentChangesAbandon(ctx, pending);
       return end(effects.refusal.status, { ok: false, error: effects.refusal.error });
     }
-    agentChangesAfter(ctx, pending, applied, { agent, request: request.id });
+    agentChangesAfter(ctx, pending, inSpaceApplied, { agent, request: request.id });
     return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}), ...(Object.keys(effects.done).length ? { effects: effects.done } : {}) });
   };
   return envContext.run(env, () => (inSpace ? spaceContext.run(inSpace, after) : after()));
@@ -9852,18 +9913,78 @@ function markedForSpace(ref, spaceId) {
 function undoCarried(ctx, applied) {
   const id = ctx.manifest.id;
   for (const a of [...applied].reverse()) {
+    const scopeKey = (a.at || ctx).scopeKey; // an environment write is put back where it was made
     try {
       if (a.had) {
-        const back = moduleData.put(id, ctx.scopeKey, a.key, a.had.value, { by: ctx.by });
-        objectSync.afterWrite({ module: id, scopeKey: ctx.scopeKey, key: a.key, before: a.item.value, after: back.value, by: ctx.by, tz: ACTION_TZ });
+        const back = moduleData.put(id, scopeKey, a.key, a.had.value, { by: ctx.by });
+        objectSync.afterWrite({ module: id, scopeKey, key: a.key, before: a.item.value, after: back.value, by: ctx.by, tz: ACTION_TZ });
       } else {
-        moduleData.remove(id, ctx.scopeKey, a.key, { by: ctx.by });
-        objectSync.afterWrite({ module: id, scopeKey: ctx.scopeKey, key: a.key, before: a.item.value, after: null, by: ctx.by, tz: ACTION_TZ });
+        moduleData.remove(id, scopeKey, a.key, { by: ctx.by });
+        objectSync.afterWrite({ module: id, scopeKey, key: a.key, before: a.item.value, after: null, by: ctx.by, tz: ACTION_TZ });
       }
     } catch (err) {
       console.error(`${id}: a write made for a refused request could not be put back (${a.key}): ${err.message}`);
     }
   }
+}
+// The sentence for a handler's write into the person's own data, asked for by an agent.
+const AGENT_NO_PERSON_DATA = () => `An agent has no places of its own; save it for this ${word('space')} or for everyone.`;
+// The module's kind that the environment key `key` is one object of, if that kind carries space marks (refs.produces'
+// summary.spaces): the only environment data a server-carried request reads or writes. Null for any other key.
+function sharedKindAt(manifest, key) {
+  if (typeof key !== 'string') return null;
+  for (const p of manifest.refs.produces) {
+    const at = p.key.indexOf('{id}');
+    if (at < 0 || !p.summary.spaces) continue;
+    const prefix = p.key.slice(0, at);
+    const suffix = p.key.slice(at + 4);
+    if (key.startsWith(prefix) && key.endsWith(suffix) && REF_ID_RE.test(key.slice(prefix.length, key.length - suffix.length))) return p;
+  }
+  return null;
+}
+// The place searches a server-carried action declares (its `lookups`: { <input>: 'geocode' }; plan-agent-server-actions.md,
+// section 3), done by the server before the handler runs: { lookups: { <input>: [{ title, sub, lat, lng, key }] } } (null
+// when the action declares none), each list at most ACTION_LOOKUP.results long, or { refusal: { status, error } } when the
+// agent is over a limit. As GET /api/modules/:id/geocode answers the module's own page: the saved places first (where the
+// admin keeps them), then the service the module's settings name, what comes back kept by the admin's rule. Nothing is
+// searched, here or outside, when no service is chosen, the map is a picture, the agent may not read the module here, or
+// the input holds fewer than two characters. All that leaves the server is that input's own text (one line, at most
+// ACTION_LOOKUP.query characters) as the service's `q`: no position, nothing else of the request, nothing of the agent,
+// the space or the module's data. Each search counts as one of the agent's reads and one of the module's searches.
+const ACTION_LOOKUP = Object.freeze({ results: 6, query: 200, title: 200, sub: 300 });
+async function actionLookups(found, who, space, def, input) {
+  const fields = Object.keys(def.lookups || {});
+  if (!fields.length) return { lookups: null };
+  const { manifest } = found;
+  const id = manifest.id;
+  const line = (v, max) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const lookups = {};
+  for (const field of fields) {
+    lookups[field] = [];
+    const q = typeof input[field] === 'string' ? line(input[field], ACTION_LOOKUP.query) : '';
+    if (q.length < 2 || !manifest.geocoder || pictureMapOf()) continue;
+    if (moduleAccessAt(found, who, 'space', space, 'read').error) continue;
+    const setup = geocodeSetup(manifest);
+    if (!setup) continue;
+    const taken = currentEnvironment().agentLog.take(who.user.key, 'read');
+    if (!taken.ok) return { refusal: { status: 429, error: AGENT_OVER } };
+    if (overLimit(id, who.user.key, 'search')) return { refusal: { status: 429, error: limitMessage() } };
+    const saved = setup.save ? geocodeCache.search(id, q, null, 10) : [];
+    let all = saved;
+    if (saved.length < ENOUGH) {
+      try {
+        const got = await askService(setup.address, q, null);
+        const kept = setup.save ? geocodeCache.remember(id, got) : got.map((p) => ({ ...p, key: keyOfPlace(p) }));
+        const seen = new Set(saved.map((r) => r.key));
+        all = [...saved, ...kept.filter((r) => !seen.has(r.key))];
+      } catch {
+        all = saved; // the service did not answer: the saved places only
+      }
+    }
+    lookups[field] = all.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng)).slice(0, ACTION_LOOKUP.results)
+      .map((r) => ({ title: line(r.name, ACTION_LOOKUP.title), sub: line(r.address, ACTION_LOOKUP.sub), lat: r.lat, lng: r.lng, key: line(r.key, 128) }));
+  }
+  return { lookups };
 }
 
 // How a request this person made in this space went (plan-object-handoff.md, step 9: Chat's note after Keep and Send
