@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.25",
+  "version": "0.16.26",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -65,8 +65,6 @@
     "flight"
   ],
   "weather": {
-    "provider": "weatherProvider",
-    "units": "weatherUnits",
     "stops": { "prefix": "plan:", "day": "date", "time": "time", "order": "order", "place": "placeRef" },
     "main": { "key": "trip:main", "place": "destination", "from": "start", "to": "end" }
   },
@@ -367,31 +365,6 @@
       "scope": "environment",
       "default": true,
       "help": "Fill a flight from the same flight number saved before on this server. Flights saved here also help others; turn this off to keep them out."
-    },
-    {
-      "key": "weatherProvider",
-      "label": "Weather",
-      "type": "choice",
-      "adapters": "weather",
-      "scope": "environment",
-      "default": "none",
-      "help": "Where the weather on each day comes from. None: no weather is shown and nothing is sent out. Only services that are free for commercial use are offered.",
-      "options": [
-        { "value": "none", "label": "None" }
-      ]
-    },
-    {
-      "key": "weatherUnits",
-      "label": "Weather temperatures",
-      "type": "choice",
-      "scope": "environment",
-      "default": "c",
-      "showWhen": { "key": "weatherProvider", "not": "none" },
-      "help": "Show temperatures in Celsius or Fahrenheit.",
-      "options": [
-        { "value": "c", "label": "Celsius" },
-        { "value": "f", "label": "Fahrenheit" }
-      ]
     }
   ]
 }

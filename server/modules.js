@@ -73,7 +73,7 @@ const ALLOWED_EXT = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico',
   '.woff', '.woff2', '.ttf', '.otf',
 ]);
-const HOOKS = ['schedule', 'notify', 'ai', 'external'];
+const HOOKS = ['schedule', 'notify', 'ai', 'external', 'weather'];
 
 // A manifest's hooks, each true or false, except `ai`: true (it can't work without the AI service) or "optional" (it uses the
 // service when it is on and works without it). Anything else for `ai` is refused.
@@ -834,19 +834,16 @@ function cleanGeocoder(raw, settings) {
   return out;
 }
 
-// A module whose days get the weather from the server (documentation/plans/plan-itinerary-weather.md): which of its settings
-// chooses the service (`provider`, a choice; the module declares `none` and the server adds each registered adapter of
-// server/weather-providers/ as a choice), `units` (an optional choice of c or f), and where the server reads the days'
-// places in the module's own stored data: `stops` (the stored values under `prefix`, each with a `day`, optionally a `time`
+// A module whose days get the weather from the server (documentation/plans/plan-itinerary-weather.md) declares only where its
+// days' places are in its own stored data: `stops` (the stored values under `prefix`, each with a `day`, optionally a `time`
 // and an `order`, and a `place` pointer to an object whose summary has a position) and `main` (one stored `key` with the
-// main place as text in `place`, and optionally the first and last day in `from` and `to`).
+// main place as text in `place`, and optionally the first and last day in `from` and `to`). Whether weather is on, which
+// service and which units are the Weather module's settings, never the asking module's (plan-weather-part.md, step 1).
 const WEATHER_FIELD = /^[a-zA-Z][a-zA-Z0-9]{0,29}$/;
 const WEATHER_KEY = /^[a-z][a-zA-Z0-9:_-]{0,59}$/;
-function cleanWeather(raw, settings, scope) {
+function cleanWeather(raw, scope) {
   if (!raw || typeof raw !== 'object') return null;
-  const known = (k, type) => typeof k === 'string' && settings.some((d) => d.key === k && d.type === type && (d.scope || 'environment') === 'environment');
-  if (!known(raw.provider, 'choice')) throw new ModuleError('module.json: weather needs a `provider` choice setting for the environment');
-  if (raw.units !== undefined && !known(raw.units, 'choice')) throw new ModuleError('module.json: weather `units` must name a choice setting');
+  if (raw.provider !== undefined || raw.units !== undefined) throw new ModuleError('module.json: weather names only where the days are; the service and units are the Weather module\'s settings');
   if (!Array.isArray(scope) || !scope.includes('space')) throw new ModuleError('module.json: weather needs the "space" scope');
   const field = (v, what, optional) => {
     if (optional && (v === undefined || v === null || v === '')) return '';
@@ -858,20 +855,21 @@ function cleanWeather(raw, settings, scope) {
   if (!st && !mn) throw new ModuleError('module.json: weather needs `stops` or `main`, to say where a day is');
   if (st && (typeof st.prefix !== 'string' || !WEATHER_KEY.test(st.prefix))) throw new ModuleError('module.json: weather stops need a `prefix`, the start of their stored keys');
   if (mn && (typeof mn.key !== 'string' || !WEATHER_KEY.test(mn.key))) throw new ModuleError('module.json: weather main needs a `key`, the stored key it is read from');
-  const out = {
-    provider: raw.provider, units: raw.units || '',
+  return {
     stops: st ? { prefix: st.prefix, day: field(st.day, 'stops `day`'), time: field(st.time, 'stops `time`', true), order: field(st.order, 'stops `order`', true), place: field(st.place, 'stops `place`') } : null,
     main: mn ? { key: mn.key, place: field(mn.place, 'main `place`', true), from: field(mn.from, 'main `from`', true), to: field(mn.to, 'main `to`', true) } : null,
   };
-  // Each registered adapter is a choice of the provider setting (once each: the manifest is cleaned more than once).
-  const def = settings.find((d) => d.key === raw.provider);
-  if (Array.isArray(def.options)) {
+}
+// A choice setting marked `"adapters": "weather"` (the Weather module's service) is filled from the registered adapters, once
+// each (a manifest is cleaned more than once).
+function fillWeatherAdapters(settings) {
+  for (const def of settings) {
+    if (def.adapters !== 'weather' || !Array.isArray(def.options)) continue;
     for (const p of weatherProviders.list()) {
-      const help = [p.credit, p.terms ? `Choosing it accepts its terms: ${p.terms}` : ''].filter(Boolean).join(' ');
+      const help = [p.credit, p.terms ? `Its terms: ${p.terms}` : ''].filter(Boolean).join(' ');
       if (!def.options.some((o) => o.value === p.id)) def.options.push({ value: p.id, label: p.name, ...(help ? { help } : {}) });
     }
   }
-  return out;
 }
 
 // Longer text that keeps its line breaks, for help that needs more than a line: a setting's own help, and a choice option's.
@@ -1091,10 +1089,10 @@ function cleanManifest(raw, files) {
     surfaces.keyed = { path: kpath, entry: cleanEntry(k.entry, files, 'surfaces.keyed') };
   }
   if (raw.surfaces?.destination !== undefined) surfaces.destination = cleanDestinationParts(raw.surfaces.destination, files, scope);
-  // A service-only module (the AI Assistant) declares no surface of any kind and an `ai` hook (true, which also needs
-  // requires: ["assistant"], or "optional", which is what the Assistant itself declares): it has no page or canvas to
-  // need. Any surface at all, or no ai hook (schedule, notify and external alone do not count), and the usual rules hold.
-  const serviceOnly = !Object.keys(surfaces).length && (raw.hooks?.ai === true || raw.hooks?.ai === 'optional');
+  // A service-only module (the AI Assistant, the Weather module) declares no surface of any kind and an `ai` hook (true, which also needs
+  // requires: ["assistant"], or "optional", which is what the Assistant itself declares) or `weather: true` (it is the weather
+  // service's settings): it has no page or canvas to need. Any surface at all, or no ai hook (schedule, notify and external alone do not count), and the usual rules hold.
+  const serviceOnly = !Object.keys(surfaces).length && (raw.hooks?.ai === true || raw.hooks?.ai === 'optional' || raw.hooks?.weather === true);
   if (!serviceOnly && scope.includes('environment') && !surfaces.page) throw new ModuleError('a module with the "environment" scope needs a surfaces.page');
   if (!serviceOnly && scope.includes('space') && !surfaces.canvas) throw new ModuleError('a module with the "space" scope needs a surfaces.canvas');
 
@@ -1162,7 +1160,8 @@ function cleanManifest(raw, files) {
   const geocoder = cleanGeocoder(raw.geocoder, settings);
   const looksUp = actions.provides.find((a) => a.lookups);
   if (looksUp && !geocoder) throw new ModuleError(`module.json: action "${looksUp.name}" looks up a place, so the module needs a "geocoder"`);
-  const weather = cleanWeather(raw.weather, settings, scope);
+  fillWeatherAdapters(settings);
+  const weather = cleanWeather(raw.weather, scope);
   const regionSource = cleanRegionSource(raw.regionSource, settings);
   const pictureMap = cleanPictureMap(raw.pictureMap, settings);
   const uploads = cleanUploads(raw.uploads);
@@ -1404,7 +1403,7 @@ class ModuleManager {
       try { manifest.labels = cleanLabels(manifest.labels, (sentence) => new ModuleError(sentence)); } catch { manifest.labels = {}; }
       manifest.starter = manifest.starter === true && manifest.scope.includes('space');
       try { manifest.geocoder = cleanGeocoder(manifest.geocoder, manifest.settings); } catch { manifest.geocoder = null; }
-      try { manifest.weather = cleanWeather(manifest.weather, manifest.settings, manifest.scope); } catch { manifest.weather = null; }
+      try { fillWeatherAdapters(manifest.settings); manifest.weather = cleanWeather(manifest.weather, manifest.scope); } catch { manifest.weather = null; }
       try { manifest.regionSource = cleanRegionSource(manifest.regionSource, manifest.settings); } catch { manifest.regionSource = null; }
       try { manifest.pictureMap = cleanPictureMap(manifest.pictureMap, manifest.settings); } catch { manifest.pictureMap = null; }
       try { manifest.uploads = cleanUploads(manifest.uploads); } catch { manifest.uploads = null; }
@@ -1847,4 +1846,4 @@ class ModuleManager {
   }
 }
 
-module.exports = { ModuleManager, ModuleError, cleanWeather, cleanLive, fillManifest, manifestTexts, cleanManifest, cleanCommands, TINTS, cleanStorage, oldNameIn, OUTDATED, permissionDefaults, pendingWidensNothing, hookGranted, PERMISSION_KEY_RE, readZip, compareVersions, LIMITS };
+module.exports = { ModuleManager, ModuleError, cleanWeather, fillWeatherAdapters, cleanLive, fillManifest, manifestTexts, cleanManifest, cleanCommands, TINTS, cleanStorage, oldNameIn, OUTDATED, permissionDefaults, pendingWidensNothing, hookGranted, PERMISSION_KEY_RE, readZip, compareVersions, LIMITS };
