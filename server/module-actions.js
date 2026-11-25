@@ -226,7 +226,7 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
 }
 
 // What a handler answered, checked: { refused: sentence } | { fault } | { denied: 'person' } (a write for the person, which
-// an agent has none of) | { writes: [{ key, value, scope: 'space' | 'environment' }], ref, data, effects: { links, schedules,
+// an agent has none of) | { writes: [{ key, value, scope?: 'environment' }], ref, data, effects: { links, schedules,
 // notify, phaseEnd? } } (the effects as server/action-effects.js effectsOf checks them).
 // `own(ref)` says whether a pointer is one of the module's own kinds in the request's space; `shared(ref)` answers the
 // stored key of an environment pointer of one of its own kinds that carry space marks, or null; `phaseEnd` whether the
@@ -265,7 +265,8 @@ function outcomeOf(answer, { own, shared = null, phaseEnd = false }) {
     if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(`${scope} ${w.key}`)) return { fault: 'result' };
     if (w.value === undefined) return { fault: 'result' };
     seen.add(`${scope} ${w.key}`);
-    writes.push({ key: w.key, value: w.value, scope });
+    // A space write stays exactly { key, value }, as a page's adapter has it; only an environment write says its scope.
+    writes.push({ key: w.key, value: w.value, ...(scope === 'environment' ? { scope } : {}) });
   }
   let ref = null;
   if (result.ref !== undefined && result.ref !== null) {

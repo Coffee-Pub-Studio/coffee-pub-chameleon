@@ -9811,7 +9811,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
       if ((current?.version || 0) !== (seen.get(w.key) || 0)) return end(409, { ok: false, error: ACTION_CHANGED });
     }
     // The review list's records (plan-agent-edit-delete.md, step 5): an edit's earlier value is held before it is written.
-    const pending = agentChangesBefore(ctx, outcome.writes.filter((w) => w.scope === 'space').map((w) => w.key), agent);
+    const pending = agentChangesBefore(ctx, outcome.writes.filter((w) => w.scope !== 'environment').map((w) => w.key), agent);
     const applied = [];
     for (const w of outcome.writes) {
       const { at: where, seen } = placeOf(w);
