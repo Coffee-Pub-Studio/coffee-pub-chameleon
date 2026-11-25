@@ -17,7 +17,7 @@
  * Against a real server (single install, throwaway DATA_DIR):
  *   - an agent's add and edit carried by the server (To-do) are recorded as added and edited, the edit's earlier value held;
  *     a person's own write is not recorded; the owner's list on the agent's page says each in words, never a raw id;
- *   - a page write tied to the agent's claimed request (Projects, which waits for a page) is recorded; one with no tie is not;
+ *   - a page write tied to the agent's claimed request (Maps, which waits for a page) is recorded; one with no tie is not;
  *   - Undo: edited puts back the held value; added removes the object; a second Undo is 409 "That was undone already.";
  *     an Undo after a later edit is 409 "That has been changed since, so undo would lose that change."; it is named in the
  *     module's activity list;
@@ -298,7 +298,7 @@ try {
   const agent = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [agent.key, mia.key, max.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [agent.key, mia.key, max.key] } })).json.space.id;
-  for (const id of ['todo', 'schedule', 'calendar']) {
+  for (const id of ['todo', 'schedule', 'calendar', 'maps']) {
     ok(await call('POST', `/api/modules/bundled/${id}/install`, { cookie: admin, body: {} }), `${id} installs`, 201);
     ok(await call('PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true, allSpaces: true } }), `${id} on`);
   }
@@ -400,17 +400,17 @@ try {
   });
 
   await test('a page write tied to the agent\'s claimed request is recorded; one with no tie is not', async () => {
-    const r = await ask('schedule:addNote', { title: 'Plan the walk' });
-    ok(r, 'addNote waits for a page');
+    const r = await ask('maps:addPlace', { title: 'Plan the walk' });
+    ok(r, 'addPlace waits for a page');
     assert.equal(r.json.status, 'pending');
-    const claim = await call('POST', '/api/bus/actions/claim', { cookie: admin, body: { module: 'schedule', id: r.json.id, scope: 'space', space: camp } });
+    const claim = await call('POST', '/api/bus/actions/claim', { cookie: admin, body: { module: 'maps', id: r.json.id, scope: 'space', space: camp } });
     assert.equal(claim.json.ok, true, 'the owner\'s page claims it');
-    const value = (title) => ({ id: 'w1', kind: 'milestone', title, start: '2026-12-01', end: '2026-12-01' });
-    const put = (title, extra) => call('PUT', `/api/modules/schedule/data/plan%3Aw1?scope=space&space=${camp}`, { cookie: admin, body: { value: value(title), ...extra } });
+    const value = (title) => ({ title, lat: 38.7, lng: -9.1 });
+    const put = (title, extra) => call('PUT', `/api/modules/maps/data/place%3Aw1?scope=space&space=${camp}`, { cookie: admin, body: { value: value(title), ...extra } });
     ok(await put('Plan the walk', { for: agent.key, request: r.json.id }), 'the page creates it for the agent');
     ok(await put('Plan the long walk', { for: agent.key, request: r.json.id }), 'and changes it');
     ok(await put('Plan the walk, mine', {}), 'a write with no tie');
-    const done = (await review(admin)).json.done.filter((x) => x.object.module === 'schedule');
+    const done = (await review(admin)).json.done.filter((x) => x.object.module === 'maps');
     assert.deepEqual(done.map((x) => x.change), ['edited', 'added'], 'the tied two only');
     assert.equal(done[0].why, CHANGED, 'the untied write since makes the edit not undoable');
   });
@@ -438,7 +438,7 @@ try {
     const logs = path.join(dir, 'agent-log', agent.key);
     const text = fs.readdirSync(logs).map((f) => fs.readFileSync(path.join(logs, f), 'utf8')).join('\n');
     for (const title of ['taxi', 'tent', 'walk']) assert.ok(!text.includes(title), `no "${title}" in the log`);
-    const holdsDir = path.join(dir, 'modules', 'schedule', 'trash', 'agent');
+    const holdsDir = path.join(dir, 'modules', 'maps', 'trash', 'agent');
     assert.ok(fs.readdirSync(holdsDir).length > 0, 'a hold is there');
     ok(await call('DELETE', `/api/spaces/${camp}`, { cookie: admin2 }), 'Camp is deleted');
     assert.equal(fs.readdirSync(holdsDir).filter((f) => f.endsWith('.json')).length, 0, 'its holds went');
