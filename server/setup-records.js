@@ -277,7 +277,7 @@ class SetupRecords {
 // Whether anybody but `agent` has written in the space (plan-admin-agent.md: "Undo of a made space erases it, only while
 // nobody but the agent has written in it"). Read from what is kept for the space, so nothing can be lost by the erase: a
 // module record by anyone else (the template's starter content is the agent's own), a Clear held for an undo, an upload,
-// a library file, a chat message (the set-up agent never posts), or a shared layout. `env` is the environment.
+// a library file, a chat message (the set-up agent never posts), a shared layout, or a person's own workspaces. `env` is the environment.
 function writtenByOthers(env, spaceId, agent) {
   const scope = `space:${spaceId}`;
   for (const id of moduleFolders(env.moduleData.dir)) {
@@ -289,8 +289,8 @@ function writtenByOthers(env, spaceId, agent) {
   for (const id of env.vault.libraryModules()) if (env.vault.list(id, spaceId).length) return true;
   if (env.chatHistory.holdsAny(spaceId)) return true;
   const layouts = env.store.layouts;
-  if (layouts.listOf(spaceId, null).length) return true; // a shared layout
-  if (Object.keys(layouts.spaces?.[spaceId]?.people || {}).some((key) => layouts.listOf(spaceId, key).length)) return true; // a person's own
+  if (layouts.sharedOf(spaceId).length) return true; // a shared layout
+  if (Object.keys(env.store.workspaces?.spaces?.[spaceId] || {}).length) return true; // a person's own workspaces
   return false;
 }
 

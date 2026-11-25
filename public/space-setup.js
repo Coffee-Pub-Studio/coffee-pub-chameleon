@@ -18,8 +18,8 @@
 //   modules   the module word: Turn AI off and What AI may see (an owner's), Tags, then a section per module with its
 //             settings for this space (module-settings.js, its draft mode) and the switches a Fixed Workspace offers for
 //             it (the server's list, server/fixed-workspaces.js, answered with GET /api/spaces/:id/layouts)
-// What is personal (Open for you, Arrange, the layout picker) is not here: it is the Layout button's menu (canvas.js,
-// space.js layoutMenuItems), because it changes only this person's own canvas.
+// What is personal (Open for you, Arrange, the layout picker) is not here: it is the menu on a workspace's tab (canvas.js,
+// space.js tabMenuItems), because it changes only this person's own canvas.
 // An owner and the admin see all six; a moderator sees Phases, Call, Layout and Modules (the server lets a moderator PATCH
 // exactly `phases`, `defaultLayout`, `tabs`, `closed`, `budget` and the call's settings, and set a space's module settings);
 // a member has no Set up. Phases is left out when the template has none; no other tab comes and goes.
@@ -83,7 +83,7 @@ export function saveCue(id, { done = false } = {}) {
     members: 'Saved with Save. Waiting to come in and Links happen at once.',
     phases: done ? 'Saved with Save. A phase\'s Done switch happens at once.' : 'Saved with Save.',
     call: 'Saved with Save.',
-    layout: 'Saved with Save.',
+    layout: 'Saved with Save. Copy one of mine happens at once.',
     modules: 'Saved with Save. Tags and deleting a file happen at once.',
   })[id] || 'Saved with Save.';
 }
@@ -429,8 +429,8 @@ const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // --- the panel ----------------------------------------------------------------------------------------------------
 
-// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, doc, layoutVerb,
-// renderModuleSettings }. Returns { open(opts), close(), done(), cancel(), isOpen(), select(tab), el }. `open({ space,
+// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, doc,
+// renderModuleSettings, onLayouts }: `onLayouts(spaceId)` is told after Copy one of mine made a layout for everyone. Returns { open(opts), close(), done(), cancel(), isOpen(), select(tab), el }. `open({ space,
 // owner, moderator, phases, rule, today, tab, onDone, onSaved, onDeleted, onLinks, onTab, onLeave, nameInput })`:
 // `space` the space's record, `phases` the template's phases (a list) and `rule` the Phases object (public/phases.js),
 // `today` a day (YYYY-MM-DD), `tab` the address fragment asking for a tab, `nameInput` the bar's input (kept in step
@@ -654,6 +654,17 @@ export function createSpaceSetup(deps) {
         <ul class="setup-layout-rows" id="setup-layout-rows" aria-labelledby="setup-layouts-heading" aria-describedby="setup-layouts-hint"></ul>
         <p class="visually-hidden" id="setup-layouts-live" role="status" aria-live="polite"></p></section>`;
   }
+  // Layouts for everyone, a section of the Layout tab (plan-workspaces.md, decisions 39 and 49; the designer's revised2.md,
+  // section 6): the space's layouts for everyone by name, and Copy one of mine, which offers one of the person's own
+  // workspaces to everyone as a layout (its shape and areas), at once. Only for those who may make one (`canShare`: the
+  // owner, the admin and this space's moderators). Painted by paintShared(); the copy is copyMine().
+  function sharedSectionHtml() {
+    return `<section class="setup-section" data-section="shared-layouts" id="setup-shared-section" hidden><h3 class="setup-heading" id="setup-shared-heading">Layouts for everyone</h3>
+        <p class="hint" id="setup-shared-hint">Anyone in this ${esc(spaceWord())} can open these from a tab's menu. To offer one of your own workspaces, copy it. This happens at once.</p>
+        <ul class="setup-layout-rows" id="setup-shared-rows" aria-labelledby="setup-shared-heading"></ul>
+        <p><button type="button" class="btn btn-small" id="setup-copy-mine" aria-haspopup="menu" aria-describedby="setup-shared-hint"><i class="fa-solid fa-copy" aria-hidden="true"></i> Copy one of mine</button></p>
+        <p class="hint" id="setup-copy-status" role="status" aria-live="polite"></p></section>`;
+  }
   // First visit, a section of the Layout tab (plan-layout-views.md, step 5; plan-workspaces.md, step 3): what a new person sees
   // in the Workspace (the template's layout, one read-only line; plan-layout-picker.md, step 3), and the shared layouts by name, which share Opens first's radios with the
   // fixed layouts above (paintLayouts). Each person's own arrangement is remembered once they have a module open.
@@ -679,7 +690,7 @@ export function createSpaceSetup(deps) {
   // tab, the one switch of Who can enter that is theirs, closing the space while it is set up. It sits here because it
   // decides who can come in to see what this tab sets out (the owner's own is in Who can enter, on Members).
   function layoutTabHtml() {
-    const parts = [layoutsSectionHtml(), firstVisitHtml()];
+    const parts = [layoutsSectionHtml(), sharedSectionHtml(), firstVisitHtml()];
     if (!state.owner && !state.space.isLobby) {
       parts.push(sectionHtml('open', '<span id="setup-open-heading">Who can enter</span>', `${switchRow('setup-open', '<span id="setup-open-label"></span>')}<p class="hint" id="setup-closed-note" hidden>This ${esc(spaceWord())} is closed for set up. Only ${esc(word('owner', { many: true }))}, its ${esc(word('moderator', { many: true }))} and the ${esc(word('admin'))} can enter it.</p><p class="hint">Turn this off to close the ${esc(spaceWord())} while you set it up. Turn it on to open it again.</p>`));
     }
@@ -1279,11 +1290,73 @@ export function createSpaceSetup(deps) {
     q('#setup-first-visit-layouts').innerHTML = choices.map((c) => `<label class="setup-choice"><input type="radio" name="setup-first-visit" value="${escapeHtml(c.id)}"><i class="fa-solid fa-${escapeHtml(c.icon)} fa-fw" aria-hidden="true"></i><span class="setup-choice-name">${escapeHtml(c.name)}</span></label>`).join('');
     radioChecks();
     const note = q('#setup-layout-note');
-    // A layout for everyone is made with the layout picker, New layout for everyone in the Layout button's menu (plan-layout-picker.md, step 6).
-    const menuWord = typeof deps.layoutVerb === 'function' ? deps.layoutVerb() : 'Layout';
-    note.textContent = layouts.shared.length ? '' : `A shared layout can be picked too: make one with New layout for everyone, in the ${menuWord} menu.`;
+    // A layout for everyone is made with the layout picker, New layout for everyone in the menu on the Workspace's tab (plan-layout-picker.md, step 6).
+    note.textContent = layouts.shared.length ? '' : 'A shared layout can be picked too: make one with New layout for everyone, in the menu on the Workspace tab.';
     note.hidden = !note.textContent;
     paintLayoutLine();
+    paintShared();
+  }
+  // Layouts for everyone: shown to those who may make one, each layout a row with its icon and name, or a line saying
+  // there is none yet.
+  function paintShared() {
+    const box = q('#setup-shared-section');
+    if (!box) return;
+    const { layouts } = state;
+    box.hidden = !layouts.canShare;
+    const rows = q('#setup-shared-rows');
+    rows.innerHTML = layouts.shared.length
+      ? layouts.shared.map((l) => `<li class="setup-layout-row"><div class="setup-layout-head"><i class="fa-solid fa-${iconOk(l.icon) ? escapeHtml(l.icon) : 'user-group'} fa-fw" aria-hidden="true"></i><span class="setup-layout-name">${escapeHtml(l.name || '')}</span></div></li>`).join('')
+      : '<li class="hint">None yet.</li>';
+  }
+  // Copy one of mine: the person's own workspaces (GET .../workspaces; the Workspace is the space's, so not one of them),
+  // in the page's shared menu under the button. One with a layout (a shape) is copied as a layout for everyone under its
+  // name (POST .../layouts, shared, as New layout for everyone sends: the server checks the shape against what is on here
+  // and keeps its limits); one with no layout yet, or with the name of a layout for everyone, can't be, and says why.
+  // With none of their own, the line under the button says so and how to add one.
+  async function copyMine(button) {
+    if (!state || !state.layouts.canShare) return;
+    const { space } = state;
+    const status = q('#setup-copy-status');
+    const say = (text) => { if (status) status.textContent = text; };
+    say('');
+    let own = [];
+    try {
+      const got = await api('GET', `/api/spaces/${encodeURIComponent(space.id)}/workspaces`);
+      own = (Array.isArray(got.workspaces) ? got.workspaces : []).filter((w) => w && w.id !== 'workspace' && typeof w.name === 'string');
+    } catch (err) {
+      say((err && err.message) || 'Your workspaces could not be read. Try again.');
+      return;
+    }
+    if (!state || state.space.id !== space.id) return;
+    if (!own.length) {
+      say('You have no workspace of your own here to copy. Add one with New workspace, in the tabs\' menu, then copy it.');
+      return;
+    }
+    const taken = (name) => state.layouts.shared.find((l) => String(l.name || '').toLowerCase() === name.toLowerCase());
+    const items = [{ heading: 'Your workspaces' }, ...own.map((w) => {
+      const hasShape = Boolean(w.shape && typeof w.shape.shape === 'string' && Array.isArray(w.shape.areas));
+      const same = taken(w.name);
+      if (!hasShape) return { icon: 'table-cells-large', label: w.name, disabled: true, hint: 'It has no layout yet. Pick one with Edit layout.' };
+      if (same) return { icon: 'table-cells-large', label: w.name, disabled: true, hint: `There is already a layout called ${same.name}.` };
+      return { icon: 'table-cells-large', label: w.name, onPick: () => copyOne(w, button) };
+    })];
+    openHostMenu(button, items);
+  }
+  async function copyOne(w, button) {
+    if (!state) return;
+    const { space } = state;
+    const status = q('#setup-copy-status');
+    try {
+      const got = await api('POST', `/api/spaces/${encodeURIComponent(space.id)}/layouts`, { shared: true, name: w.name, shape: w.shape.shape, areas: w.shape.areas });
+      if (!state || state.space.id !== space.id) return;
+      if (got && got.layout) state.layouts.shared = [...state.layouts.shared, got.layout];
+      paintLayouts();
+      if (status) status.textContent = `${w.name} is now a layout for everyone.`;
+      if (typeof deps.onLayouts === 'function') deps.onLayouts(space.id);
+    } catch (err) {
+      if (status) status.textContent = (err && err.message) || `${w.name} could not be copied. Try again.`;
+    }
+    if (button && button.isConnected) button.focus();
   }
   // One of the Layouts section's controls changed or was pressed: the draft follows, the rows are drawn again.
   function layoutsEvent(event) {
@@ -1691,6 +1764,8 @@ export function createSpaceSetup(deps) {
     }
     const stop = q('#setup-opens-with-layout-stop');
     if (stop) stop.addEventListener('click', () => stopUsingLayout());
+    const copy = q('#setup-copy-mine');
+    if (copy) copy.addEventListener('click', () => copyMine(copy));
     const ai = q('#setup-ai-off');
     if (ai) ai.addEventListener('change', () => { state.draft.aiOff = ai.checked; });
     wireAiSees();
@@ -1952,7 +2027,7 @@ export function createSpaceSetup(deps) {
       state.before.tabs = tabsWhole(layouts.tabs);
       state.draft.tabs = tabsWhole(layouts.tabs);
     }
-    state.layouts = { system: Array.isArray(layouts.system) ? layouts.system : [], shared: Array.isArray(layouts.shared) ? layouts.shared : [], canSetDefault: layouts.canSetDefault !== false };
+    state.layouts = { system: Array.isArray(layouts.system) ? layouts.system : [], shared: Array.isArray(layouts.shared) ? layouts.shared : [], canSetDefault: layouts.canSetDefault !== false, canShare: layouts.canShare === true };
   }
 
   function open(opts) {

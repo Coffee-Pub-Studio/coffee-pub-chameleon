@@ -1385,7 +1385,7 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#layout-menu"
+     "click": "[data-tab-menu=\"workspace\"]"
     }
    ],
    "space": true,
@@ -1547,10 +1547,11 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#layout-menu"
+     "click": "[data-tab-menu=\"workspace\"]"
     },
     {
-     "click": "body > .host-menu .host-menu-more"
+     "click": "button.host-menu-item",
+     "text": "Panels"
     },
     {
      "sleep": 400
@@ -1825,11 +1826,11 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#layout-menu"
+     "click": "#layout-tabs-more"
     },
     {
      "click": "button.host-menu-item",
-     "text": "Save as new layout"
+     "text": "New workspace"
     },
     {
      "wait": "dialog.layout-sheet[open]"

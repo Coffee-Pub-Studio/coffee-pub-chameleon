@@ -38,17 +38,18 @@ const shape = (name) => ({ name, shape: 'one', areas: [null] }); // a shared lay
   const file = path.join(dir, 'layouts.json');
   const layouts = new Layouts(dir);
   const shared = layouts.add('s1', 'pat', { ...shape('Shared'), shared: true });
-  const own = layouts.add('s1', 'pat', blank('Mine'));
-  const sams = layouts.add('s1', 'sam', blank('Sams'));
+  // A workspace a person added (server/workspaces.js) may be their last too: its id, among the ids the route passes in.
+  const own = { id: 'wpat234' };
+  const sams = { id: 'wsam234' };
   same(layouts.lastOf('s1', 'pat'), null, 'none to begin with');
   same(layouts.lastOf('s1', null), null, 'a guest has none');
   ok(!fs.readFileSync(file, 'utf8').includes('"last"'), 'nothing stored while nobody has one');
-  // knows(): a fixed id, a saved layout the person can see; never another person's, never a long or odd id.
-  ok(layouts.knows('s1', 'conference', 'pat') && layouts.knows('s1', 'workspace', 'pat'), 'a fixed id');
-  ok(layouts.knows('s1', own.id, 'pat') && layouts.knows('s1', shared.id, 'sam'), 'their own layout, a shared one');
-  ok(!layouts.knows('s1', own.id, 'sam'), "not another person's own layout");
-  ok(!layouts.knows('s1', sams.id, 'pat'), "(and the other way)");
-  for (const bad of ['', 'nosuch', 'x'.repeat(65), 7, null, undefined, ['map'], {}, '__proto__', 'constructor']) ok(!layouts.knows('s1', bad, 'pat'), `not ${JSON.stringify(bad)}`);
+  // knows(): a fixed id, a shared layout, one of the person's own workspaces; never another person's, never a long or odd id.
+  ok(layouts.knows('s1', 'conference') && layouts.knows('s1', 'workspace'), 'a fixed id');
+  ok(layouts.knows('s1', own.id, [own.id]) && layouts.knows('s1', shared.id), 'their own workspace, a shared layout');
+  ok(!layouts.knows('s1', own.id, [sams.id]), "not another person's own workspace");
+  ok(!layouts.knows('s1', 'lnotone', ['lnotone']), 'only a workspace id counts as one of theirs');
+  for (const bad of ['', 'nosuch', 'x'.repeat(65), 7, null, undefined, ['map'], {}, '__proto__', 'constructor']) ok(!layouts.knows('s1', bad, [own.id]), `not ${JSON.stringify(bad)}`);
   // Round trip.
   const before = Date.now();
   same(layouts.setLast('s1', 'pat', 'conference'), 'conference', 'set');
@@ -62,7 +63,7 @@ const shape = (name) => ({ name, shape: 'one', areas: [null] }); // a shared lay
   layouts.setLast('s1', 'pat', 'conference');
   same([readJson(file).spaces.s1.last.pat.at, fs.statSync(file).mtimeMs], [rec.at, stat], 'the same layout again writes nothing');
   layouts.setLast('s1', 'pat', own.id);
-  same(layouts.lastOf('s1', 'pat'), own.id, 'a saved layout');
+  same(layouts.lastOf('s1', 'pat'), own.id, 'a workspace of their own');
   // Bounds: many writes leave one entry per person.
   for (let i = 0; i < 200; i++) { layouts.setLast('s1', 'pat', i % 2 ? 'map' : 'calendar'); layouts.setLast('s1', 'sam', i % 3 ? 'workspace' : shared.id); }
   same(Object.keys(readJson(file).spaces.s1.last).sort(), ['pat', 'sam'], 'one entry per person');
@@ -71,11 +72,8 @@ const shape = (name) => ({ name, shape: 'one', areas: [null] }); // a shared lay
   layouts.setLast('s1', 'pat', shared.id);
   layouts.setLast('s1', 'sam', shared.id);
   layouts.setLast('s1', 'bob', 'conference');
-  layouts.remove('s1', shared.id, 'pat');
+  layouts.remove('s1', shared.id);
   same(Object.keys(readJson(file).spaces.s1.last), ['bob'], 'deleting a shared layout clears every last that names it');
-  layouts.setLast('s1', 'pat', own.id);
-  layouts.remove('s1', own.id, 'pat');
-  same(layouts.lastOf('s1', 'pat'), null, 'and a person\'s own');
   layouts.setLast('s1', 'pat', 'map');
   layouts.setLast('s2', 'pat', 'map');
   layouts.forgetPerson('pat');
@@ -91,14 +89,14 @@ const shape = (name) => ({ name, shape: 'one', areas: [null] }); // a shared lay
   same(readJson(file), { spaces: {} }, 'and none after');
 
   // A hand-edited file is cleaned on read.
-  const keep = layouts.add('s4', 'pat', blank('Keep'));
+  const keep = layouts.add('s4', 'pat', { ...shape('Keep'), shared: true });
   const raw = readJson(file);
   raw.spaces.s4.last = {
     pat: { layout: keep.id, at: 5 }, sam: { layout: keep.id, at: 5 }, gone: { layout: 'lzzzzzz', at: 5 }, long: { layout: 'x'.repeat(65), at: 5 },
     noat: { layout: 'map' }, strat: { layout: 'map', at: '5' }, junk: 'map', list: ['map'], nolayout: { at: 1 }, num: { layout: 7, at: 1 }, fixed: { layout: 'documents', at: 9, extra: 1 },
   };
   fs.writeFileSync(file, JSON.stringify(raw));
-  same(JSON.parse(JSON.stringify(new Layouts(dir).spaces.s4.last)), { pat: { layout: keep.id, at: 5 }, fixed: { layout: 'documents', at: 9 } }, 'a gone, long, unseen or malformed record is dropped, extra keys too');
+  same(JSON.parse(JSON.stringify(new Layouts(dir).spaces.s4.last)), { pat: { layout: keep.id, at: 5 }, sam: { layout: keep.id, at: 5 }, fixed: { layout: 'documents', at: 9 } }, 'a gone, long or malformed record is dropped, extra keys too');
   raw.spaces.s4.last = 'junk';
   fs.writeFileSync(file, JSON.stringify(raw));
   ok(!('last' in new Layouts(dir).spaces.s4), 'junk reads as none');
@@ -275,13 +273,15 @@ try {
   r = await call('PUT', LAST(A), { token: T.member, raw: 'layout=conference', type: 'application/x-www-form-urlencoded' });
   ok(r.status === 400 && JSON.stringify(stored()) === before, `a form body is a 400 (${r.status})`);
 
-  // -- a saved layout: only one the person can see ----------------------------------------------------------------------------
-  const mine = (await expect('a member saves one', 201, 'POST', L(A), { token: T.member, body: blank('Mine') })).json.layout;
-  const modsOwn = (await expect('a moderator saves one', 201, 'POST', L(A), { token: T.mod, body: blank('Mona') })).json.layout;
+  // -- a layout for everyone, or a workspace of the person's own (plan-workspaces.md, decision 39) ------------------------------
+  await expect('a layout of one\'s own is a workspace now', 400, 'POST', L(A), { token: T.member, body: blank('Mine') });
+  const W = (space) => `/api/spaces/${encodeURIComponent(space)}/workspaces`;
+  const mine = (await expect('a member adds a workspace', 201, 'POST', W(A), { token: T.member, body: { name: 'Mine' } })).json.workspace;
+  const modsOwn = (await expect('a moderator adds one', 201, 'POST', W(A), { token: T.mod, body: { name: 'Mona' } })).json.workspace;
   const shared = (await expect('the owner shares one', 201, 'POST', L(A), { token: T.owner, body: { ...shape('Everyone'), shared: true } })).json.layout;
-  await expect('a member sets their own saved layout', 200, 'PUT', LAST(A), { token: T.member, body: { layout: mine.id } });
+  await expect('a member sets their own workspace', 200, 'PUT', LAST(A), { token: T.member, body: { layout: mine.id } });
   same(await lastOf(T.member), mine.id, 'read back');
-  r = await expect("another person's own layout", 400, 'PUT', LAST(A), { token: T.member, body: { layout: modsOwn.id } });
+  r = await expect("another person's own workspace", 400, 'PUT', LAST(A), { token: T.member, body: { layout: modsOwn.id } });
   same(r.json.error, NONE, "it does not say the layout exists");
   await expect('the same id is unknown to a guest-side viewer', 403, 'PUT', `${LAST(A)}${asGuest}`, { body: { layout: shared.id } });
   await expect("an id from another space", 400, 'PUT', LAST(B), { token: T.member, body: { layout: shared.id } });
@@ -292,8 +292,8 @@ try {
   same([await lastOf(T.member), await lastOf(T.mod), await lastOf(T.owner)], [undefined, undefined, 'calendar'], 'the ones that named it are gone, the owner\'s stays');
   ok(!JSON.stringify(stored()).includes(shared.id), 'and nothing in the file names it');
   await expect('a member sets their own again', 200, 'PUT', LAST(A), { token: T.member, body: { layout: mine.id } });
-  await expect('and deletes it', 204, 'DELETE', `${L(A)}/${mine.id}`, { token: T.member });
-  same(await lastOf(T.member), undefined, "a person's own layout deleted clears theirs");
+  await expect('and deletes it', 204, 'DELETE', `${W(A)}/${mine.id}`, { token: T.member });
+  same(await lastOf(T.member), undefined, "a person's own workspace deleted is passed over");
   await expect('member back on conference', 200, 'PUT', LAST(A), { token: T.member, body: { layout: 'conference' } });
 
   // -- passed over, not rewritten: hidden by the owner, off, gone ------------------------------------------------------------

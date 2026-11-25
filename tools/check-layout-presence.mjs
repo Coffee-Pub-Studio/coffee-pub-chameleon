@@ -84,7 +84,7 @@ const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1;
   ok(/if \(spaceId\) sayWhere\(\); \/\/ a new stream starts with no tab said/.test(space), 'said again on every ready');
   ok(/api\('PUT', `\/api\/spaces\/\$\{encodeURIComponent\(space\)\}\/where`, \{ layout, stream: ready\.stream \}\)/.test(space), 'PUT .../where, naming the stream');
   ok(/err\.status === 429\) \{ clearTimeout\(whereTimer\); whereTimer = setTimeout\(sendWhere/.test(space), 'a 429 is said again when the server allows');
-  ok(/const whoHereTopWanted = \(\) => [^\n]*&& !tabFacesShown\(\);/.test(space) && /\ntabFacesShown = layoutTabsWanted;/.test(space), 'Who is here leaves the desktop bar where the tabs show their faces');
+  ok(/const whoHereTopWanted = \(\) => [^\n]*&& !tabFacesShown\(\);/.test(space) && /\ntabFacesShown = \(\) => oneBar\(\) && layoutTabsWanted\(\);/.test(space), 'Who is here leaves the desktop bar where the tabs show their faces (not a guest\'s, whose Workspace tab has none)');
   ok(/const whoHereBar = nav\.get\('who-here'\);/.test(space) && /const people = wide \? whoHereTop : whoHereBar;/.test(space), 'a phone keeps its Online item');
   ok(/createFaceStack\(\{ doc, portraitUrl: spacePortraitUrl/.test(space) && /facesOnTab\(people, id, TAB_FACES\)/.test(space), 'the tabs draw the shared face stack, three and +N');
   ok(/export const TAB_FACES = 3;/.test(peopleJs) && /export function makePortrait\(/.test(peopleJs) && /const entry = \{ src, node: makePortrait\(/.test(peopleJs), 'one portrait piece for Who is here and the tabs');
@@ -94,7 +94,7 @@ const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1;
   const block = css.slice(css.indexOf('.layout-tabs > .layout-tab-side {'), css.indexOf('.who-here-tab {') + 300);
   ok(block.length > 300 && !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block), 'the faces\' styles use the theme tokens, no raw colours');
   ok(/\.layout-tabs > \.layout-tab-side\[hidden\],\n\.layout-tabs > \.layout-tab-side\.layout-tab-out \{ display: none; \}/.test(css), 'an empty tab shows no faces, nor does a tab in the "..."');
-  ok(/\.tab-faces > \.sdk-avatar \{ --av: 22px;/.test(css) && /--av-overlap: calc\(var\(--space-2\) \* -1\)/.test(css), 'faces are 22px, overlapping 8px, inside the tab\'s pill');
+  ok(/\.tab-faces > \.sdk-avatar \{ --av: 22px;/.test(css) && /--av-overlap: calc\(var\(--space-2\) \* -1\)/.test(fs.readFileSync(path.join(ROOT, 'public/sdk/system.css'), 'utf8')), 'faces are 22px, overlapping 8px, inside the tab\'s pill');
   ok(/personTint\(person\.key\)/.test(peopleJs) && /fallback=none/.test(peopleJs), 'no picture: the first letter on the person\'s own tint, never the server plate');
 }
 
@@ -137,16 +137,17 @@ try {
     same(r.json.error, NONE, `${label}: the sentence`);
   }
   await refuse('a stream that is not text', 400, { who: T.member, body: { layout: 'calendar', stream: 7 } });
-  // Saved layouts: one they can see; another person's own never; a person's own reads as 'personal' to the others.
+  // A shared layout they can see; a workspace a person added (plan-workspaces.md, decision 39) reads as 'personal' to the
+  // others, and another person's never.
   const shared = (await expect('the owner shares one', 201, 'POST', `/api/spaces/${A}/layouts`, { who: T.owner, body: { name: 'Everyone', shape: 'one', areas: [null], shared: true } })).json.layout;
-  const mine = (await expect('the member saves one', 201, 'POST', `/api/spaces/${A}/layouts`, { who: T.member, body: { name: 'Mine', modules: [] } })).json.layout;
+  const mine = (await expect('the member adds a workspace', 201, 'POST', `/api/spaces/${A}/workspaces`, { who: T.member, body: { name: 'Mine' } })).json.workspace;
   await expect('a shared layout', 200, 'PUT', W(), { who: T.mod, body: { layout: shared.id } });
   await watch.until((e) => e.type === 'presence' && e.people.find((p) => p.key === keys.mod)?.layout === shared.id);
   n += 1;
-  await expect('their own layout', 200, 'PUT', W(), { who: T.member, body: { layout: mine.id } });
+  await expect('their own workspace', 200, 'PUT', W(), { who: T.member, body: { layout: mine.id } });
   const personal = await watch.until((e) => e.type === 'presence' && e.people.find((p) => p.key === memberKey)?.layout === 'personal');
-  ok(!JSON.stringify(personal).includes(mine.id), 'a person\'s own layout reads as personal; its id is never sent');
-  const r1 = await refuse('another person\'s own layout', 400, { who: T.mod, body: { layout: mine.id } });
+  ok(!JSON.stringify(personal).includes(mine.id), 'a person\'s own workspace reads as personal; its id is never sent');
+  const r1 = await refuse('another person\'s own workspace', 400, { who: T.mod, body: { layout: mine.id } });
   same(r1.json.error, NONE, 'it does not say the layout exists');
   await refuse('a shared layout of this space, in another space', 400, { who: T.member, body: { layout: shared.id } }, B);
 
