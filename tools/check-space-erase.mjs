@@ -74,9 +74,9 @@ function leftovers(dir, id) {
     env.chatHistory.add(id, { by: bo.key, who: 'Bo', text: 'a private word', visibility: 'private' });
     assert.ok(env.facts.set(id, MOD, [{ id: 'f', icon: 'star', text: 'a fact' }]));
     env.tags.add(id, 'planning', '#2a62b0', ann.key);
-    // A set-up agent's ask about a person in it and the undo record of a change to it (server/setup-records.js).
-    env.setupRecords.addAsk({ agent: ann.key, space: id, ask: 'add', person: bo.key }, 10);
-    env.setupRecords.noteChange({ agent: ann.key, space: id, change: 'changed', before: { name: 'Old' }, after: { name: 'New' } });
+    // A set-up agent's ask about a person in it and the undo record of a change to it (server/agent-records.js).
+    env.agentRecords.addAsk({ agent: ann.key, space: id, ask: 'add', person: bo.key }, 10);
+    env.agentRecords.noteChange({ agent: ann.key, space: id, change: 'changed', before: { name: 'Old' }, after: { name: 'New' } });
     env.attention.set(id, bo.key, MOD, { count: 2, text: 'look' });
     env.noteActivity(MOD, 'saved a', ann.key, `space:${id}`);
     env.invites.set(`${id}-i`, { id: `${id}-i`, from: ann.key, to: bo.key, spaceId: id, at: Date.now() });

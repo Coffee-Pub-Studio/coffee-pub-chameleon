@@ -22,7 +22,7 @@
  *   - the log: one line a call, its route pattern and never its token, a request body or the path's own values; owners
  *     read it through GET /api/users/:key/agent-log;
  *   - hosted (BASE_DOMAIN): a token of one environment is 401 at another; the console and the product host answer as before;
- *     an owner's copy restored with a tokens.json, an agent-log/ or an agent-setup.json of its own keeps none, so a planted
+ *     an owner's copy restored with a tokens.json, an agent-log/ or an agent-records.json of its own keeps none, so a planted
  *     token is 401;
  *   - the owner chooses a token's life (POST { expires }: 30d, 60d, 90d, 1y, never; none is 30d; anything else 400); never has
  *     expiresAt null and works for years; a record that lives longer than its chosen life, or is made in the future, is not read;
@@ -174,7 +174,7 @@ function writtenRoutes() {
 }
 const GATE_LIST = new Set([
   'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
-  'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
+  'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'GET /api/objects/format/schema', 'POST /api/objects/resolve',
   'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
   // Waiting for its own request (plan-agent-edit-delete.md, E3); tools/check-module-actions.mjs checks it.
   'GET /api/spaces/:id/action/:requestId/wait',
@@ -969,7 +969,7 @@ try {
     assert.ok(fs.existsSync(path.join(hosted, 'environments', 'acme', 'agent-log', a.key)), 'acme keeps its own log');
     assert.ok(!fs.existsSync(path.join(hosted, 'environments', 'beta', 'agent-log')), 'beta has none');
   });
-  await test('an owner\'s copy restored with a tokens.json, an agent-log/ and an agent-setup.json of its own keeps none: a planted token is 401', async () => {
+  await test('an owner\'s copy restored with a tokens.json, an agent-log/ and an agent-records.json of its own keeps none: a planted token is 401', async () => {
     const dir = path.join(hosted, 'environments', 'acme');
     const a = (await call(server, 'GET', '/api/users', { host: 'acme', cookie: acme })).json.users.find((u) => u.agent);
     const planted = `agt_${crypto.randomBytes(32).toString('base64url')}`;
@@ -977,15 +977,15 @@ try {
     const record = { id: 'plantedtoken1', kind: 'agent', user: a.key, hash: sha256(planted), createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 29 * 86400000).toISOString(), lastUsedAt: null, lastAddress: null };
     const spent = `${JSON.stringify({ at: new Date(now).toISOString(), agent: a.key, token: 'x', method: 'GET', route: '/api/agent/me', status: 200, kind: 'read' })}\n`.repeat(3000);
     const files = filesUnder(dir).map(([f, b]) => [path.relative(dir, f).split(path.sep).join('/'), b])
-      .filter(([n]) => n !== 'tokens.json' && !n.startsWith('agent-log/') && n !== 'agent-setup.json');
+      .filter(([n]) => n !== 'tokens.json' && !n.startsWith('agent-log/') && n !== 'agent-records.json');
     // And a set-up agent's asks file (plan-admin-agent.md, step 2): an approved ask or an undo nobody saw made.
     const asks = { asks: [{ id: 'a'.repeat(16), agent: a.key, space: 'zz1', ask: 'add', person: a.key, at: now, state: 'waiting' }], changes: [] };
-    files.push(['tokens.json', Buffer.from(JSON.stringify({ tokens: [record] }))], [`agent-log/${a.key}/${dayToday()}.jsonl`, Buffer.from(spent)], ['agent-setup.json', Buffer.from(JSON.stringify(asks))]);
+    files.push(['tokens.json', Buffer.from(JSON.stringify({ tokens: [record] }))], [`agent-log/${a.key}/${dayToday()}.jsonl`, Buffer.from(spent)], ['agent-records.json', Buffer.from(JSON.stringify(asks))]);
     const restored = await call(server, 'POST', '/api/host/environments/acme/restore', { host: 'admin', cookie: host, raw: zipFiles(files), headers: { 'content-type': 'application/zip' } });
     ok(restored, 'the restore');
     assert.ok(!fs.existsSync(path.join(dir, 'tokens.json')), 'no tokens.json');
     assert.ok(!fs.existsSync(path.join(dir, 'agent-log')), 'no agent-log/');
-    assert.ok(!fs.existsSync(path.join(dir, 'agent-setup.json')), 'no agent-setup.json');
+    assert.ok(!fs.existsSync(path.join(dir, 'agent-records.json')), 'no agent-records.json');
     refused(await call(server, 'GET', '/api/agent/me', { host: 'acme', token: planted }), 401, INVALID, 'the planted token');
     const owner = await signIn(server, 'owner', 'owner-password-1', 'acme');
     const fresh = (await call(server, 'POST', `/api/users/${a.key}/token`, { host: 'acme', cookie: owner })).json.token;
@@ -1007,7 +1007,7 @@ try {
     assert.ok(zipped.body.includes(Buffer.from('app.json')), 'a zip of the environment');
     assert.ok(!zipped.body.includes(Buffer.from('tokens.json')), 'no tokens.json');
     assert.ok(!zipped.body.includes(Buffer.from('agent-log/')), 'no agent-log/');
-    assert.ok(!zipped.body.includes(Buffer.from('agent-setup.json')), 'no agent-setup.json');
+    assert.ok(!zipped.body.includes(Buffer.from('agent-records.json')), 'no agent-records.json');
   });
   await server.stop();
 

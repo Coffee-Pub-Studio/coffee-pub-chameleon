@@ -68,6 +68,7 @@ const READS = {
   '/api/objects/search': (w) => `Searched ${w('object', { many: true })}`,
   '/api/objects/links': (w) => `Read what ${w('object', { a: true })} links to`,
   '/api/objects/kinds': (w) => `Read the kinds of ${w('object')}`,
+  '/api/objects/format/schema': (w) => `Read the format of ${w('object', { many: true })}`,
   '/api/objects/resolve': (w) => `Looked up ${w('object', { many: true })}`,
   '/api/spaces/:id/members': (w) => `Read who is in ${w('space', { a: true })}`,
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
