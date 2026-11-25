@@ -630,7 +630,11 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = [], kinds = []) {
       if (count > ACTION_LOOKUPS_MAX) throw new ModuleError(`module.json: action "${name}" looks up more than ${ACTION_LOOKUPS_MAX} inputs`);
       if (count && (p.local === true || told.effect === 'delete')) throw new ModuleError(`module.json: action "${name}" is ${p.local === true ? 'local' : 'a delete'}, so it has no lookups`);
     }
-    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...(clears.length ? { clears } : {}), ...(p.patch === true ? { patch: true } : {}), ...(Object.keys(lookups).length ? { lookups } : {}), ...told });
+    // `phaseEnd` (plan-agent-server-actions.md, section 2): the action's handler may answer `phaseEnd: { date }`, which moves the
+    // space's main phase's end later to cover that day (server/action-effects.js). Only a `write` that is not local says so.
+    if (p.phaseEnd !== undefined && typeof p.phaseEnd !== 'boolean') throw new ModuleError(`module.json: action "${name}" phaseEnd must be true or false`);
+    if (p.phaseEnd === true && (told.effect !== 'write' || p.local === true)) throw new ModuleError(`module.json: action "${name}" may move the main phase's end only as a write that is not local`);
+    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...(clears.length ? { clears } : {}), ...(p.patch === true ? { patch: true } : {}), ...(Object.keys(lookups).length ? { lookups } : {}), ...(p.phaseEnd === true ? { phaseEnd: true } : {}), ...told });
   }
   // `server` (plan-agent-edit-delete.md, decision 4): the module's own library whose handlers the server runs for an agent's
   // requests (server/module-actions.js). Honoured for a bundled module only; install refuses an upload that declares it.

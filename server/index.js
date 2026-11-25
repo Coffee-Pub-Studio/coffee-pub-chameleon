@@ -5662,7 +5662,38 @@ app.patch('/api/spaces/:id', requireUser, (req, res) => {
 // The main phase's end moved later to cover `day` (YYYY-MM-DD), every later boundary shifted by the same number of
 // days (public/phases.js coverMain; plan-one-bar.md step 1), for anyone who can write in a module that is on in this
 // space (an owner always). 200 with the new `phases`; 204 when nothing moved (the day is covered already, is before
-// the main phase, or there is no dated main phase).
+// the main phase, or there is no dated main phase); 400 for a day more than PHASE_COVER_DAYS past the end. The rule is
+// phaseCover's, which a server-carried request's `phaseEnd` runs too (server/action-effects.js).
+const PHASE_COVER_DAYS = 366; // how far one call moves the main phase's end
+const phaseCover = {
+  // Why `who` may not move this space's dates, as one sentence, or null when they may.
+  refusal(who, space) {
+    if (closedToWho(who, space)) return closedSentence();
+    const perms = modulePerms(who, space.id);
+    const mayWrite = (who.user && hasOwnerRights(who.user)) || modules.enabledAll().some(({ manifest, entry }) => manifest.scope.includes('space')
+      && modules.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'write'));
+    return mayWrite ? null : `Only someone who can write in ${word('module', { a: true })} that is on in this ${word('space')} can move its dates.`;
+  },
+  // Moves the end: { moved: false } or { moved: true, phases, before, label } (`before` the dates as they were, `label` the
+  // main phase's name). Throws with a status when the day is too far or the phase rule refuses the dates.
+  move(space, day) {
+    const list = phasesOfSpace(space.id);
+    const before = space.phases && typeof space.phases === 'object' ? JSON.parse(JSON.stringify(space.phases)) : {};
+    const created = space.createdAt;
+    // How far first, so the rule never counts days past what a date can hold.
+    const mainAt = phaseRule.cleanPhases(list).findIndex((p) => p.main);
+    const main = mainAt < 0 || !phaseRule.isDay(day) ? null : phaseRule.timelineOf(list, before, { created })[mainAt];
+    if (!main || !main.dated) return { moved: false };
+    if (phaseRule.daysBetween(main.end || main.start, day) > PHASE_COVER_DAYS) throw Object.assign(new Error(`${main.label} can be made at most ${PHASE_COVER_DAYS} days longer at once.`), { status: 400 });
+    const result = phaseRule.coverMain(list, before, day, { created });
+    if (!result.moved) return { moved: false };
+    return { moved: true, phases: store.updateSpace(space.id, { phases: result.dates }).phases, before, label: main.label };
+  },
+  // The dates as they were before a move that is taken back.
+  putBack(spaceId, dates) {
+    store.updateSpace(spaceId, { phases: Object.keys(dates || {}).length ? dates : null });
+  },
+};
 app.post('/api/spaces/:id/phases/cover', (req, res) => {
   const who = moduleViewer(req);
   if (!who || who.keyed) return res.status(401).json({ error: 'sign in first' });
@@ -5670,14 +5701,12 @@ app.post('/api/spaces/:id/phases/cover', (req, res) => {
   if (!space || closedTo(req, space)) return res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
   const day = req.body?.day;
   if (!phaseRule.isDay(day)) return res.status(400).json({ error: 'Send the day to cover as YYYY-MM-DD.' });
-  const perms = modulePerms(who, space.id);
-  const mayWrite = (who.user && hasOwnerRights(who.user)) || modules.enabledAll().some(({ manifest, entry }) => manifest.scope.includes('space')
-    && modules.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'write'));
-  if (!mayWrite) return res.status(403).json({ error: `Only someone who can write in ${word('module', { a: true })} that is on in this ${word('space')} can move its dates.` });
-  const phases = phasesOfSpace(space.id);
-  const result = phaseRule.coverMain(phases, space.phases, day, { created: space.createdAt });
+  const refusal = phaseCover.refusal(who, space);
+  if (refusal) return res.status(403).json({ error: refusal });
+  let result;
+  try { result = phaseCover.move(space, day); } catch (err) { if (!err.status || err instanceof StoreError) throw err; return res.status(err.status).json({ error: err.message }); }
   if (!result.moved) return res.status(204).end();
-  res.json({ phases: store.updateSpace(space.id, { phases: result.dates }).phases });
+  res.json({ phases: result.phases });
 });
 // GET /api/spaces/:id/phases: { measure, phases } -- the template's phases as this space reads them, with the state the measure gives
 // (dates: none; progress: `done`; goals: `done` and `goals: { done, total }` while entries name the phase; the first phase
@@ -9660,8 +9689,8 @@ const ACTION_CHANGED = 'That changed while it was being done, so nothing was cha
 // size caps, object-sync and the live changes), each under the module's write limit as the agent, each only if nothing
 // changed it since the handler read it. One refused write puts back the ones before it, so a request is done whole or not
 // at all. The request is then finished once (completeServer); a request ended meanwhile (its agent's right taken away)
-// writes nothing. After the writes, in the same step, come the links, schedules and notice the handler answered (server/
-// action-effects.js); a refusal there puts back everything. Answers 200 { id, status: 'done', ok: true, ref?, note?, data?,
+// writes nothing. After the writes, in the same step, come the links, schedules, main phase's end and notice the handler
+// answered (server/action-effects.js); a refusal there puts back everything. Answers 200 { id, status: 'done', ok: true, ref?, note?, data?,
 // effects? } (`effects` what was done beside the writes; `data` the handler's own beyond its note,
 // agentData; plain and at most MODULE_ACTION_LIMITS.answerDataBytes as JSON, checked by outcomeOf), or the refusal's status with
 // { id, status: 'done', ok: false, error }: the module's own sentence (422), a guard's or the rights' (their status), a
@@ -9715,7 +9744,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
   if (dataText.length + sharedText.length > MODULE_ACTION_LIMITS.dataBytes) return fault('size');
   const agent = who.user;
   // The facts beside the data, as a page's adapter gives them (public/sdk/host.js libraryFacts), and the environment's clock and
-  // words for ctx.util. `carrier` says the server is carrying it (a phase's end is still only a page's).
+  // words for ctx.util. `carrier` says the server is carrying it.
   // `settings` are the module's as host.settings.get() gives them in this space, with each person setting's default (an agent has
   // none of its own); `labels` the module's words as the space's template renames them (host.locale().labels), for ctx.util.label.
   const facts = actionFacts(who, space, manifest, input);
@@ -9736,7 +9765,10 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     const at = here ? moduleAccessAt(now, who, 'space', here, 'own') : { status: 404, error: `no such ${word('space')}` };
     if (at.error) return end(at.status, { ok: false, error: at.error });
     const ctx = at.ctx;
+    // The main phase's end is only for an action whose manifest says so, in the deployment's own module.
+    const mayEnd = now.entry.source === 'bundled' && (now.manifest.actions?.provides || []).some((a) => a.name === def.name && a.phaseEnd === true);
     const outcome = moduleActionOutcome(answer, {
+      phaseEnd: mayEnd,
       own: (ref) => refShape(ref) && ref.module === id && ref.scope === 'space' && ref.space === space.id && now.manifest.refs.produces.some((p) => p.kind === ref.kind),
       shared: (ref) => {
         const p = refShape(ref) && ref.module === id && ref.scope === 'environment' && !ref.space ? now.manifest.refs.produces.find((x) => x.kind === ref.kind && x.summary.spaces) : null;
@@ -9824,14 +9856,17 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
       return end(effects.refusal.status, { ok: false, error: effects.refusal.error });
     }
     agentChangesAfter(ctx, pending, inSpaceApplied, { agent, request: request.id });
-    return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}), ...(Object.keys(effects.done).length ? { effects: effects.done } : {}) });
+    // The main phase's end left where it was because the agent may not move it: the request stands and its note says why.
+    const told = effects.note ? { ...(outcome.data && typeof outcome.data === 'object' && !Array.isArray(outcome.data) ? outcome.data : {}), note: [outcome.data?.note, effects.note].filter((t) => typeof t === 'string' && t).join(' ') } : outcome.data;
+    return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(told !== undefined ? { data: told } : {}), ...(Object.keys(effects.done).length ? { effects: effects.done } : {}) });
   };
   return envContext.run(env, () => (inSpace ? spaceContext.run(inSpace, after) : after()));
 }
-// The links, schedules and notice a server-carried request's handler answers, done as the agent with the routes' own checks.
+// The links, schedules, main phase's end and notice a server-carried request's handler answers, done as the agent with the
+// routes' own checks.
 // Made at the first request: some of what it is handed is defined further down this file.
 let actionEffectsMade = null;
-const actionEffects = () => (actionEffectsMade ||= createActionEffects({ moduleLinks, moduleHooks, modules, resolveRef, copySight, copyChangeText, hookGranted, overLimit, limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey }));
+const actionEffects = () => (actionEffectsMade ||= createActionEffects({ moduleLinks, moduleHooks, modules, resolveRef, copySight, copyChangeText, hookGranted, overLimit, limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey, phaseCover }));
 // The pointer a stored key is in a space, by the module's own kinds (refs.produces' keys), or null.
 function ownRefAt(manifest, scopeKey, key) {
   if (typeof scopeKey !== 'string' || !scopeKey.startsWith('space:') || typeof key !== 'string') return null;

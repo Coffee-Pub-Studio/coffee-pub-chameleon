@@ -39,9 +39,10 @@
   const actWrite = (item) => { const { id, ...value } = item; return { key: PLAN_PREFIX + id, value }; };
 
   // The plan's first or last day moved out so `item` sits on it (the page's stretchFor): without phases the trip's own dates
-  // are written; with phases only the main phase's end could move, which is the space's and not this module's data, so the page
-  // carrying it out moves it after (travel-lib-plan.js absorb). The server's runner (ctx.carrier 'server') leaves it, and says
-  // so. A day that would make the plan longer than MAX_DAYS is left off, and said. Answers { writes, said }.
+  // are written; with phases only the main phase's end may move, which is the space's and not this module's data, so it is
+  // answered as `phaseEnd` and whoever carries the request (the page's adapter or the server's runner) moves it, within the
+  // asker's rights. A day that would make the plan longer than MAX_DAYS is left off, and said. Answers { writes, said,
+  // phaseEnd } (`phaseEnd` the day the main phase should end on, or null).
   function actStretch(plan, item, ctx) {
     const span = coverTrip(plan.shown, coverDaysOf(item), item, plan.phases);
     const writes = [];
@@ -50,20 +51,21 @@
     const said = !missed || !missed.length ? [] : [missed.length > 1
       ? `A plan can be at most ${MAX_DAYS} days long, so those days are left off the plan.`
       : `A plan can be at most ${MAX_DAYS} days long, so that day is left off the plan.`];
-    if (plan.phased && ctx.carrier === 'server' && span && span.end && plan.shown && plan.shown.end && span.end > plan.shown.end) {
-      said.push(`That is after the plan's last day, ${plan.shown.end}, which was not moved. A person can add days to the plan in the itinerary.`);
-    }
-    return { writes, said };
+    const phaseEnd = plan.phased && span && span.end && plan.shown && plan.shown.end && span.end > plan.shown.end ? span.end : null;
+    return { writes, said, phaseEnd };
   }
+  // What a stretch adds to a handler's answer: the main phase's end, when it should move.
+  const actEnd = (stretch) => (stretch.phaseEnd ? { phaseEnd: { date: stretch.phaseEnd } } : {});
 
-  // A new entry made of `fields`, credited to `by`: { item, writes, said } (the entry, then the trip when it grows).
+  // A new entry made of `fields`, credited to `by`: { item, writes, said, end } (the entry, then the trip when it grows; `end`
+  // the main phase's end for the answer, when the plan has phases and it should move).
   function actNew(plan, fields, by, ctx) {
     const id = ctx.util.id();
     const onTheLine = !fields.date && (fields.after === '' || isYmd(fields.after) || fields.kind === 'lane');
     const item = cleanItem({ ...fields, id, order: fields.order ?? (onTheLine ? jointOrder([...plan.items.values()].filter((i) => !i.date && (i.after || '') === (fields.after || '')), null, null) : actOrder(plan, fields.date)), by });
     if (!item) throw new Error('that needs a title');
     const stretch = actStretch(plan, item, ctx);
-    return { item, writes: [actWrite(item), ...stretch.writes], said: stretch.said };
+    return { item, writes: [actWrite(item), ...stretch.writes], said: stretch.said, end: actEnd(stretch) };
   }
 
   // An object handed in from elsewhere on its day when the plan can show that day; a day past the plan's MAX_DAYS goes under
@@ -178,13 +180,13 @@
     const handed = actHandedIn(actDays(plan), fields);
     const made = actNew(plan, handed.fields, by, ctx);
     const words = [...handed.said, ...made.said].join(' ');
-    return { writes: made.writes, ref: actRef(ctx, made.item.id), ...(words ? { data: { note: words } } : {}) };
+    return { writes: made.writes, ref: actRef(ctx, made.item.id), ...(words ? { data: { note: words } } : {}), ...made.end };
   }
   // A new entry from `fields`, answered as a handler answers (a day left off is said, the entry kept).
   function actAddPlain(plan, fields, ctx) {
     const made = actNew(plan, fields, ctx.credit.name, ctx);
     const words = made.said.join(' ');
-    return { writes: made.writes, ref: actRef(ctx, made.item.id), ...(words ? { data: { note: words } } : {}) };
+    return { writes: made.writes, ref: actRef(ctx, made.item.id), ...(words ? { data: { note: words } } : {}), ...made.end };
   }
   // A pointer to another module's object on the plan, on `date` when one is given, else on that object's own day.
   const actLink = (plan, ref, date, title, ctx) => actAddPlain(plan, { kind: 'link', ref, ...placeFields(isYmd(date) ? { date } : null), title: title || '' }, ctx);
@@ -294,6 +296,6 @@
       if (JSON.stringify(next) === JSON.stringify(item)) return { ref: actRef(ctx, item.id), data: { note: 'That is already so; nothing changed.' } };
       const stretch = actStretch(plan, next, ctx);
       const words = stretch.said.join(' ');
-      return { writes: [actWrite(next), ...stretch.writes], ref: actRef(ctx, item.id), ...(words ? { data: { note: words } } : {}) };
+      return { writes: [actWrite(next), ...stretch.writes], ref: actRef(ctx, item.id), ...(words ? { data: { note: words } } : {}), ...actEnd(stretch) };
     },
   };

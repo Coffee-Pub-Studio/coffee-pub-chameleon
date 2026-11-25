@@ -57,6 +57,15 @@
  *     sentence; whenever a later effect fails the writes, the links and the schedules before it (those taken off because
  *     their object changed included) are put back exactly; a closed space, or one closed while the handler ran, gets
  *     nothing; the handler still reaches no network.
+ *   - plan-agent-server-actions.md step 8 (`phaseEnd`): an action whose manifest says `phaseEnd: true` may answer
+ *     `phaseEnd: { date }`, and the server moves the space's main phase's end later to cover that day (the cover route's
+ *     own rule, every later boundary with it), in the same step, recorded in `effects`; never earlier, and nothing without
+ *     phases; an action that does not say so, any field but `date` (a phase's id, a start, a space), a day that is not a
+ *     real day, a day more than 366 days past the end, are refused and nothing changes; a notice that fails after the end
+ *     moved puts the dates back exactly with the writes; a space the agent is not in and a closed space get nothing; an
+ *     asker whose rights do not let it move the dates keeps its writes and reads why in the note (the effects' own apply,
+ *     with the right taken away); the Itinerary's addStop past the plan's last day moves it with no note; the cover route
+ *     a page uses answers as before, with the same 366 days.
  *   - plan-agent-server-actions.md step 9 and GitHub #1100. The runner's process opens no socket: a hostile script started
  *     with the runner's own flags (tools/fixtures/module-actions/network-probe.cjs, outside any vm context) tries TCP, a unix
  *     socket, listening, http, fetch, WebSocket, tls, http2, UDP, name lookups, the resolver, the inspector, a signal to
@@ -111,6 +120,7 @@ fs.cpSync(path.join(ROOT, 'templates'), path.join(app, 'templates'), { recursive
   const file = path.join(app, 'templates', 'travel.json');
   const t = JSON.parse(fs.readFileSync(file, 'utf8'));
   t.modules['fixture-notes'] = { labels: { note: { one: 'log', many: 'logs' } } };
+  t.modules['fixture-plain'] = {};
   fs.writeFileSync(file, JSON.stringify(t, null, 2));
 }
 // Every module this server ships (the templates name them), beside the fixture.
@@ -195,8 +205,9 @@ function variant(name, edit) {
   return dir;
 }
 
-// The fixture again, bundled under another id, with no hook and no approval to link to anything (the effects' refusals).
-fs.cpSync(variant('plain', (m) => { m.id = 'fixture-plain'; m.name = 'Fixture plain'; delete m.hooks; m.refs.consumes = []; }), path.join(app, 'modules', 'fixture-plain'), { recursive: true });
+// The fixture again, bundled under another id, with no hook, no approval to link to anything and no action that may move
+// the main phase's end (the effects' refusals).
+fs.cpSync(variant('plain', (m) => { m.id = 'fixture-plain'; m.name = 'Fixture plain'; delete m.hooks; m.refs.consumes = []; for (const a of m.actions.provides) delete a.phaseEnd; }), path.join(app, 'modules', 'fixture-plain'), { recursive: true });
 
 // And again as a module with environment data: its notes carry space marks (`spaces`), a second kind (memo) carries none,
 // it has a place search (the settings a geocoder needs) and two more actions: `find` (declares a lookup) and `shared`.
@@ -960,6 +971,33 @@ try {
     assert.equal(both.json.error, 'Give remind or remindAt, not both.');
   });
 
+  await test('Itinerary: an agent\'s addStop after the plan\'s last day moves the main phase\'s end, and nothing waits for a page', async () => {
+    as = agents[8];
+    const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const phasesOf = async (id) => (await call('GET', `/api/spaces/${id}`, { cookie: admin })).json.space.phases || {};
+    ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'travel' } }), 'the travel template');
+    try {
+      ok(await call('PATCH', `/api/spaces/${camp}`, { cookie: admin, body: { phases: { trip: { start: day(10), end: day(12) }, 'post-trip': { start: day(13) } } } }), 'the Trip is dated');
+      const r = await askIn('travel:addStop', { title: 'Sintra', date: day(14) });
+      ok(r, 'addStop past the last day');
+      assert.deepEqual([r.json.ok, r.json.note, r.json.effects], [true, undefined, { phaseEnd: { moved: true, end: day(14) } }], r.text);
+      assert.deepEqual(await phasesOf(camp), { trip: { start: day(10), end: day(14) }, 'post-trip': { start: day(15) } }, 'the end, and the next phase with it');
+      assert.equal((await travelData())[`plan:${r.json.ref.id}`].value.date, day(14));
+      assert.equal((await travelData())['trip:main'], undefined, 'the module wrote no dates of its own');
+      const inside = await askIn('travel:addStop', { title: 'Castle', date: day(12) });
+      ok(inside, 'addStop on the plan');
+      assert.deepEqual([inside.json.note, inside.json.effects], [undefined, undefined]);
+      // More than the plan's 60 days: the stop is kept, the day said, the end where it was.
+      const far = await askIn('travel:addStop', { title: 'Far', date: day(214) });
+      ok(far, 'addStop far away');
+      assert.deepEqual([far.json.note, far.json.effects], ['A plan can be at most 60 days long, so that day is left off the plan.', undefined]);
+      assert.equal((await phasesOf(camp)).trip.end, day(14));
+    } finally {
+      await call('PATCH', `/api/spaces/${camp}`, { cookie: admin, body: { phases: null } });
+      ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'default' } }), 'back to the default template');
+    }
+  });
+
   await test('the same requests through an uploaded copy of the Itinerary wait for a page and never reach the runner', async () => {
     as = agents[10];
     const up = path.join(base, 'variants', 'travel-upload');
@@ -1317,6 +1355,200 @@ try {
     ok(open, 'open again');
     assert.deepEqual(open.json.effects, { links: { added: 1, removed: 0 }, schedules: { set: ['remind:fxl'], cancelled: [] }, notified: 2 });
   });
+
+  // --- the main phase's end in the answer (plan-agent-server-actions.md, section 2, step 8) --------------------------------
+  // The travel template's phases (Planning ... Trip, the main one, Post-trip) for the whole environment, the Camp's and the
+  // Lodge's Trip dated, and a space no effects agent is in.
+  {
+    const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const DATES = { trip: { start: day(10), end: day(12) }, 'post-trip': { start: day(13) } };
+    const phasesOf = async (id) => (await call('GET', `/api/spaces/${id}`, { cookie: admin })).json.space.phases || {};
+    const setDates = async (id, phases) => ok(await call('PATCH', `/api/spaces/${id}`, { cookie: admin, body: { phases } }), 'the dates are set');
+    ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'travel' } }), 'the travel template');
+    const annex = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Annex', members: [mia.key] } })).json.space.id;
+    // An agent may write 20 times a minute, so these cases have agents of their own and move on to the next in time.
+    const peAgents = [];
+    for (let i = 0; i < 8; i += 1) {
+      const a = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
+      peAgents.push(a);
+      await newToken(a);
+    }
+    for (const id of [camp, lodge]) {
+      const members = (await call('GET', `/api/spaces/${id}`, { cookie: admin })).json.space.members;
+      ok(await call('PATCH', `/api/spaces/${id}`, { cookie: admin, body: { members: [...members, ...peAgents.map((a) => a.key)] } }), 'the phase agents join');
+    }
+    let asked = 0;
+    const pfx = (plan, o) => {
+      as = peAgents[Math.floor(asked / 12) % peAgents.length];
+      asked += 1;
+      // A note is added in the asker's own name.
+      const mine = Array.isArray(plan.writes) ? { ...plan, writes: plan.writes.map((w) => (w.value && w.value.byKey ? { ...w, value: { ...w.value, byKey: as.key } } : w)) } : plan;
+      return fx(mine, o);
+    };
+    try {
+      for (const id of [camp, lodge, annex]) await setDates(id, DATES);
+      const campDates = await phasesOf(camp);
+      assert.deepEqual([campDates.trip, campDates['post-trip']], [DATES.trip, DATES['post-trip']]);
+      const still = async (before, what) => {
+        assert.deepEqual(await everything(), before.all, `${what}: nothing was changed`);
+        for (const id of [camp, lodge, annex]) assert.deepEqual(await phasesOf(id), before.dates[id], `${what}: the dates of ${id} are as they were`);
+      };
+      const snapshot = async () => ({ all: await everything(), dates: { [camp]: await phasesOf(camp), [lodge]: await phasesOf(lodge), [annex]: await phasesOf(annex) } });
+      const faulted = async (r, why, before) => {
+        ok(r, why, 500);
+        assert.deepEqual([r.json.ok, r.json.error, r.json.effects], [false, `Fixture notes could not carry that out: ${why}.`, undefined]);
+        await still(before, why);
+      };
+
+      await test('phaseEnd: the main phase\'s end moves to cover the day, every later boundary with it, as the agent, and is recorded', async () => {
+        const r = await pfx({ writes: [noteWrite('pe1')], phaseEnd: { date: day(14) } });
+        ok(r, 'phaseEnd');
+        assert.deepEqual(r.json.effects, { phaseEnd: { moved: true, end: day(14) } });
+        assert.equal(r.json.note, 'Planned.', 'no note about the dates');
+        const now = await phasesOf(camp);
+        assert.deepEqual([now.trip, now['post-trip']], [{ start: day(10), end: day(14) }, { start: day(15) }], 'only the end, and the next phase the same two days later');
+        assert.deepEqual([await phasesOf(lodge), await phasesOf(annex)], [campDates, campDates], 'no other space\'s dates');
+        assert.deepEqual((await call('GET', `/api/spaces/${camp}/action/${r.json.id}`, T())).json.effects, r.json.effects, 'request_status keeps it');
+        // A day already covered, the end itself, a day before the phase: nothing moves, and never earlier.
+        for (const d of [day(14), day(11), day(2), '2001-01-01']) {
+          const same = await pfx({ phaseEnd: { date: d } });
+          ok(same, `covered: ${d}`);
+          assert.equal(same.json.effects, undefined, `${d}: nothing moved, nothing reported`);
+          assert.deepEqual(await phasesOf(camp), now);
+        }
+      });
+
+      await test('phaseEnd: only { date }, one real day; a phase\'s id, a start, a space or a list is refused and nothing changes', async () => {
+        const before = await snapshot();
+        const w = [noteWrite('pe2')];
+        const RESULT = 'it answered something the server can\'t use';
+        for (const bad of [{ date: day(20), phase: 'post-trip' }, { date: day(20), id: 'planning' }, { date: day(20), space: annex }, { date: day(20), start: day(1) }, { end: day(20) }, { 'post-trip': { start: day(20) } }, {}, [{ date: day(20) }], day(20), 20, true]) {
+          await faulted(await pfx({ writes: w, phaseEnd: bad }), RESULT, before);
+        }
+        await faulted(await pfx({ writes: w, phaseEnd: { date: day(20) }, phases: { trip: { end: day(20) } } }), RESULT, before);
+        const DAY = 'it named a last day that is not a day written as YYYY-MM-DD';
+        const y = day(20).slice(0, 4);
+        for (const bad of ['tomorrow', '', `${y}-02-30`, `${y}-13-01`, `${y}-1-5`, `${day(20)}T00:00:00Z`, ` ${day(20)}`, 20261005, { toString: 'x' }, [day(20)]]) {
+          await faulted(await pfx({ writes: w, phaseEnd: { date: bad } }), DAY, before);
+        }
+      });
+
+      await test('phaseEnd: an action whose manifest does not say so may not move the dates', async () => {
+        const P = 'fixture-plain';
+        const before = { all: await everything(P), dates: (await snapshot()).dates };
+        const r = await pfx({ writes: [noteWrite('pp1')], phaseEnd: { date: day(20) } }, { module: P });
+        ok(r, 'not declared', 500);
+        assert.equal(r.json.error, 'Fixture plain could not carry that out: it tried to move this trip\'s dates, which that action may not.');
+        assert.deepEqual(await everything(P), before.all);
+        assert.deepEqual((await snapshot()).dates, before.dates);
+        // The manifest's word is true or false, and only on a write that is not local.
+        const { cleanManifest } = require(path.join(ROOT, 'server', 'modules.js'));
+        const raw = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'module.json'), 'utf8'));
+        const withAction = (edit) => { const m = JSON.parse(JSON.stringify(raw)); edit(m.actions.provides.find((a) => a.name === 'effects')); return m; };
+        const files = new Set([...Object.values(raw.surfaces || {}).map((x) => x.entry), ...fs.readdirSync(path.join(FIXTURE, 'src')).map((f) => `src/${f}`)]);
+        const clean = cleanManifest;
+        if (typeof cleanManifest === 'function') {
+          assert.equal(clean(raw, files).actions.provides.find((a) => a.name === 'effects').phaseEnd, true);
+          assert.throws(() => clean(withAction((a) => { a.phaseEnd = 'trip'; }), files), /phaseEnd must be true or false/);
+          assert.throws(() => clean(withAction((a) => { a.local = true; delete a.effect; }), files), /only as a write that is not local/);
+          assert.equal('phaseEnd' in clean(withAction((a) => { a.phaseEnd = false; }), files).actions.provides.find((a) => a.name === 'effects'), false);
+        } else {
+          throw new Error('server/modules.js no longer exports cleanManifest: test the phaseEnd declaration another way');
+        }
+      });
+
+      await test('phaseEnd: a day more than 366 days past the end is refused whole, for the agent and for a person\'s page', async () => {
+        const before = await snapshot();
+        const end = before.dates[camp].trip.end;
+        const far = new Date(Date.parse(`${end}T00:00:00Z`) + 367 * 86400000).toISOString().slice(0, 10);
+        await refusedWhole(await pfx({ writes: [noteWrite('pe3')], phaseEnd: { date: far } }), 400, 'Nothing was changed: Trip can be made at most 366 days longer at once.', before.all);
+        await refusedWhole(await pfx({ writes: [noteWrite('pe3')], phaseEnd: { date: '9999-12-31' } }), 400, 'Nothing was changed: Trip can be made at most 366 days longer at once.', before.all);
+        await still(before, 'too far');
+        const page = await call('POST', `/api/spaces/${camp}/phases/cover`, { cookie: miaC, body: { day: far } });
+        ok(page, 'the cover route, too far', 400);
+        assert.equal(page.json.error, 'Trip can be made at most 366 days longer at once.');
+        await still(before, 'too far, from a page');
+      });
+
+      await test('phaseEnd: when the notice after it fails, the dates are put back exactly, with the writes, links and schedules', async () => {
+        const before = await snapshot();
+        const plan = (notify) => ({
+          writes: [noteWrite('pe4'), noteWrite('pe5')],
+          links: [{ add: { from: noteRef('pe4'), to: noteRef('pe5') } }],
+          schedules: [{ set: { key: 'remind:pe4', at: inAnHour(), about: noteRef('pe4') } }],
+          phaseEnd: { date: day(30) },
+          notify,
+        });
+        await refusedWhole(await pfx(plan([{ title: 'Moved', to: 'environment' }])), 400, 'Nothing was changed: a notice from an agent\'s request goes to this trip or to one of its members.', before.all);
+        await still(before, 'a notice to the environment');
+        await refusedWhole(await pfx(plan([{ title: 'Moved', about: noteRef('nosuchnote') }])), 404, 'Nothing was changed: that object is no longer there.', before.all);
+        await still(before, 'a notice about nothing');
+        // A write the guards refuse: the end is never tried.
+        const g = await pfx({ writes: [noteWrite('pe4'), { key: 'zzz:9', value: {} }], phaseEnd: { date: day(30) } });
+        ok(g, 'a refused write', 400);
+        await still(before, 'a refused write');
+        // The same plan with nothing wrong is done whole.
+        const done = await pfx(plan([{ title: 'Moved' }]));
+        ok(done, 'the whole plan');
+        assert.deepEqual(done.json.effects, { links: { added: 1, removed: 0 }, schedules: { set: ['remind:pe4'], cancelled: [] }, notified: 2, phaseEnd: { moved: true, end: day(30) } });
+        assert.equal((await phasesOf(camp)).trip.end, day(30));
+      });
+
+      await test('phaseEnd: a space the agent is not in, and a closed space, get nothing', async () => {
+        const before = await snapshot();
+        const ids = busIds();
+        const other = await pfx({ writes: [noteWrite('pe6')], phaseEnd: { date: day(40) } }, { space: annex });
+        assert.ok(other.status === 403 || other.status === 404, `someone else's space: ${other.status} ${other.text}`);
+        ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: true } }), 'the Lodge closes');
+        const shut = await pfx({ writes: [noteWrite('pe6')], phaseEnd: { date: day(40) } }, { space: lodge });
+        assert.ok(shut.status === 403 || shut.status === 404, `a closed space: ${shut.status} ${shut.text}`);
+        assert.deepEqual(busIds(), ids, 'no request was made');
+        ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: false } }), 'the Lodge opens');
+        const slow = pfx({ writes: [noteWrite('pe6')], phaseEnd: { date: day(40) } }, { space: lodge, ms: 700 });
+        await sleep(250);
+        ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: true } }), 'the Lodge closes while the handler runs');
+        const r = await slow;
+        assert.ok(r.status === 403 || r.status === 404, `closed meanwhile: ${r.status} ${r.text}`);
+        ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: false } }), 'the Lodge opens again');
+        assert.deepEqual((await snapshot()).dates, before.dates, 'no space\'s dates moved');
+        assert.ok(!(await call('GET', `/api/modules/fixture-notes/data?scope=space&space=${lodge}`, { cookie: admin })).json.items.some((i) => i.key === 'note:pe6'), 'and nothing was written');
+      });
+
+      await test('phaseEnd: an asker without the right keeps its writes, the end stays, and the note says why', async () => {
+        // On this server an agent that may write in the module may move the dates (the cover route's rule), so the right is
+        // taken away where the effects ask for it: server/action-effects.js apply, with every other service a stand-in
+        // that must not be reached.
+        const { createActionEffects, effectsOf } = require(path.join(ROOT, 'server', 'action-effects.js'));
+        const moved = [];
+        const never = new Proxy({}, { get: (_, k) => () => { throw new Error(`reached ${String(k)}`); } });
+        const fxOf = (refusal) => createActionEffects({
+          moduleLinks: never, moduleHooks: { about: () => [], cancelAbout: () => {}, record: () => null }, modules: { shownName: () => 'Fixture notes' },
+          copySight: () => ({}), hookGranted: () => true, overLimit: () => false, limitMessage: () => 'slow down',
+          phaseCover: { refusal, move: (space, d) => { moved.push(d); return { moved: true, before: {}, label: 'Trip' }; }, putBack: () => { moved.push('back'); } },
+        });
+        const effects = effectsOf({ phaseEnd: { date: '2027-01-05' } }, { own: () => true, phaseEnd: true });
+        const args = { effects, who: { user: { key: 'a1' } }, space: { id: 's1', members: [] }, found: { manifest: { id: 'fixture-notes', hooks: {} } }, ctx: { scopeKey: 'space:s1', by: 'a1' } };
+        const SENTENCE = 'Only someone who can write in a module that is on in this space can move its dates.';
+        const kept = fxOf(() => SENTENCE).apply(args);
+        assert.deepEqual(kept, { done: { phaseEnd: { moved: false, why: SENTENCE } }, note: `The last day was not moved to 2027-01-05: ${SENTENCE}` });
+        assert.deepEqual(moved, [], 'nothing was moved, and nothing put back');
+        const may = fxOf(() => null).apply(args);
+        assert.deepEqual([may, moved], [{ done: { phaseEnd: { moved: true, end: '2027-01-05' } } }, ['2027-01-05']]);
+        assert.equal(effectsOf({ phaseEnd: { date: '2027-01-05' } }, { own: () => true }).fault, 'phaseEnd', 'not declared: a fault');
+        // The right itself, on this server: a member whose role may write in no module is refused by the cover route, as before.
+      });
+
+    } finally {
+      for (const id of [camp, lodge, annex]) await call('PATCH', `/api/spaces/${id}`, { cookie: admin, body: { phases: null } });
+      ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'default' } }), 'back to the default template');
+    }
+    await test('phaseEnd: without phases nothing moves and the request is done', async () => {
+      const r = await pfx({ writes: [noteWrite('pe9')], phaseEnd: { date: day(50) } });
+      ok(r, 'no phases');
+      assert.deepEqual([r.json.ok, r.json.effects], [true, undefined]);
+      assert.deepEqual(await phasesOf(camp), {});
+    });
+  }
 
   await test('effects: the handler still has no network, no environment and no way to load a module', async () => {
     as = fxAgents[1];
