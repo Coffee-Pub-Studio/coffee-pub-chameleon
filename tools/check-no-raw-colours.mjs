@@ -27,7 +27,11 @@
 //   node tools/check-no-raw-colours.mjs --update --force-raise   also allow raising (how it was first made)
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, collectFiles, declarations, Tally, runRatchet, summary } from './lib/drift.mjs';
+import { createRequire } from 'node:module';
+import { ROOT, collectFiles, Tally, runRatchet, summary } from './lib/drift.mjs';
+
+// The colour rule itself (what is a hard-coded colour, what is a shadow or scrim) is server/colour-rule.js, shared with the module check.
+const { coloursInFile } = createRequire(import.meta.url)('../server/colour-rule.js');
 
 // The Whiteboard stores a block's palette name as data ({ fill: 'gold' }) and draws it through its own palette table (WB_PALETTE),
 // never as a colour. So in the Whiteboard's own source, and only there, a name from that table is not a raw colour.
@@ -52,66 +56,6 @@ const TOKEN_FILES = new Set(['public/style.css', 'public/sdk/host.css', 'public/
 // :root, optionally with attribute and :not() parts, and nothing else (no descendant): a token definition.
 const TOKEN_SELECTOR = /^:root(?:\[[^\]]*\]|:not\((?:[^()]|\([^()]*\))*\))*$/;
 
-const NAMED = new Set(('aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen').split(' '));
-const COLOUR_PROP = /^(?:color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?|outline(?:-color)?|box-shadow|text-shadow|text-decoration(?:-color)?|text-emphasis(?:-color)?|-webkit-text-stroke(?:-color)?|-webkit-text-fill-color|-webkit-tap-highlight-color|fill|stroke|stop-color|flood-color|lighting-color|caret-color|accent-color|column-rule(?:-color)?|scrollbar-color|filter|backdrop-filter|mask-image)$/;
-const COLOUR_CUSTOM = /colou?r|bg|background|fill|stroke|border|shadow|accent|text|ink|tint|surface|scrim|overlay|glow|edge|line|dot/i;
-const FUNC = /\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/gi;
-
-// Take url(...) and quoted strings out of a value (kept the same length), so a "#fff" in a data URI or a content string is not read.
-function plain(value) {
-  return value
-    .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)/gi, (m) => ' '.repeat(m.length))
-    .replace(/(["'])(?:(?!\1).)*\1/g, (m) => ' '.repeat(m.length));
-}
-
-// Index of the ")" that closes the "(" at `open`, or -1.
-function closeOf(s, open) {
-  let depth = 0;
-  for (let i = open; i < s.length; i += 1) {
-    if (s[i] === '(') depth += 1;
-    else if (s[i] === ')' && (depth -= 1) === 0) return i;
-  }
-  return -1;
-}
-
-// The colours in a value: [{ text, index, kind: 'hex' | 'func' | 'named' }].
-function coloursIn(value, named) {
-  const out = [];
-  for (const m of value.matchAll(/(?<![\w&#/])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})(?![\w-])/gi)) out.push({ text: m[0], index: m.index, kind: 'hex' });
-  for (const m of value.matchAll(FUNC)) {
-    const open = m.index + m[0].length - 1;
-    const close = closeOf(value, open);
-    if (close === -1) continue;
-    const text = value.slice(m.index, close + 1);
-    if (/\bvar\(/.test(text)) continue; // built from a token
-    out.push({ text, index: m.index, kind: 'func' });
-  }
-  if (named) {
-    for (const m of value.matchAll(/(?<![\w-])[a-z]+(?![\w-])/gi)) {
-      if (NAMED.has(m[0].toLowerCase())) out.push({ text: m[0], index: m.index, kind: 'named' });
-    }
-  }
-  return out;
-}
-
-// Pure black or white, with its alpha: { alpha } or null.
-function blackOrWhite(c) {
-  const t = c.text.toLowerCase().replace(/\s+/g, '');
-  if (c.kind === 'named') return t === 'black' || t === 'white' ? { alpha: 1 } : null;
-  if (c.kind === 'hex') {
-    const h = t.slice(1);
-    const full = h.length <= 4 ? [...h].map((x) => x + x).join('') : h;
-    const rgb = full.slice(0, 6);
-    if (rgb !== '000000' && rgb !== 'ffffff') return null;
-    return { alpha: full.length === 8 ? parseInt(full.slice(6), 16) / 255 : 1 };
-  }
-  const m = /^(?:rgba?)\((\d+(?:\.\d+)?)[ ,]+(\d+(?:\.\d+)?)[ ,]+(\d+(?:\.\d+)?)(?:[ ,/]+(\d*\.?\d+)(%?))?\)$/.exec(t);
-  if (!m) return null;
-  const [r, g, b] = [m[1], m[2], m[3]].map(Number);
-  if (!((r === 0 && g === 0 && b === 0) || (r === 255 && g === 255 && b === 255))) return null;
-  return { alpha: m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1) };
-}
-
 // { fill: 'gold' } in the Whiteboard's source with 'gold' in its palette table: a name kept as data. The quote must follow `key:`
 // (the text keeps its positions in declarations(), so d.index is just inside the quote), not `=` (an assignment or attribute).
 function inWhiteboardData(file, d, c, value) {
@@ -123,23 +67,14 @@ const LIST = process.argv.includes("--list"); // print every hit, file:line
 const tally = new Tally();
 const files = collectFiles();
 for (const file of files) {
-  for (const d of declarations(file)) {
-    if (d.prop === 'value' || d.prop === 'css-text') continue; // an input's value; cssText is read as the declarations inside it
-    if (file.kind === 'css' && TOKEN_FILES.has(file.rel) && d.selector.split(',').every((s) => TOKEN_SELECTOR.test(s.trim()))) continue;
-    const value = plain(d.value);
-    const named = COLOUR_PROP.test(d.prop) || (d.prop.startsWith('--') && COLOUR_CUSTOM.test(d.prop));
-    // Spans of color-mix(...) so the white or black it mixes toward can be told.
-    const mixes = [];
-    for (const m of value.matchAll(/color-mix\(/gi)) mixes.push([m.index, closeOf(value, m.index + m[0].length - 1)]);
-    for (const c of coloursIn(value, named)) {
-      if (inWhiteboardData(file, d, c, value)) continue;
-      const bw = blackOrWhite(c);
-      const inMix = mixes.some(([a, b]) => c.index > a && c.index < b);
-      const shadowProp = /shadow|filter/.test(d.prop);
-      const scrim = bw && (shadowProp || bw.alpha < 1 || inMix);
-      if (LIST) console.log(`${file.rel}:${d.line}  ${scrim ? "shadow-scrim" : "raw"}  ${d.prop}: ${c.text}`);
-      tally.add(file.rel, scrim ? 'shadow-scrim' : 'raw', d.line);
-    }
+  const found = coloursInFile(file, {
+    // A token definition is not a use of a colour.
+    skipDeclaration: (d) => file.kind === 'css' && TOKEN_FILES.has(file.rel) && d.selector.split(',').every((s) => TOKEN_SELECTOR.test(s.trim())),
+    skip: (f, d, c, value) => inWhiteboardData(file, d, c, value),
+  });
+  for (const c of found) {
+    if (LIST) console.log(`${file.rel}:${c.line}  ${c.kind}  ${c.prop}: ${c.text}`);
+    tally.add(file.rel, c.kind, c.line);
   }
 }
 

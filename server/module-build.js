@@ -72,26 +72,38 @@ function zipFiles(files) {
 // `o.leaveOut`: library files (as `src/<name>`) to leave out of the script, the ones the manifest's actions.pageOnly names,
 // which the server's runner does not load; the page always gets every one.
 function libraryOf(dir, owner, o = {}) {
-  const read = (name, ext) => fs.readFileSync(path.join(dir, 'src', `${name}.${ext}`), 'utf8');
   const srcFiles = fs.readdirSync(path.join(dir, 'src'));
+  const lib = libraryFrom(srcFiles, owner, (f) => fs.readFileSync(path.join(dir, 'src', f), 'utf8'), o);
+  return {
+    js: lib.js,
+    // Stylesheets of a library the page carries (src/<owner>-lib-*.css, in name order) come before the page's own.
+    css: srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.css')).sort().map((f) => fs.readFileSync(path.join(dir, 'src', f), 'utf8')).join('\n'),
+    // The library's own files, in the order they are put in (src/<name>), so a caller can say which it holds.
+    files: lib.files,
+  };
+}
+
+// The script of a library from a list of the names in src/ and a reader (`read(name)` answers a file's text): { js, files,
+// data } with `files` the script files in the order they are put in (as `src/<name>`) and `data` the data files folded in
+// (as `src/<name>`). Pure: libraryOf reads a folder with it, and the module check (server/module-check.js) reads a zip with
+// it, so the text the server's runner hashes and loads is made in one place.
+function libraryFrom(srcFiles, owner, read, o = {}) {
   const libFile = `${owner}-lib.js`;
   const leaveOut = new Set(Array.isArray(o.leaveOut) ? o.leaveOut : []);
   const isLib = (f) => (f === libFile || (f.startsWith(`${owner}-lib-`) && f.endsWith('.js'))) && !leaveOut.has(`src/${f}`);
   const libNames = srcFiles.filter(isLib).sort((x, y) => (x === libFile ? -1 : y === libFile ? 1 : x.localeCompare(y)));
-  const dataLib = srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.json')).sort()
-    .map((f) => {
-      const name = f.slice(`${owner}-lib-`.length, -5);
-      if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`${f}: the name after "${owner}-lib-" must be lower case letters, digits and dashes`);
-      let data;
-      try { data = JSON.parse(read(f.slice(0, -5), 'json')); } catch (err) { throw new Error(`${f} is not valid JSON: ${err.message}`); }
-      return `const LIB_${name.toUpperCase().replace(/-/g, '_')} = ${JSON.stringify(data)};`;
-    });
+  const dataNames = srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.json')).sort();
+  const dataLib = dataNames.map((f) => {
+    const name = f.slice(`${owner}-lib-`.length, -5);
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`${f}: the name after "${owner}-lib-" must be lower case letters, digits and dashes`);
+    let data;
+    try { data = JSON.parse(read(f)); } catch (err) { throw new Error(`${f} is not valid JSON: ${err.message}`); }
+    return `const LIB_${name.toUpperCase().replace(/-/g, '_')} = ${JSON.stringify(data)};`;
+  });
   return {
-    js: [...dataLib, ...libNames.map((f) => read(f.slice(0, -3), 'js'))].join('\n'),
-    // Stylesheets of a library the page carries (src/<owner>-lib-*.css, in name order) come before the page's own.
-    css: srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.css')).sort().map((f) => read(f.slice(0, -4), 'css')).join('\n'),
-    // The library's own files, in the order they are put in (src/<name>), so a caller can say which it holds.
+    js: [...dataLib, ...libNames.map((f) => read(f))].join('\n'),
     files: libNames.map((f) => `src/${f}`),
+    data: dataNames.map((f) => `src/${f}`),
   };
 }
 
@@ -128,6 +140,13 @@ function buildModule(dir) {
     const own = partPage && partPage !== manifest.id && srcFiles.includes(`${partPage}.html`) ? partPage : null;
     files.push([def.entry, Buffer.from(surface === 'widget' ? build(`${manifest.id}-widget`) : surface === 'keyed' ? build(`${manifest.id}-keyed`) : own ? build(own, own) : shared())]);
   }
+  // A module that carries actions on the server (actions.server) carries the library the runner loads, under src/ as it is in the
+  // source folder (plan-agent-server-actions.md, sections 8 and 9): the files the runner hashes and loads, without those only the
+  // page needs (actions.pageOnly). The module check reads them from the zip.
+  if (manifest.actions && typeof manifest.actions.server === 'string') {
+    const run = libraryFrom(srcFiles, manifest.id, (f) => fs.readFileSync(path.join(dir, 'src', f), 'utf8'), { leaveOut: Array.isArray(manifest.actions.pageOnly) ? manifest.actions.pageOnly : [] });
+    for (const f of [...run.files, ...run.data]) files.push([f, fs.readFileSync(path.join(dir, f))]);
+  }
   return { manifest, fileCount: files.length, zip: zipFiles(files) };
 }
 
@@ -152,4 +171,4 @@ function bundledModules(rootDir) {
   return out;
 }
 
-module.exports = { libraryOf, buildModule, bundledModules, zipFiles };
+module.exports = { libraryOf, libraryFrom, buildModule, bundledModules, zipFiles };
