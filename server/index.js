@@ -38,6 +38,7 @@ const { ModuleSettings, SettingError } = require('./module-settings');
 const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
+const { WeatherCache, weatherDays, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
 const airportList = require('./airports');
 const { RegionCutJobs, RegionCutError } = require('./region-cut');
 const { pmtilesInfo, pmtilesWhyNot } = require('./pmtiles-header');
@@ -643,6 +644,9 @@ migrateIfNeeded();
 // beside the environment's own files on a single install. Built once, here, and written out at shutdown.
 const flightSchedule = new FlightSchedule(DATA_DIR);
 process.on('exit', () => flightSchedule.flush());
+// The weather kept for a while, one file for the whole server (server/weather.js): keyed by a rounded position and a day only.
+const weatherCache = new WeatherCache(DATA_DIR);
+process.on('exit', () => weatherCache.flush());
 
 // On a first start with BASE_DOMAIN where a shared folder (documentation/plans/plan-environments.md, "Shared files:
 // the host's map") does not exist yet: if exactly one environment has files in its own, pre-shared folder for
@@ -11357,7 +11361,7 @@ function overLimit(moduleId, by, kind) {
   const r = moduleLimits.take(moduleId, by || 'guest', kind);
   if (r.ok) return null;
   lastLimited = { moduleId, retrySeconds: r.retrySeconds };
-  if (r.first) noteActivity(moduleId, `was slowed: too many ${kind === 'write' ? 'saves' : kind.startsWith('clear') ? 'clears' : kind.startsWith('library') ? 'files' : kind + 's'} in a minute`, by === '*' ? null : by, null);
+  if (r.first) noteActivity(moduleId, `was slowed: too many ${kind === 'write' ? 'saves' : kind.startsWith('clear') ? 'clears' : kind.startsWith('library') ? 'files' : kind === 'weather' ? 'weather asks' : kind + 's'} in a minute`, by === '*' ? null : by, null);
   return r;
 }
 // The Vault's budget: a file or a small picture counts for the person and for the environment together; refused by either,
@@ -12670,6 +12674,211 @@ app.post('/api/modules/:id/geocode/purge', requireOwner, (req, res) => {
   if (!what) return res.status(400).json({ error: 'say what to remove: unused or all' });
   const days = Number(req.body?.olderThanDays);
   res.json({ removed: geocodeCache.purge(found.manifest.id, what, Number.isFinite(days) && days > 0 ? days : 0), ...geocodeCache.stats(found.manifest.id) });
+});
+// --- the weather on a day, from the server ----------------------------------------------------------------------------------
+// A module that declares `weather` in its manifest (the Itinerary) has the weather of its days answered here
+// (documentation/plans/plan-itinerary-weather.md, step 2). Nothing goes out until an owner chooses a service in the module's
+// settings. What goes out then, and only then: to the weather service, a position rounded to 2 decimals, a first and a last
+// day, the fields wanted and the key when there is one (server/weather.js); and, only for a trip whose days need its main
+// place and only when a place search is chosen (Maps'), that place's text to the place search, as a search for it would send.
+// Never who asks, the space, the environment or anything else of the trip. The key is read here and never answered.
+const WEATHER_OFF = { configured: false };
+const WEATHER_MAX_DAYS = 60;
+const WEATHER_MAX_PLACES = 8; // distinct stop places in one answer; days beyond them use the main place
+const WEATHER_MAX_POINTERS = 120; // how many stop pointers one answer looks up
+const MAIN_PLACE_GOOD_MS = 24 * 3600 * 1000;
+const MAIN_PLACE_MISS_MS = 10 * 60 * 1000;
+const MAIN_PLACE_MAX = 500;
+const mainPlaces = new Map(); // `${environment slug}\n${module with the search}\n${text, folded}` -> { lat, lon (null: not found), at }. In memory only.
+// Where this module's weather comes from now: { address, key, httpsOnly, credit, units }, or null when none is chosen.
+function weatherSetup(manifest) {
+  const w = manifest.weather;
+  const values = moduleSettings.values(manifest, 'environment', {});
+  const chosen = values[w.provider];
+  const units = w.units && values[w.units] === 'f' ? 'f' : 'c';
+  const key = () => (w.key ? moduleSettings.secret(manifest, w.key) || '' : '');
+  if (typeof chosen === 'string' && Object.hasOwn(w.providers, chosen)) return { address: w.providers[chosen].address, credit: w.providers[chosen].credit, httpsOnly: true, units, key: key() };
+  if (chosen === w.custom && typeof values[w.address] === 'string' && /^https?:\/\//i.test(values[w.address])) return { address: values[w.address], credit: '', httpsOnly: false, units, key: key() };
+  return null;
+}
+// The first stop of each day that is at a place with a position, as this asker may see that place: Map(day -> { lat, lon }).
+// A stop's place is a pointer (to a Maps place); it is looked up as the asker, so a place they may not see gives no position.
+function weatherStopPlaces(ctx, days) {
+  const st = ctx.manifest.weather.stops;
+  const out = new Map();
+  if (!st) return out;
+  const wanted = new Set(days);
+  const stops = [];
+  for (const row of withoutHiddenCopies(ctx.who, ctx.manifest, ctx.scopeKey, moduleData.list(ctx.manifest.id, ctx.scopeKey, st.prefix))) {
+    const v = row.value;
+    const ref = v && typeof v === 'object' ? v[st.place] : null;
+    if (!ref || typeof ref !== 'object' || !wanted.has(v[st.day])) continue;
+    // A place of this space, or one of the environment's: never a pointer into another space.
+    if (ref.scope === 'space' ? ref.space !== ctx.spaceId : ref.scope !== 'environment' && ref.scope !== undefined) continue;
+    const time = st.time && typeof v[st.time] === 'string' && /^\d{2}:\d{2}$/.test(v[st.time]) ? v[st.time] : '';
+    stops.push({ day: v[st.day], time, order: st.order && Number.isFinite(v[st.order]) ? v[st.order] : 0, key: row.key, ref });
+  }
+  // By time, then by order; a stop with no time comes after the timed ones.
+  stops.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) || (a.time ? 0 : 1) - (b.time ? 0 : 1) || (a.time < b.time ? -1 : a.time > b.time ? 1 : 0) || a.order - b.order || (a.key < b.key ? -1 : 1));
+  const seen = new Set();
+  let looked = 0;
+  for (const stop of stops) {
+    if (out.has(stop.day)) continue;
+    if (looked >= WEATHER_MAX_POINTERS) break;
+    looked += 1;
+    const summary = refAnswer(() => resolveRef(ctx.who, { module: stop.ref.module, kind: stop.ref.kind, id: stop.ref.id, scope: stop.ref.scope === 'space' ? 'space' : 'environment', ...(stop.ref.scope === 'space' ? { space: stop.ref.space } : {}) }, ctx.manifest.id));
+    const pos = summary && !summary.error && summary.place ? weatherPositionKey(summary.place.lat, summary.place.lng) : null;
+    if (!pos) continue;
+    if (!seen.has(pos) && seen.size >= WEATHER_MAX_PLACES) continue;
+    seen.add(pos);
+    const [lat, lon] = pos.split(',').map(Number);
+    out.set(stop.day, { lat, lon });
+  }
+  return out;
+}
+// The trip's main place as text, from the module's own stored value: '' when it has none.
+function weatherMainText(ctx) {
+  const mn = ctx.manifest.weather.main;
+  if (!mn || !mn.place) return '';
+  const stored = moduleData.get(ctx.manifest.id, ctx.scopeKey, mn.key);
+  const text = stored && stored.value && typeof stored.value === 'object' ? stored.value[mn.place] : '';
+  return typeof text === 'string' ? text.replace(/\p{Cc}/gu, ' ').trim().slice(0, 80) : '';
+}
+// Where that text is, by the place search an enabled module has chosen (Maps'): the saved places first, then what was found
+// for the same text a while ago (in memory), then the service. `{ lat, lon }`, null when it is not found or there is no place
+// search, or `{ ask }`, a function that asks the service (the caller counts it against the limit first).
+function weatherMainPlace(text) {
+  if (text.length < 2) return null;
+  const folded = text.toLowerCase();
+  for (const { manifest } of modules.enabledAll()) {
+    if (!manifest.geocoder) continue;
+    const setup = geocodeSetup(manifest);
+    if (!setup) continue;
+    const first = folded.split(/[^\p{L}\p{N}]+/u).filter(Boolean)[0] || '';
+    const saved = setup.save && first ? geocodeCache.search(manifest.id, text, null, 5).find((r) => String(r.name || '').toLowerCase().startsWith(first)) : null;
+    if (saved) return { lat: saved.lat, lon: saved.lng };
+    const memo = `${currentEnvironment().slug || ''}\n${manifest.id}\n${folded}`;
+    const kept = mainPlaces.get(memo);
+    if (kept && Date.now() - kept.at < (kept.lat === null ? MAIN_PLACE_MISS_MS : MAIN_PLACE_GOOD_MS)) return kept.lat === null ? null : { lat: kept.lat, lon: kept.lon };
+    return {
+      ask: async () => {
+        let best = null;
+        try {
+          const found = await askService(setup.address, text, null);
+          if (setup.save) geocodeCache.remember(manifest.id, found);
+          best = found[0] || null;
+        } catch { /* the place search failed: no main place for a while */ }
+        mainPlaces.delete(memo);
+        if (mainPlaces.size >= MAIN_PLACE_MAX) mainPlaces.delete(mainPlaces.keys().next().value);
+        mainPlaces.set(memo, { lat: best ? best.lat : null, lon: best ? best.lng : null, at: Date.now() });
+        return best ? { lat: best.lat, lon: best.lng } : null;
+      },
+    };
+  }
+  return null;
+}
+// The days asked for: `from` and `to`, or the trip's own first and last day (the space's main phase when it has phases,
+// else the stored ones, else the first and last day a stop is on). { days } or { error }.
+function weatherDaysAsked(ctx, query) {
+  const w = ctx.manifest.weather;
+  const day = (v) => (typeof v === 'string' && weatherDaysBetween(v, v, 1).length ? v : '');
+  const given = (name) => query[name] !== undefined && query[name] !== '';
+  let from = given('from') ? day(String(query.from)) : null;
+  let to = given('to') ? day(String(query.to)) : null;
+  if (from === '' || to === '') return { error: 'Give the days as YYYY-MM-DD.' };
+  let own = false;
+  if (!from || !to) {
+    let start = '';
+    let end = '';
+    const phases = phaseStatesOf(ctx.spaceId).phases;
+    if (phases.length) {
+      const space = store.spaceById(ctx.spaceId);
+      let bands = [];
+      try { bands = phaseRule.timelineOf(phases, space.phases || {}, { today: todayIn(ACTION_TZ), created: space.createdAt }) || []; } catch { bands = []; }
+      const main = bands.find((b) => b.main && b.dated);
+      if (main) { start = main.start; end = main.end || main.start; }
+    } else if (w.main) {
+      const stored = moduleData.get(ctx.manifest.id, ctx.scopeKey, w.main.key);
+      const v = stored && stored.value && typeof stored.value === 'object' ? stored.value : {};
+      start = w.main.from ? day(v[w.main.from]) : '';
+      end = (w.main.to ? day(v[w.main.to]) : '') || start;
+    }
+    if (!start && w.stops) {
+      const on = moduleData.list(ctx.manifest.id, ctx.scopeKey, w.stops.prefix).map((r) => day(r.value && r.value[w.stops.day])).filter(Boolean).sort();
+      if (on.length) { start = on[0]; end = on[on.length - 1]; }
+    }
+    if (!from && !to) own = true;
+    from = from || start || to;
+    to = to || (end && end >= from ? end : from);
+    if (!from) return { days: [] };
+  }
+  if (from > to) return { error: 'The first day must not be after the last.' };
+  // The trip's own days, when they are more than 60: the 60 from 30 days ago (or the trip's first day, if that is later).
+  if (own && weatherDaysBetween(from, to, WEATHER_MAX_DAYS + 1).length > WEATHER_MAX_DAYS) {
+    const back = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    if (back > from && back <= to) from = back;
+    return { days: weatherDaysBetween(from, to, WEATHER_MAX_DAYS) };
+  }
+  const days = weatherDaysBetween(from, to, WEATHER_MAX_DAYS + 1);
+  if (days.length > WEATHER_MAX_DAYS) return { error: `Ask for at most ${WEATHER_MAX_DAYS} days at a time.` };
+  return { days };
+}
+app.get('/api/modules/:id/weather', async (req, res) => {
+  const ctx = moduleAccess(req, res, 'read');
+  if (!ctx) return;
+  if (!ctx.manifest.weather) return res.status(404).json({ error: `this ${word('module')} has no weather` });
+  if (ctx.scope !== 'space') return res.status(400).json({ error: `The weather is for ${word('space', { a: true })}: ask with scope=space.` });
+  // An invented world has no real weather: nothing is asked.
+  if (pictureMapOf()) return res.json({ ...WEATHER_OFF, pictureMap: true });
+  const setup = weatherSetup(ctx.manifest);
+  if (!setup) return res.json(WEATHER_OFF);
+  const asked = weatherDaysAsked(ctx, req.query);
+  if (asked.error) return res.status(400).json({ error: asked.error });
+  const answer = { configured: true, credit: setup.credit, units: setup.units, days: {} };
+  const now = Date.now();
+  const inWindow = asked.days.filter((d) => weatherDayState(d, now) !== 'outOfRange');
+  for (const d of asked.days) answer.days[d] = { state: inWindow.includes(d) ? 'noPlace' : 'outOfRange' };
+  if (!inWindow.length) return res.json(answer);
+  // Each day's place: its first stop at a place with a position, else the trip's main place, else none.
+  const at = weatherStopPlaces(ctx, inWindow);
+  let counted = false;
+  const count = () => {
+    if (counted) return true;
+    if (overLimit(ctx.manifest.id, ctx.by, 'weather')) { res.status(429).json({ error: limitMessage() }); return false; }
+    counted = true;
+    return true;
+  };
+  if (inWindow.some((d) => !at.has(d))) {
+    let main = weatherMainPlace(weatherMainText(ctx));
+    if (main && main.ask) {
+      if (!count()) return;
+      main = await main.ask();
+    }
+    const pos = main ? weatherPositionKey(main.lat, main.lon) : null;
+    if (pos) {
+      const [lat, lon] = pos.split(',').map(Number);
+      for (const d of inWindow) if (!at.has(d)) at.set(d, { lat, lon });
+    }
+  }
+  const runs = new Map(); // "lat,lon" -> { lat, lon, days }
+  for (const d of inWindow) {
+    const p = at.get(d);
+    if (!p) continue;
+    const k = `${p.lat},${p.lon}`;
+    if (!runs.has(k)) runs.set(k, { lat: p.lat, lon: p.lon, days: [] });
+    runs.get(k).days.push(d);
+  }
+  // Only an ask of the service counts: an answer wholly from what is kept does not.
+  if ([...runs.values()].some((r) => r.days.some((d) => !weatherCache.get(r.lat, r.lon, d))) && !count()) return;
+  let failed = false;
+  let some = false;
+  await Promise.all([...runs.values()].map(async (r) => {
+    const got = await weatherDays(weatherCache, { address: setup.address, key: setup.key, httpsOnly: setup.httpsOnly }, r.lat, r.lon, r.days, { units: setup.units });
+    if (got.failed) failed = true;
+    for (const d of r.days) { answer.days[d] = got.days[d]; if (got.days[d].state === 'forecast' || got.days[d].state === 'past') some = true; }
+  }));
+  if (failed && !some) return res.status(502).json({ error: 'weather is not available right now' });
+  res.json(answer);
 });
 // --- flight lookup, from the server -----------------------------------------------------------------------------------------
 // A module that declares `"lookups": ["flight"]` in its manifest (the Planner) may look a flight number up in the schedule this

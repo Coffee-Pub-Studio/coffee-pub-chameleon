@@ -319,6 +319,7 @@
   {"kind":"route","method":"POST","path":"/api/modules/:id/geocode/use","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/modules/:id/geocode/stats","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/modules/:id/geocode/purge","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/api/modules/:id/weather","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/modules/:id/flight-lookup","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/modules/:id/flight-lookup/remember","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/flight-schedule","name":null,"part":null},
