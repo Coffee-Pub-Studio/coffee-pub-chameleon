@@ -2535,8 +2535,56 @@ th[aria-sort="ascending"] .sdk-sort > i, th[aria-sort="descending"] .sdk-sort > 
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- a day's weather (host.ui.dayWeather, plan-itinerary-weather.md step 3) ----
+   A quiet button at the end of the day's label row, a label's height: the icon and "22° / 14°" in the dim text colour. A day before
+   today (data-state="past") is the muted colour. On a phone only the icon and the high; the low is in the popover, and the hit area is
+   44px. It fades in when the answer arrives, so the header never waits for it. The popover is host.menu.show (.sdk-day-weather-pop). */
+.sdk-day-weather {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  min-height: var(--mk-h);
+  margin: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--day-dim);
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+  outline: none;
+  cursor: pointer;
+  animation: sdk-day-weather-in var(--motion-base) ease-out;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.sdk-day-weather[data-state="past"] { color: var(--text-muted); }
+.sdk-day-weather > .ic { flex: none; display: inline-flex; width: var(--icon-14); font-size: var(--icon-14); line-height: 1; justify-content: center; }
+.sdk-day-weather > .ic svg { width: 1em; height: 1em; fill: currentColor; }
+.sdk-day-weather-high { color: inherit; }
+.sdk-day-weather-low { color: var(--text-muted); }
+.sdk-day-weather:hover { background: var(--chip-fill-hover); color: var(--text-primary); }
+.sdk-day-weather:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.sdk-day-weather[aria-expanded="true"] { background: var(--chip-fill-hover); color: var(--text-primary); }
+@keyframes sdk-day-weather-in { from { opacity: 0; } to { opacity: 1; } }
+/* The popover: the words rows are facts, not actions; the credit keeps its own case. */
+.sdk-day-weather-pop .sdk-menu-item { cursor: default; }
+.sdk-day-weather-pop .sdk-menu-heading:last-child { color: var(--text-muted); font-weight: var(--weight-regular); letter-spacing: normal; text-transform: none; }
+@media (max-width: 640px) {
+  .sdk-day-weather-low { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .sdk-day-weather::before { content: ""; position: absolute; inset: calc((var(--mk-h) - 2px - 44px) / 2) 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  :is(.sdk-daychip, .sdk-day-empty) { transition: none; }
+  :is(.sdk-daychip, .sdk-day-empty, .sdk-day-weather) { transition: none; }
+  .sdk-day-weather { animation: none; }
 }
 /* days:end */
 

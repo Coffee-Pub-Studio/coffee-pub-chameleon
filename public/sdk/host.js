@@ -1667,7 +1667,113 @@
     return api;
   }
 
-  // host.ui.peoplePicker(el, { people?, value?, multiple?, name?, none?, gone?, onChange(keys) }) -> { get(), set(keys), setPeople(list), ready, destroy() }.
+  // host.ui.dayWeather(el, { day, units, credit }) -> { element, set({ day?, units?, credit? }), destroy() }: a day's weather in its header
+  // (plan-itinerary-weather.md, "What a person sees"). `day` is one day of the weather route's answer ({ state, code, words, high, low,
+  // rain }), `units` and `credit` the answer's own. Only `forecast` and `past` draw: a quiet button (.sdk-day-weather) appended to `el`
+  // (the day's .sdk-day-labels), the icon and "18° / 9°" (on a phone the icon and the high). Any other state, a missing day or a service
+  // that is off draws nothing and takes away what was drawn. A press opens a host.menu.show popover with the words, the high and low, the
+  // chance of rain, "Forecast" or "What it was", and the credit. Temperatures arrive in the chosen unit and are only rounded here.
+  const WEATHER_LOOK = {
+    clear: { icon: 'sun', words: 'Clear sky' },
+    partly: { icon: 'cloud-sun', words: 'Partly cloudy' },
+    cloudy: { icon: 'cloud', words: 'Cloudy' },
+    fog: { icon: 'smog', words: 'Fog' },
+    drizzle: { icon: 'cloud-rain', words: 'Drizzle' },
+    rain: { icon: 'cloud-showers-heavy', words: 'Rain' },
+    snow: { icon: 'snowflake', words: 'Snow' },
+    storm: { icon: 'cloud-bolt', words: 'Thunderstorm' },
+  };
+  // The facts drawn for one day, or null when nothing is drawn. Pure, so a check can run it.
+  function dayWeatherFacts(day, units) {
+    if (!day || typeof day !== 'object' || (day.state !== 'forecast' && day.state !== 'past')) return null;
+    const high = Number(day.high);
+    const low = Number(day.low);
+    if (day.high === null || day.low === null || !Number.isFinite(high) || !Number.isFinite(low)) return null;
+    const look = WEATHER_LOOK[day.code] || WEATHER_LOOK.cloudy;
+    const words = typeof day.words === 'string' && day.words.trim() && day.words.length <= 60 ? day.words.trim() : look.words;
+    const rain = day.state === 'forecast' && day.rain !== null && day.rain !== undefined && Number.isFinite(Number(day.rain)) ? Math.min(100, Math.max(0, Math.round(Number(day.rain)))) : null;
+    const unit = units === 'f' ? 'F' : units === 'c' ? 'C' : '';
+    const past = day.state === 'past';
+    const hi = Math.round(high);
+    const lo = Math.round(low);
+    const lead = past ? 'What it was' : 'Forecast';
+    const said = `${lead}: ${words.charAt(0).toLowerCase()}${words.slice(1)}, high ${hi}, low ${lo}${rain === null ? '' : `, ${rain} percent chance of rain`}`;
+    return { state: day.state, icon: look.icon, words, high: hi, low: lo, rain, unit, lead, said };
+  }
+  let dayWeatherSeq = 0;
+  function createDayWeather(el, o, deps) {
+    if (!el || el.nodeType !== 1) throw new Error('host.ui.dayWeather needs an element');
+    const doc = el.ownerDocument;
+    const menuId = `sdk-day-weather-${++dayWeatherSeq}`;
+    let state = { day: null, units: 'c', credit: '' };
+    let btn = null;
+    let facts = null;
+    let drawn = '';
+    const make = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    const open = () => {
+      if (!btn || !facts) return;
+      const f = facts;
+      const credit = typeof state.credit === 'string' ? state.credit.trim().slice(0, 120) : '';
+      const items = [
+        { heading: f.lead },
+        { label: f.words, icon: f.icon, hint: `High ${f.high}°${f.unit}, low ${f.low}°${f.unit}`, ariaLabel: `${f.words}, high ${f.high}, low ${f.low}`, onClick: () => {} },
+      ];
+      if (f.rain !== null) items.push({ label: `${f.rain}% chance of rain`, icon: 'droplet', ariaLabel: `${f.rain} percent chance of rain`, onClick: () => {} });
+      if (credit) items.push({ separator: true }, { heading: credit });
+      const mine = btn;
+      mine.setAttribute('aria-expanded', 'true');
+      deps.menu({ id: menuId, anchor: mine, items, className: 'sdk-day-weather-pop', maxWidth: 280,
+        onClose: () => {
+          mine.setAttribute('aria-expanded', 'false');
+          const a = (deps.root && deps.root.activeElement) || doc.activeElement;
+          if ((!a || a === doc.body) && mine.isConnected) mine.focus();
+        } });
+    };
+    const draw = () => {
+      facts = dayWeatherFacts(state.day, state.units);
+      if (!facts) { if (btn) btn.remove(); btn = null; drawn = ''; return; }
+      const key = JSON.stringify(facts);
+      if (btn && btn.isConnected && key === drawn) return;
+      drawn = key;
+      if (!btn) {
+        btn = make('button', 'sdk-day-weather');
+        btn.type = 'button';
+        btn.setAttribute('aria-haspopup', 'menu');
+        btn.setAttribute('aria-expanded', 'false');
+        btn.addEventListener('click', open);
+      }
+      btn.dataset.state = facts.state;
+      btn.setAttribute('aria-label', facts.said);
+      btn.dataset.tip = facts.said;
+      const ic = make('span', 'ic');
+      ic.setAttribute('aria-hidden', 'true');
+      const want = facts.icon;
+      deps.icon(want).then((svg) => { if (svg && facts && facts.icon === want) ic.innerHTML = svg; });
+      const lowPart = make('span', 'sdk-day-weather-low', ` / ${facts.low}°`);
+      lowPart.setAttribute('aria-hidden', 'true');
+      const highPart = make('span', 'sdk-day-weather-high', `${facts.high}°`);
+      highPart.setAttribute('aria-hidden', 'true');
+      btn.replaceChildren(ic, highPart, lowPart);
+      if (btn.parentNode !== el) el.append(btn);
+    };
+    const api = {
+      get element() { return btn; },
+      set(next) {
+        const n = next || {};
+        state = {
+          day: 'day' in n ? n.day : state.day,
+          units: 'units' in n ? n.units : state.units,
+          credit: 'credit' in n ? n.credit : state.credit,
+        };
+        draw();
+      },
+      destroy() { if (btn) btn.remove(); btn = null; facts = null; drawn = ''; },
+    };
+    api.set(o || {});
+    return api;
+  }
+
+  // host.ui.peoplePicker(el,{ people?, value?, multiple?, name?, none?, gone?, onChange(keys) }) -> { get(), set(keys), setPeople(list), ready, destroy() }.
   // The people of the space as the same chips the Planner's owners use (a tick box or a radio in a label). `people` is [{ key, name }];
   // left out, host.people() is asked. `value` is the keys chosen. A chosen key that is no longer in the list shows as `gone` ("No longer here")
   // so it can be taken off. One person only (`multiple: false`) adds `none` ("No one") as the first choice.
@@ -4235,6 +4341,11 @@
       outline: (el, o) => createOutline(el, o, { root: env.root, icon: (name) => menuIcon(name), menu: (args) => showMenu(args) }),
       // A small bar and the words "2 of 4": progress(el, { done, total, label?, words?(done, total) }) -> { set({ done, total }), destroy() }.
       progress: (el, o) => createProgress(el, o),
+      // A day's weather in its header (plan-itinerary-weather.md): dayWeather(el, { day, units, credit }) -> { element, set({ day?, units?,
+      // credit? }), destroy() }. `el` is the day's label row (.sdk-day-labels); `day` is answer.days[date] from the module's weather route
+      // ({ state, code, words, high, low, rain }), `units` and `credit` the answer's. Only `forecast` and `past` draw; anything else draws
+      // nothing. A press (or Enter or Space) opens the popover. See createDayWeather above.
+      dayWeather: (el, o) => createDayWeather(el, o, { root: env.root, icon: (name) => menuIcon(name), menu: (args) => showMenu(args) }),
       // The people of the space as chips to tick (one or more): peoplePicker(el, { value, multiple?, onChange(keys) }) ->
       // { get(), set(keys), setPeople(list), ready, destroy() }. It asks host.people() unless `people` ([{ key, name }]) is given.
       peoplePicker: (el, o) => createPeoplePicker(el, o, { people: () => call('people') }),
