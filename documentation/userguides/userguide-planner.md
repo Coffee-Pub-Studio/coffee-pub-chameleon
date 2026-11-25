@@ -10,6 +10,7 @@ Planner - Itinerary (module id `travel`; the Planner below for short, and the It
 2. Once enabled it is in every space whose template offers it (the Travel and Default templates do); there is no switch per space.
 3. On the Roles tab, under **Module: Planner - Itinerary**, choose who can **See the trip** and who can **Plan the trip**. By default everyone can see it, members and moderators can plan, and guests can see but not plan. **Clear the whole trip** decides who may use **Clear** on the Planner's menu (see "Clear the whole plan" below); it is on for moderators and off for members, and an owner always may.
 4. Optionally, under the Planner's settings (**Module Configuration** on its card), turn off **Suggest flights from earlier trips**. It is on by default: "Fill a flight from the same flight number saved before on this server. Flights saved here also help others; turn this off to keep them out." Off, the flight form has no **Look up a flight** row, and nothing saved here is kept for others. See "Look up a flight" below.
+5. Optionally, choose where the weather on each day comes from. Under the Planner's settings (**Module Configuration** on its card), **Weather** is **None** by default: no weather is shown and nothing is sent out. Choose **My own address** and give the **Weather address**, the address of a weather service you run or may use (it must answer like Open-Meteo's: for example `https://weather.example.org/v1/forecast`). Add a **Weather key** if the service needs one, and choose **Weather temperatures** in Celsius or Fahrenheit. Chameleon bundles no weather service; read the terms of the one you choose.
 
 ## The plan
 
@@ -23,6 +24,8 @@ The plan takes its name from the space.
 The days appear once the trip has a first day or anything on it has a date: one list from top to bottom, from the earliest date to the latest, with a strip of days at the top to jump to one and each day's heading staying in view as you scroll.
 
 ## How a day reads
+
+- **The weather.** When a weather service is set up (see "Set it up"), a day with a place shows a small icon with its high and low, such as "18° / 9°", on its heading. Press it for the words ("light rain"), the high and low, the chance of rain for a forecast, and the service's credit. Past days show what it was, in a muted colour. A day shows it for a stop's place that has a position on the map, else the trip's main place; a day with no place, or more than 13 days ahead or 30 days back, shows nothing. On a phone it shows the icon and the high. The server asks the service for it, never your browser, and sends only a rounded position and the days, nothing about you or the trip's name.
 
 - **The time column.** An object with a time shows it at the left of its card as three lines: when it starts, when it ends and, in brackets, how long it is (for example `8:00 PM`, `→ 9:30 PM` and `(1 h 30 min)`, in the environment's 12-hour or 24-hour clock). An end after midnight is followed by ` +1`. With no end time only the start shows, and a length without an end shows as `(1 h)` alone. In a narrow Planner the same words run on one line above the card, such as `7:40 AM → 10:35 AM`, or `10:00 AM → 11:00 AM (1 h)` with a length.
 - **The + between days.** The small **+** that adds something between two days sits midway between them.

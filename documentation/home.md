@@ -19,6 +19,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
   the compose file, with their defaults.
 - [The call](userguides/userguide-call.md) -- joining a space, the always-on column of call and chat, the
   controls, layouts, reactions, away, and the pop-out window.
+- [Tabs and workspaces](userguides/userguide-workspaces.md) -- the tabs along the top, adding your own workspaces, the tab menu, Manage tabs, Bring everyone here and layouts for everyone.
 - [Accounts, roles and permissions](userguides/userguide-accounts.md) -- who can do what, guests,
   invites, and personal links.
 - [Spaces](userguides/userguide-spaces.md) -- Home, the top bar, the status strip, phases, Set up, and stepping aside.
