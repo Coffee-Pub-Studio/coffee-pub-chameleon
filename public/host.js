@@ -10,6 +10,7 @@ import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
 import { initTemplates, showTemplatesView } from '/host-templates.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
+import { wireWeatherTerms } from '/weather-terms.js';
 
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -64,9 +65,12 @@ async function load() {
   await loadAiServices();
   await loadShared();
   await flightSchedule.load();
+  await weatherTerms.load();
 }
 // The flight schedule every environment shares (plan-flight-lookup.md, step 5), in the Server section.
 const flightSchedule = wireFlightSchedule('/api/host/flight-schedule');
+// The weather services' terms, accepted once for the whole host (plan-weather-part.md, step 2).
+const weatherTerms = wireWeatherTerms('/api/host/weather/terms', 'host');
 
 // --- the managed AI services: one row per company ---------------------------------------------------------------
 // GET /api/host/ai lists every company with whether it is offered (a key, or an address for Other, and a model); a row

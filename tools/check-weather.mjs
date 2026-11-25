@@ -1079,6 +1079,64 @@ await live('what is kept: positions, days and numbers only', async () => {
   assert.ok(!raw.includes('41.146938') && !raw.includes('38.787586'), 'no exact position');
 });
 
+await live('a hosted server: the host console accepts and withdraws a service\'s terms, and nobody else does', async () => {
+  // The host's three routes once sat after the host router's 404 catch-all, so a hosted server answered 404 and the console's
+  // Weather terms section could never load. Here a server with BASE_DOMAIN is asked as the host console (Host: admin.localhost).
+  const hostDir = fs.mkdtempSync(path.join(os.tmpdir(), 'weather-host-'));
+  const hostChild = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+    cwd: ROOT,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: hostDir, BASE_DOMAIN: 'localhost', ADMIN_LOGIN: 'host', ADMIN_PASSWORD: 'host-password-1', LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret', WEATHER_TEST_STANDIN: WX },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  try {
+    const port = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`the hosted server did not start in time:\n${out}`)), 20000);
+      const onData = (d) => { out += d; const m = /listening on :(\d+)/.exec(out); if (m) { clearTimeout(timer); resolve(Number(m[1])); } };
+      hostChild.stdout.on('data', onData);
+      hostChild.stderr.on('data', onData);
+      hostChild.once('exit', (code) => { clearTimeout(timer); reject(new Error(`the hosted server stopped (${code}):\n${out}`)); });
+    });
+    const asConsole = (method, urlPath, { body, cookie } = {}) => new Promise((resolve, reject) => {
+      const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+      const headers = { host: `admin.localhost:${port}`, origin: `http://admin.localhost:${port}`, accept: 'application/json' };
+      if (payload) { headers['content-type'] = 'application/json'; headers['content-length'] = payload.length; }
+      if (cookie) headers.cookie = cookie;
+      const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, headers }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => { let json = null; try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON */ } resolve({ status: res.statusCode, headers: res.headers, json }); });
+      });
+      req.on('error', reject);
+      if (payload) req.write(payload);
+      req.end();
+    });
+    const login = await asConsole('POST', '/api/host/login', { body: { login: 'host', password: 'host-password-1' } });
+    assert.equal(login.status, 200, 'the host admin signs in');
+    const cookie = [].concat(login.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+    const R = '/api/host/weather/terms';
+    // Nobody signed in: refused, never 404 (404 would mean the route is not there).
+    for (const [m, u, b] of [['GET', R], ['PUT', `${R}/standin`, { accept: true }], ['DELETE', `${R}/standin`]]) {
+      assert.equal((await asConsole(m, u, { body: b })).status, 401, `${m} ${u} without the host admin's session is refused`);
+    }
+    const first = await asConsole('GET', R, { cookie });
+    assert.equal(first.status, 200, 'the host admin reads the terms');
+    assert.equal(first.json.mayAccept, true);
+    assert.ok(first.json.services.some((x) => x.id === 'standin' && x.accepted === false), 'the stand-in is offered, not accepted');
+    assert.equal((await asConsole('PUT', `${R}/standin`, { cookie, body: {} })).status, 400, 'an accept without { accept: true } is refused');
+    const put = await asConsole('PUT', `${R}/standin`, { cookie, body: { accept: true } });
+    assert.equal(put.status, 200, 'the host admin accepts');
+    const got = put.json.services.find((x) => x.id === 'standin');
+    assert.equal(got.accepted, true);
+    assert.equal(got.by, 'host', 'by the host admin who did it');
+    assert.equal((await asConsole('DELETE', `${R}/standin`, { cookie })).status, 200, 'the host admin withdraws');
+    assert.equal((await asConsole('GET', R, { cookie })).json.services.find((x) => x.id === 'standin').accepted, false, 'and it is not accepted');
+    assert.equal((await asConsole('PUT', `${R}/nothing`, { cookie, body: { accept: true } })).status, 404, 'a service this server does not have: 404 from the route, with its own sentence');
+  } finally {
+    await new Promise((resolve) => { if (hostChild.exitCode !== null) return resolve(); hostChild.once('exit', resolve); hostChild.kill('SIGTERM'); });
+  }
+});
+
 await stop();
 for (const sv of [wx, geo, lk]) sv.close();
 server.close();
