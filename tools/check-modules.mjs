@@ -867,19 +867,61 @@ test('the manifest field content is padded or flush, and nothing else', () => {
   for (const bad of ['full', '', true, 1, null]) assert.throws(() => cleanManifest({ ...base(), content: bad }, files), /content must be "padded" or "flush"/);
 });
 
-// An uploaded module that draws what the host draws is installed with a plain warning in the answer; a bundled one, or a clean one, has none.
+// The module check on install (server/module-check.js; plan-agent-server-actions.md, section 9): a `refuse` finding refuses with its
+// sentence, carries every finding and installs nothing; an `advise` finding never refuses, and an uploaded module keeps the
+// findings with its version (at most 50, each at most 200 characters); a bundled module keeps none.
 {
   const { zipFiles } = createRequire(import.meta.url)('../server/module-build.js');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'layout-warn-'));
+  const { checkModule } = createRequire(import.meta.url)('../server/module-check.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'module-check-'));
   try {
     const mm = new ModuleManager(dir);
     const page = (html, css = '') => Buffer.from(`<!doctype html><style>${css}</style><body>${html}</body>`);
-    const zip = (id, html, css) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } } }))], ['page.html', page(html, css)]]);
-    const bad = await mm.install(zip('badlook', '<header class="bar"></header>', '.sdk-card { padding: 2px }'));
-    assert.match(bad.layoutWarning, /draws or restyles parts the host draws \(markup: <header>, \.sdk-card\)/, 'the warning names what it breaks');
-    assert.equal(bad.version, '1.0.0', 'it is still installed');
-    assert.equal((await mm.install(zip('goodlook', '<div class="sdk-card"></div>', '.pin { padding: 2px }'))).layoutWarning, undefined, 'a clean module has no warning');
-    assert.equal((await mm.install(zip('shipped', '<header></header>'), { source: 'bundled' })).layoutWarning, undefined, 'a bundled module is held by check-module-layout, not warned');
+    const manifestOf = (id, extra = {}) => ({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } }, ...extra });
+    const zip = (id, html, css, extra) => zipFiles([['module.json', Buffer.from(JSON.stringify(manifestOf(id, extra)))], ['page.html', page(html, css)]]);
+    const bad = await mm.install(zip('badlook', '<header class="bar"></header>', '.sdk-card { padding: 2px; color: #ff0000 }'));
+    assert.equal(bad.version, '1.0.0', 'advise findings never refuse: it is installed');
+    const kept = (v) => v.findings.map((f) => `${f.check}: ${f.text}`).join('\n');
+    assert.match(kept(bad), /host reuse: markup: <header>: draws a header bar of its own/, 'the layout rule is a finding, as layoutWarning was');
+    assert.match(kept(bad), /host reuse: \.sdk-card: restyles a shared piece/);
+    assert.match(kept(bad), /colours: #ff0000 is a fixed colour/);
+    assert.equal(bad.layoutWarning, undefined, 'layoutWarning is folded into the findings');
+    assert.equal(mm.view('badlook').findings.length, bad.findings.length, 'kept with the version');
+    assert.ok(bad.findings.every((f) => f.grade === undefined && typeof f.text === 'string'), 'a kept finding is { check, file?, line?, text }');
+    assert.deepEqual((await mm.install(zip('goodlook', '<div class="sdk-card"></div>', '.pin { padding: 2px }'))).findings, [], 'a clean module has none');
+    assert.deepEqual((await mm.install(zip('shipped', '<header></header>', '.x { color: red }'), { source: 'bundled' })).findings, [], 'a bundled module is held by the repository\'s checks and keeps none');
+    // caps
+    const many = Array.from({ length: 80 }, (_, i) => `.a${i} { color: #${String(100000 + i)} }`).join('\n');
+    assert.equal((await mm.install(zip('manyfinds', '', many))).findings.length, 50, 'at most 50 are kept');
+    const long = await mm.install(zip('longfind', '', `.x { color: #fff000; --${'a'.repeat(400)}-colour: #123456 }`));
+    assert.ok(long.findings.every((f) => f.text.length <= 200), 'each is at most 200 characters');
+    // a typed word and an old name, in a page and in module.json
+    const typed = checkModule(new Map([['module.json', Buffer.from(JSON.stringify(manifestOf('typed', { description: 'Shows every space.' })))], ['page.html', page('<p>Pick a space to open</p>')]]));
+    assert.ok(typed.findings.some((f) => f.check === 'words' && f.file === 'page.html' && /"space"/.test(f.text)), 'a typed changeable word in a page');
+    assert.ok(typed.findings.some((f) => f.check === 'words' && f.file === 'module.json' && /"space"/.test(f.text)), 'and in module.json');
+    assert.ok(typed.findings.every((f) => f.grade === 'advise') && typed.refused === null, 'words only advise');
+    // a refusal installs nothing and carries every finding
+    const before = mm.list().length;
+    await assert.rejects(mm.install(zip('uploaded', '', '', { actions: { server: 'src/uploaded-lib.js', provides: [] } })), (err) => err instanceof ModuleError && err.message === 'Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
+    await assert.rejects(mm.install(zip('Bad Id', '')), (err) => err instanceof ModuleError && /"id" must be 2-32/.test(err.message) && err.findings.length === 1 && err.findings[0].grade === 'refuse' && err.findings[0].check === 'manifest');
+    await assert.rejects(mm.install(zipFiles([['page.html', page('')]])), /module\.json is missing from the zip/);
+    assert.equal(mm.list().length, before, 'nothing was installed by a refusal');
+    // the action library: a bundled module declaring actions.server is refused for a library that is missing, does not parse, or names what the runner does not give
+    const lib = (id, code) => zipFiles([['module.json', Buffer.from(JSON.stringify(manifestOf(id, { actions: { server: `src/${id}-lib.js`, provides: [] } })))], ['page.html', page('')], ...(code === null ? [] : [[`src/${id}-lib.js`, Buffer.from(code)]])]);
+    await assert.rejects(mm.install(lib('nolib', null), { source: 'bundled' }), /actions\.server names "src\/nolib-lib\.js", but that file is not in the zip/);
+    await assert.rejects(mm.install(lib('badsyntax', 'const = ;'), { source: 'bundled' }), /src\/badsyntax-lib\.js: Unexpected token/);
+    const readIt = async (z) => createRequire(import.meta.url)('../server/modules.js').readZip(z);
+    for (const name of ['fetch', 'process', 'require', 'import', 'eval', 'Function', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'navigator', 'Worker', 'WebAssembly', 'globalThis']) {
+      const r = checkModule(await readIt(lib('names', name === 'import' ? "const x = import('y');" : `const x = ${name};`)));
+      assert.match(r.refused || '', new RegExp(`"${name}" is not given`), `${name} is refused`);
+    }
+    assert.match(checkModule(await readIt(lib('names', 'const x = a.constructor;'))).refused || '', /"\.constructor" is not allowed/);
+    // The server's own bundled install (the repository's hostile test library) leaves the names list out and still parses.
+    assert.equal((await mm.install(lib('hostile', 'const x = typeof process;'), { source: 'bundled' })).id, 'hostile');
+    await assert.rejects(mm.install(lib('hostile2', 'const = ;'), { source: 'bundled' }), /Unexpected token/);
+    const fine = lib('fine', 'const s = "fetch and process in a sentence"; // eval\nconst o = { process: 1 }; const f = (x) => x.fetch;');
+    assert.equal((await mm.install(fine, { source: 'bundled' })).id, 'fine', 'names in strings, comments, keys and after a dot are not read');
+    assert.match(checkModule(await (async () => { const { readZip } = createRequire(import.meta.url)('../server/modules.js'); return readZip(fine); })()).library, /^[0-9a-f]{64}$/, 'the library hash is a SHA-256');
     n += 1;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -981,7 +1023,7 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-modules-server-'));
   try {
     const mm = new ModuleManager(dir);
-    const zip = (id) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } }, actions: { server: `src/${id}-lib-actions.js`, provides: [] } }))], ['page.html', Buffer.from('<!doctype html><body></body>')]]);
+    const zip = (id) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } }, actions: { server: `src/${id}-lib-actions.js`, provides: [] } }))], ['page.html', Buffer.from('<!doctype html><body></body>')], ...(id === 'shipped' ? [[`src/${id}-lib-actions.js`, Buffer.from('const ACTION_HANDLERS = {};')]] : [])]);
     await assert.rejects(mm.install(zip('uploaded')), (err) => err instanceof ModuleError && err.message === 'Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
     assert.equal(mm.list().some((m) => m.id === 'uploaded'), false, 'nothing was installed');
     assert.equal((await mm.install(zip('shipped'), { source: 'bundled' })).id, 'shipped', 'a bundled module may declare it');
@@ -1005,6 +1047,24 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
     const missing = askable.filter((a) => !names.includes(a));
     // The check's fixture leaves one out on purpose (noCode), to prove the runner's refusal.
     assert.deepEqual(missing, raw.id === 'fixture-notes' ? ['noCode'] : [], `${raw.id}: a server handler for every action an agent may ask for`);
+  }
+  n += 1;
+}
+
+// Every module that ships here, built as Manage > Modules builds it, passes the module check with no `refuse` finding.
+{
+  const req = createRequire(import.meta.url);
+  const { buildModule, bundledModules } = req('../server/module-build.js');
+  const { checkModule } = req('../server/module-check.js');
+  const { readZip } = req('../server/modules.js');
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'modules');
+  const shipped = bundledModules(root);
+  assert.ok(shipped.length >= 10, 'the bundled modules are found');
+  for (const m of shipped) {
+    const result = checkModule(await readZip(buildModule(path.join(root, m.id)).zip));
+    assert.deepEqual(result.findings.filter((f) => f.grade === 'refuse'), [], `${m.id}: no refuse finding from the module check`);
+    assert.equal(result.id, m.id);
+    assert.equal(Boolean(result.library), Boolean(m.actions && m.actions.server), `${m.id}: a library hash exactly when it declares actions.server`);
   }
   n += 1;
 }

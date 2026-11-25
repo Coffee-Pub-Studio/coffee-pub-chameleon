@@ -7109,7 +7109,7 @@ app.post('/api/modules', requireOwner, requireHostTrust, rawZip, async (req, res
   try {
     installed = await modules.install(req.body);
   } catch (err) {
-    if (err instanceof StoreError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof StoreError) return res.status(err.status).json({ error: err.message, ...(err.findings ? { findings: err.findings } : {}) });
     throw err;
   }
   // The zip's own id is only known once it is unpacked -- refused after the fact, undoing the install, rather

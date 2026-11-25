@@ -19,7 +19,6 @@ const weatherProviders = require('./weather-providers');
 const { word, fill } = require('./words');
 const { DESTINATION_IDS, DESTINATION_PARTS } = require('./destinations');
 const objectFormat = require('./object-format');
-const { scanBuiltPage } = require('./module-layout');
 const { cleanGuards, unreadableGuards } = require('./module-guards');
 const { cleanActionAi } = require('./action-catalog');
 const { SERVER_FILE_RE } = require('./module-actions');
@@ -1204,18 +1203,6 @@ function cleanManifest(raw, files) {
   return { id, name, version, description: text(raw.description, 200), author: text(raw.author, 60), icon, color, scope, surfaces, permissions, hooks, refs, storage, guards, events, actions, commands, access, settings, requires, geocoder, weather, uploads, library, regionSource, pictureMap, lookups, budget, tags, content, install, live, labels, starter };
 }
 
-// The sentence for a zip's pages that draw or restyle what the host draws (server/module-layout.js), or null when they do not.
-function layoutWarning(files) {
-  const found = [];
-  for (const [name, data] of files) {
-    if (/\.html?$/i.test(name)) found.push(...scanBuiltPage(name, data.toString('utf8')));
-  }
-  if (!found.length) return null;
-  const selectors = [...new Set(found.map((f) => f.selector))];
-  const shown = selectors.slice(0, 3).join(', ') + (selectors.length > 3 ? ` and ${selectors.length - 3} more` : '');
-  return `This ${word('module')} draws or restyles parts the host draws (${shown}), so it may look out of place; its author should use the host's title bar, toolbar and shared pieces.`;
-}
-
 // --- the registry ---------------------------------------------------------
 
 // A permission's defaults from a stored manifest (the author's original), keyed by the editable roles. A missing
@@ -1570,6 +1557,8 @@ class ModuleManager {
       runMode: this.runModeOf(entry),
       runModeChosen: entry.runMode === 'page' || entry.runMode === 'sandbox',
       riskAcceptedAt: entry.riskAcceptedAt || null,
+      // What the module check advised about this version (server/module-check.js), uploaded modules only.
+      findings: entry.source === 'bundled' ? [] : ((entry.findings && entry.findings[entry.version]) || []),
       pending,
       installedAt: entry.installedAt,
       updatedAt: entry.updatedAt,
@@ -1665,7 +1654,17 @@ class ModuleManager {
     if (source !== 'bundled' && raw && typeof raw === 'object' && raw.actions && typeof raw.actions === 'object' && Object.hasOwn(raw.actions, 'server')) {
       throw new ModuleError('Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
     }
-    const manifest = cleanManifest(raw, files);
+    // The one module check (server/module-check.js; plan-agent-server-actions.md, section 9) decides what refuses the install
+    // (a `refuse` finding: the first one's sentence, with every finding in the error) and what is kept with the version (the
+    // `advise` findings). Required here and not at the top: the check itself reads this file's cleanManifest.
+    const { checkModule, keptFindings } = require('./module-check');
+    const checked = checkModule(files, { ownCode: source === 'bundled' });
+    if (checked.refused) {
+      const refusal = new ModuleError(checked.refused);
+      refusal.findings = checked.findings;
+      throw refusal;
+    }
+    const manifest = checked.manifest;
     const existing = this.registry.modules[manifest.id];
     if (existing) {
       const newest = [...existing.versions].sort(compareVersions).pop();
@@ -1703,17 +1702,14 @@ class ModuleManager {
     // touched). Anything the new version newly asks for is not granted until an owner approves it in Modules (view's
     // needsApproval and pending; update() with enabled: true approves it), so an update never widens access on its own.
     this.registry.modules[manifest.id] = entry;
+    // The advise findings stay with the version, for an uploaded module only (a bundled module is held by the repository's own
+    // checks, and its card shows none).
+    if (source !== 'bundled') entry.findings = { ...(entry.findings || {}), [manifest.version]: keptFindings(checked.findings) };
     this.manifests.delete(`${manifest.id}@${manifest.version}`);
     this.filled.clear();
     this.prune(entry);
     this.save();
     const view = this.view(manifest.id);
-    // An uploaded module that draws or restyles what the host draws is still installed, with a plain warning for the Modules
-    // page (plan-unified-layout.md, question 5). Not stored; it is only in this answer.
-    if (source !== 'bundled') {
-      const broken = layoutWarning(files);
-      if (broken) view.layoutWarning = broken;
-    }
     return view;
   }
 
@@ -1724,6 +1720,7 @@ class ModuleManager {
       if (v === entry.version) continue;
       fs.rmSync(this.versionDir(entry.id, v), { recursive: true, force: true });
       entry.versions = entry.versions.filter((x) => x !== v);
+      if (entry.findings) delete entry.findings[v];
     }
   }
 
