@@ -89,7 +89,13 @@
         }
       }
     ],
-    "consumes": []
+    "consumes": [
+      "calendar:event"
+    ]
+  },
+  "hooks": {
+    "schedule": true,
+    "notify": true
   },
   "actions": {
     "server": "src/fixture-notes-lib-actions.js",
@@ -164,6 +170,47 @@
         }
       },
       {
+        "name": "helpers",
+        "label": "Helpers",
+        "description": "Write down the settings, helpers and phase names the handler was given.",
+        "effect": "write",
+        "input": {}
+      },
+      {
+        "name": "answerData",
+        "label": "Answer data",
+        "description": "Answer some data and change nothing.",
+        "effect": "write",
+        "input": {
+          "big": "boolean?"
+        }
+      },
+      {
+        "name": "setLink",
+        "label": "Set a link",
+        "description": "Point a note at another note, or clear it.",
+        "effect": "write",
+        "clears": [
+          "linkTo",
+          "body"
+        ],
+        "input": {
+          "note": "ref:fixture-notes:note",
+          "linkTo": "ref:fixture-notes:note?",
+          "body": "text?"
+        }
+      },
+      {
+        "name": "effects",
+        "label": "Effects",
+        "description": "Answer the writes, links, schedules and notice the plan names.",
+        "effect": "write",
+        "input": {
+          "plan": "text",
+          "ms": "number?"
+        }
+      },
+      {
         "name": "noCode",
         "label": "No code",
         "description": "An action whose handler is missing.",
@@ -196,5 +243,35 @@
         }
       }
     ]
-  }
+  },
+  "labels": {
+    "note": {
+      "one": "jotting",
+      "many": "jottings",
+      "a": "a jotting"
+    }
+  },
+  "settings": [
+    {
+      "key": "tone",
+      "label": "Tone",
+      "type": "text",
+      "scope": "environment",
+      "default": "plain"
+    },
+    {
+      "key": "greeting",
+      "label": "Greeting",
+      "type": "text",
+      "scope": "space",
+      "default": "Hello"
+    },
+    {
+      "key": "mine",
+      "label": "Mine",
+      "type": "boolean",
+      "scope": "person",
+      "default": true
+    }
+  ]
 }

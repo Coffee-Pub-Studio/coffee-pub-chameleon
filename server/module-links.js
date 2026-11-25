@@ -75,6 +75,24 @@ class ModuleLinks extends EventEmitter {
     return changed;
   }
 
+  // The links `from` holds that a module set (never a pair), as stored (copies), and those links put back exactly as
+  // `items` (held's own answer from before): for a request that is undone whole (server/action-effects.js).
+  held(from) {
+    const fk = key(from);
+    return this.items.filter((l) => key(l.from) === fk && !l.pair).map((l) => ({ ...l, from: plain(l.from), to: plain(l.to) }));
+  }
+
+  putBack(from, items) {
+    const fk = key(from);
+    const mine = (l) => key(l.from) === fk && !l.pair;
+    const now = this.items.filter(mine);
+    const same = now.length === items.length && now.every((l) => items.some((i) => key(i.to) === key(l.to)));
+    if (same) return;
+    this.items = [...this.items.filter((l) => !mine(l)), ...items.map((l) => ({ ...l, from: plain(l.from), to: plain(l.to) }))];
+    this.save();
+    this.emit('change', { refs: [plain(from), ...now.map((l) => plain(l.to)), ...items.map((l) => plain(l.to))] });
+  }
+
   // What points at `ref`, and what `ref` points at.
   to(ref) {
     const k = key(ref);

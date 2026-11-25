@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.20",
+  "version": "0.16.21",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -64,6 +64,18 @@
   "lookups": [
     "flight"
   ],
+  "weather": {
+    "provider": "weatherProvider",
+    "address": "weatherAddress",
+    "key": "weatherKey",
+    "units": "weatherUnits",
+    "custom": "custom",
+    "providers": {
+      "open-meteo": { "name": "Open-Meteo", "address": "https://api.open-meteo.com/v1/forecast", "credit": "Weather by Open-Meteo.com" }
+    },
+    "stops": { "prefix": "plan:", "day": "date", "time": "time", "order": "order", "place": "placeRef" },
+    "main": { "key": "trip:main", "place": "destination", "from": "start", "to": "end" }
+  },
   "budget": true,
   "hooks": {
     "ai": "optional"
@@ -348,6 +360,49 @@
       "scope": "environment",
       "default": true,
       "help": "Fill a flight from the same flight number saved before on this server. Flights saved here also help others; turn this off to keep them out."
+    },
+    {
+      "key": "weatherProvider",
+      "label": "Weather",
+      "type": "choice",
+      "scope": "environment",
+      "default": "none",
+      "help": "Where the weather on each day comes from. None: no weather is shown and nothing is sent out.",
+      "options": [
+        { "value": "none", "label": "None" },
+        { "value": "open-meteo", "label": "Open-Meteo, the public service", "help": "The server asks api.open-meteo.com for the weather near each day's place: a position rounded to about 1 km and the days, never a name, {a space} or a person.\nOpen-Meteo's free use is for non-commercial use only; a server that charges needs their paid plan or its own service." },
+        { "value": "custom", "label": "My own address", "help": "The weather is asked at the address you give below: an Open-Meteo-compatible service you run or may use." }
+      ]
+    },
+    {
+      "key": "weatherAddress",
+      "label": "Weather address",
+      "type": "url",
+      "scope": "environment",
+      "default": "",
+      "showWhen": { "key": "weatherProvider", "value": "custom" },
+      "help": "The address of an Open-Meteo-compatible service (for example https://weather.example.org/v1/forecast)."
+    },
+    {
+      "key": "weatherKey",
+      "label": "Weather key",
+      "type": "secret",
+      "scope": "environment",
+      "showWhen": { "key": "weatherProvider", "not": "none" },
+      "help": "A key for the service, if it needs one. Open-Meteo's free use is for non-commercial use only."
+    },
+    {
+      "key": "weatherUnits",
+      "label": "Weather temperatures",
+      "type": "choice",
+      "scope": "environment",
+      "default": "c",
+      "showWhen": { "key": "weatherProvider", "not": "none" },
+      "help": "Show temperatures in Celsius or Fahrenheit.",
+      "options": [
+        { "value": "c", "label": "Celsius" },
+        { "value": "f", "label": "Fahrenheit" }
+      ]
     }
   ]
 }

@@ -8,19 +8,25 @@
 // with one handler for every action an agent may ask the module for. `ctx` is the page adapter's (public/sdk/host.js
 // host.actions.fromLibrary), as plain data plus three kinds of function:
 //   { from, by, byKey, credit: { name, key }, now, tz, carrier: 'server', action,
-//     space: { id, name, currency, defaultCurrency, phases: [{ id, main }], bands }, people: [{ key, name }],
-//     refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } | { error } },
+//     space: { id, name, currency, defaultCurrency, phases: [{ id, label, main }], bands }, people: [{ key, name }],
+//     refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } | { error } }, settings,
 //     read(key), list(prefix), util }
 // The asker is the agent and so is the credit; read and list see only this module's data in the request's space, as the agent
 // may read it; the facts (space, people, refs) are server/index.js actionFacts, refs only for the input's own pointers as the
-// agent may see them. `util` is the SDK's pure helpers, frozen (hostActions.util: plain, localWhen, detailLines, time, ymd,
-// parseYmd, objectKey, id, word; `time` on the environment's clock and `word` in its words), and `ymd` and `parseYmd` are
+// agent may see them. `settings` are the module's settings in that space as host.settings.get() gives them (server/index.js
+// moduleSettingValues, which GET /api/modules/:id/settings/values answers with), each person setting at its default since an
+// agent has none of its own. `util` is the SDK's pure helpers, frozen (hostActions.util: plain, localWhen, detailLines, time,
+// ymd, parseYmd, objectKey, id, word, label, order, rollup and geo; `time` on the environment's clock, `word` in its words,
+// `label` the module's own words as the space's template renames them, `order` and `rollup` the outline's, `geo` the frozen
+// place helpers, which reach no network), and `ymd` and `parseYmd` are
 // beside the library as on a page: the worker builds them from public/sdk/host.js itself before the library runs, so a page
-// and the server run one copy. `carrier` is 'server' (a page's is 'page'): nothing only a page does is done here (a reminder's
-// schedule, a link, a phase's end), and a handler says so in its note. A handler answers what to write (at most
+// and the server run one copy. `carrier` is 'server' (a page's is 'page'). A handler answers what to write (at most
 // LIMITS.writes values, each { key, value }, in the module's own data in that space and nowhere else), the pointer of what
-// it made or changed (`ref`, one of the module's own kinds in that space) and a little plain data (`data`, with `data.note`
-// the line request_status shows); a throw is a refusal, and its message is the sentence the agent reads.
+// it made or changed (`ref`, one of the module's own kinds in that space), a little plain data (`data`, with `data.note`
+// the line request_status shows) and, as plain data the server then carries out as the agent (server/action-effects.js):
+// `links` (at most 5 link changes from its own objects), `schedules` (at most 5 set or cancelled, about its own objects,
+// with the module's schedule hook) and `notify` (at most 1 notice, with its notify hook). A phase's end is still only a
+// page's. A throw is a refusal, and its message is the sentence the agent reads.
 //
 // This file loads the code (only ever from the deployment's own modules/ folder, never from what is installed in
 // DATA_DIR, and only while the installed module is that very bundled version), runs it in a process of its own with a
@@ -35,6 +41,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { libraryOf } = require('./module-build');
 const { word } = require('./words');
+const { effectsOf, EFFECT_FAULT_WORDS } = require('./action-effects');
 
 const LIMITS = Object.freeze({
   timeMs: 1000, // the handler's own time, the library's loading included (the plan's one second)
@@ -120,8 +127,8 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
   };
 
   // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, library, timeout, memory, crashed, busy,
-  // missing, result, size, unanswered). `localeText` is { clock, words } as JSON: the environment's, for ctx.util's time and
-  // word. Never throws.
+  // missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the environment's clock and
+  // words and the module's labels in the space, for ctx.util's time, word and label. Never throws.
   async function run({ code, filename, action, inputText, ctxText, dataText, localeText = '{}' }) {
     const sdkSource = sdk();
     if (!sdkSource) return { fault: 'sdk' };
@@ -172,7 +179,8 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
   return { libraryFor, run };
 }
 
-// What a handler answered, checked: { refused: sentence } | { fault } | { writes: [{ key, value }], ref, data }.
+// What a handler answered, checked: { refused: sentence } | { fault } | { writes: [{ key, value }], ref, data, effects:
+// { links, schedules, notify } } (the effects as server/action-effects.js effectsOf checks them).
 // `own(ref)` says whether a pointer is one of the module's own kinds in the request's space. Nothing in the answer is
 // trusted: only these fields, of these types, within these sizes.
 const plainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
@@ -188,7 +196,7 @@ function outcomeOf(answer, { own }) {
   // A handler that answers nothing changed nothing.
   const result = parsed.result === null ? {} : parsed.result;
   if (!plainObject(result)) return { fault: 'result' };
-  for (const k of Object.keys(result)) if (!['writes', 'ref', 'data'].includes(k)) return { fault: 'result' };
+  for (const k of Object.keys(result)) if (!['writes', 'ref', 'data', 'links', 'schedules', 'notify'].includes(k)) return { fault: 'result' };
   const given = result.writes === undefined || result.writes === null ? [] : result.writes;
   if (!Array.isArray(given) || given.length > LIMITS.writes) return { fault: Array.isArray(given) ? 'writes' : 'result' };
   const writes = [];
@@ -216,7 +224,10 @@ function outcomeOf(answer, { own }) {
     if (text.length > LIMITS.answerDataBytes) return { fault: 'size' };
     data = JSON.parse(text);
   }
-  return { writes, ref, ...(data !== undefined ? { data } : {}) };
+  // What it asks the server to do beside the writes (server/action-effects.js): links, schedules and one notice.
+  const effects = effectsOf(result, { own });
+  if (effects.fault) return { fault: effects.fault };
+  return { writes, ref, ...(data !== undefined ? { data } : {}), effects };
 }
 
 // A fault in words, after "<Module> could not carry that out: ". Plain, and never the module's own text.
@@ -236,6 +247,7 @@ const FAULT_WORDS = {
   delete: () => 'it tried to delete something, which needs a person\'s approval',
   ref: () => `it pointed at something that is not its own in this ${word('space')}`,
   unanswered: () => 'it gave no answer',
+  ...EFFECT_FAULT_WORDS,
 };
 const faultWords = (fault) => (FAULT_WORDS[fault] || FAULT_WORDS.unanswered)();
 

@@ -1095,37 +1095,27 @@
   // A reminder is a schedule the host runs for us: at the right time it sends the
   // notification, and for a repeating event the host schedules the next one itself,
   // so reminders keep coming while this page is closed. It stops if the event
-  // changes or goes away.
+  // changes or goes away. When it comes is calendar-lib.js reminderOf, the very rule an agent's request answers on either
+  // carrier (calendar-lib-actions.js calSchedules).
   // `where` is the event's place for the host ({ space } for another space's event), so the reminder is set there and
   // reaches that space's people.
-  // `quiet`: a failure is not shown in the form (setting a reminder that waited, below, has no form open).
-  async function applyReminder(id, ev, where, quiet) {
+  async function applyReminder(id, ev, where) {
     const key = 'remind:' + id;
-    const stop = () => host.cancelSchedule(key, where);
     try {
-      if (ev.remind === null || ev.remind === undefined) return await stop();
-      const lead = ev.remind * 60 * 1000;
-      const nineAm = ev.allDay ? REMIND_ALLDAY_FROM : 0; // an all-day event reminds relative to 9:00 (calendar-lib.js remindAnchor)
-      const now = Date.now();
-      // The first occurrence whose reminder is not already in the past.
-      const next = occurrences(ev, new Date(now + lead - 4 * 60 * 1000 - nineAm), new Date(now + 400 * DAY))[0];
-      if (!next) return await stop();
-      const at = next.getTime() + nineAm - lead;
-      const until = ev.repeat && ev.repeat.until ? endOfDay(parseYmd(ev.repeat.until)).getTime() : null;
-      if (until !== null && at > until) return await stop();
-      const label = remindWords(ev.remind);
+      const r = reminderOf(ev, TZ, Date.now());
+      if (!r) return await host.cancelSchedule(key, where);
       await host.schedule({
         key,
-        at,
+        at: r.at,
         payload: { id },
         // The event it is about: a copy's reminder then reaches only those who may see its original.
         ref: host.objects.make('event', id, where),
-        notify: { title: ev.title, body: label },
-        repeat: ev.repeat ? { every: ev.repeat.every, until, tz: TZ } : undefined,
+        notify: { title: ev.title, body: r.body },
+        repeat: r.every ? { every: r.every, until: r.until, tz: TZ } : undefined,
         ...(where || {}),
       });
     } catch (err) {
-      if (!quiet) showError('Saved, but the reminder could not be set: ' + err.message);
+      showError('Saved, but the reminder could not be set: ' + err.message);
       throw err;
     }
   }
@@ -1457,21 +1447,21 @@
       },
     });
   }
-  // What only a page does once a request's event is written: it shows at once, its reminder is set (or taken off) as the form
-  // sets it, and an event made from another module's object points at it. A reminder that cannot be set leaves the event and
-  // tells the asker. (The server's runner writes the event and nothing else: a reminder it carries waits for step 4 of
-  // plan-agent-edit-delete.md.)
-  async function afterAction({ action, input, writes }) {
+  // What only a page does once a request's event is written: it shows at once, and an event made from another module's object
+  // points at it unless the answer linked it already (calendar-lib-actions.js calLinks). Its reminder came in the handler's
+  // answer and is set already (calSchedules), except on the environment page (no space), where this page sets it as the form does.
+  async function afterAction({ action, input, writes, effects }) {
+    const envPage = !(typeof host.space === 'function' && host.space() && host.space().id);
     for (const w of writes) remember('here', { key: w.key, value: w.value, version: w.version });
     for (const w of writes) {
       const id = String(w.key).slice('event:'.length);
       const ev = w.value;
       const made = action === 'createEvent';
-      if (!made || ev.remind !== null) {
+      if (envPage && (!made || ev.remind !== null)) {
         try { await applyReminder(id, ev, {}); } catch (err) { render(); throw new Error(made ? 'The event was added, but its reminder could not be set.' : 'The event was changed, but its reminder could not be set.'); }
       }
       // Made from an object dropped or handed over: point at it, so the link shows from both ends.
-      if (made && input && input.ref && host.objects.setLinks) host.objects.setLinks(host.objects.make('event', id), [input.ref]).catch(() => {});
+      if (made && input && input.ref && host.objects.setLinks && !(effects && effects.links && effects.links.length)) host.objects.setLinks(host.objects.make('event', id), [input.ref]).catch(() => {});
     }
     render();
   }
@@ -1641,30 +1631,6 @@
       }
     }
   }
-  // A reminder that waits for a page: an agent's request the server carried with no page open writes the event marked
-  // `remindPending` (calendar-lib-actions.js calReminder), since only a page sets a schedule. Whoever may change the event and
-  // has the calendar open sets it here, as the form would, and takes the mark off; a write that loses to another change leaves
-  // the mark for the next round.
-  const reminding = new Set();
-  async function setWaitingReminders() {
-    if (!canEdit || part === 'panel' || typeof host.schedule !== 'function') return;
-    for (const x of [...events.values()]) {
-      if (x.scope !== 'here' || !x.ev.remindPending || !writable(x) || reminding.has(x.id)) continue;
-      reminding.add(x.id);
-      try {
-        await applyReminder(x.id, x.ev, {}, true);
-        const ev = { ...x.ev };
-        delete ev.remindPending;
-        const saved = await host.storage.set('event:' + x.id, ev, { version: x.version });
-        remember('here', { key: 'event:' + x.id, value: ev, version: saved.version });
-      } catch (err) {
-        // changed meanwhile, or the reminder could not be set: tried again on the next round
-      } finally {
-        reminding.delete(x.id);
-      }
-    }
-  }
   announceEnded();
-  setWaitingReminders();
-  const announceTimer = setInterval(() => { if (!$('app')) return void clearInterval(announceTimer); announceEnded(); setWaitingReminders(); }, 60000);
+  const announceTimer = setInterval(() => { if (!$('app')) return void clearInterval(announceTimer); announceEnded(); }, 60000);
 })();

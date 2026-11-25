@@ -11,7 +11,7 @@ const WINDOW_MS = 60 * 1000;
 // in a scope. Its Undo needs that clear's token, once, so it is never more often than the clears. Two more keep it fair:
 // `clearPerson` (per person) and `clearOrdinary` (for everyone who is not an owner, admin or moderator, together), so the
 // budget cannot all be used up by one member, or by members, before an owner or moderator needs it.
-const LIMITS = { write: 240, event: 60, action: 60, notify: 20, schedule: 60, search: 40, upload: 30, library: 400, libraryThumb: 400, libraryAll: 1500, ai: 6, check: 20, clear: 5, clearPerson: 3, clearOrdinary: 3 };
+const LIMITS = { write: 240, event: 60, action: 60, notify: 20, schedule: 60, search: 40, weather: 30, upload: 30, library: 400, libraryThumb: 400, libraryAll: 1500, ai: 6, check: 20, clear: 5, clearPerson: 3, clearOrdinary: 3 };
 
 // The Vault's library has its own budgets, apart from `upload` (a module's picture uploads): a file and its small picture
 // are two requests, so a bulk drop of 200 files is 200 + 200. `library` and `libraryThumb` are per person a minute (400

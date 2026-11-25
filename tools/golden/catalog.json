@@ -18,6 +18,14 @@
       "date": "date?",
       "notes": "text?"
     },
+    "clears": [
+      "planned",
+      "actual",
+      "payer",
+      "sharedBy",
+      "date",
+      "notes"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -65,32 +73,32 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "sharedBy": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "date": {
           "type": [
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         },
         "notes": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         }
       },
       "required": [
@@ -128,6 +136,13 @@
       "remindAt": "string?",
       "notes": "text?"
     },
+    "clears": [
+      "endTime",
+      "endDate",
+      "repeat",
+      "remind",
+      "notes"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -165,16 +180,16 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "endDate": {
           "type": [
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         },
         "allDay": {
           "type": [
@@ -187,8 +202,8 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "remind": {
           "type": [
@@ -209,8 +224,8 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         }
       },
       "required": [
@@ -240,6 +255,7 @@
       "entry": "ref:goals:plan",
       "done": "boolean"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -275,6 +291,12 @@
       "text": "text?",
       "goal": "ref:goals:plan?"
     },
+    "clears": [
+      "why",
+      "date",
+      "owners",
+      "text"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -296,32 +318,32 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "date": {
           "type": [
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         },
         "owners": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "text": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "goal": {
           "type": [
@@ -356,6 +378,7 @@
       "lat": "number",
       "lng": "number"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -396,6 +419,12 @@
       "notes": "text?",
       "owners": "text?"
     },
+    "clears": [
+      "status",
+      "address",
+      "notes",
+      "owners"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -433,32 +462,32 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "address": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "notes": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "owners": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         }
       },
       "required": [
@@ -489,6 +518,9 @@
       "closes": "string?",
       "closed": "boolean?"
     },
+    "clears": [
+      "closes"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -524,8 +556,8 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "closed": {
           "type": [
@@ -558,6 +590,11 @@
       "excerpt": "text?",
       "tags": "string?"
     },
+    "clears": [
+      "title",
+      "excerpt",
+      "tags"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -571,24 +608,24 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "excerpt": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "tags": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         }
       },
       "required": [
@@ -615,6 +652,11 @@
       "icon": "string?",
       "kind": "string?"
     },
+    "clears": [
+      "title",
+      "body",
+      "tags"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -628,24 +670,24 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "body": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "tags": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         },
         "icon": {
           "type": [
@@ -686,6 +728,7 @@
       "ref": "ref:schedule:plan",
       "done": "boolean"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -721,6 +764,13 @@
       "owners": "text?",
       "notes": "text?"
     },
+    "clears": [
+      "date",
+      "start",
+      "end",
+      "owners",
+      "notes"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -742,40 +792,40 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         },
         "start": {
           "type": [
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         },
         "end": {
           "type": [
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         },
         "owners": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "notes": {
           "type": [
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         }
       },
       "required": [
@@ -801,6 +851,7 @@
       "task": "ref:todo:task",
       "target": "ref"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -833,6 +884,7 @@
       "task": "ref:todo:task",
       "done": "boolean"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -863,6 +915,9 @@
       "task": "ref:todo:task",
       "date": "date?"
     },
+    "clears": [
+      "date"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -876,8 +931,8 @@
             "string",
             "null"
           ],
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "A date, YYYY-MM-DD."
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "A date, YYYY-MM-DD. Send \"\" to clear it."
         }
       },
       "required": [
@@ -898,6 +953,7 @@
       "task": "ref:todo:task",
       "target": "ref"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -932,6 +988,9 @@
       "notes": "text?",
       "remind": "boolean?"
     },
+    "clears": [
+      "notes"
+    ],
     "schema": {
       "type": "object",
       "properties": {
@@ -953,8 +1012,8 @@
             "string",
             "null"
           ],
-          "minLength": 1,
-          "maxLength": 8000
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
         },
         "remind": {
           "type": [
@@ -983,6 +1042,7 @@
       "object": "ref",
       "date": "date?"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {
@@ -1018,6 +1078,7 @@
       "stop": "ref:travel:plan",
       "placeRef": "ref:maps:place?"
     },
+    "clears": [],
     "schema": {
       "type": "object",
       "properties": {

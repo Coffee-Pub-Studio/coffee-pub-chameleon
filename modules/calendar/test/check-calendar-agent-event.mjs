@@ -106,7 +106,11 @@ test('one anchor for a lead: a timed event\'s start, an all-day event\'s 9:00, f
   // On the day the clocks go back (Chicago, 1 November 2026) it is midnight plus nine real hours, as the page has always set it.
   assert.equal(remindAnchor(true, '2026-11-01').toISOString(), '2026-11-01T14:00:00.000Z');
   const js = read('modules/calendar/src/calendar.js');
-  assert.ok(js.includes('const nineAm = ev.allDay ? REMIND_ALLDAY_FROM : 0;'), 'the page\'s schedule counts from the same 9:00');
+  assert.ok(js.includes('const r = reminderOf(ev, TZ, Date.now());'), 'the page\'s schedule is the library\'s');
+  const { reminderOf } = new Function('ymd', 'parseYmd', `${read('modules/calendar/src/calendar-lib.js')}\nreturn { reminderOf };`)(() => '', (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); });
+  const allDay = { allDay: true, start: '2026-11-01', remind: 0, repeat: null };
+  assert.equal(new Date(reminderOf(allDay, 'America/Chicago', Date.parse('2026-10-20T00:00Z')).at).toISOString(), '2026-11-01T14:00:00.000Z', 'and counts from the same 9:00');
+  assert.equal(new Date(reminderOf(allDay, 'Asia/Tokyo', Date.parse('2026-10-20T00:00Z')).at).toISOString(), '2026-11-01T00:00:00.000Z', 'in the zone of whoever carries it out');
   assert.ok(/function remindWhen\(\)[\s\S]*remindAnchor\(allDay, start\)[\s\S]*`Reminds \$\{/.test(js), 'the form says when it reminds, from the same anchor');
   assert.ok(/\$\('f-remind-hint'\)\.textContent = [^;]*remindWhen|const when = remindWhen\(\);\s*\$\('f-remind-hint'\)\.textContent/.test(js), 'in the reminder\'s own hint line');
   const actions = read('modules/calendar/src/calendar-lib-actions.js');

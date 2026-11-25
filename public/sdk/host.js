@@ -2091,6 +2091,78 @@
     return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
   }
 
+  // One of a module's own renameable words from a set of them (its manifest's `labels` as a place reads them, host.locale().labels):
+  // the twin of utilWord, for host.util.label and a library's ctx.util.label. A key the set does not hold answers `o.fallback`
+  // when given, else the key itself.
+  function utilLabel(labels, key, o) {
+    const set = labels;
+    const w = set && typeof set === 'object' && Object.prototype.hasOwnProperty.call(set, key) && set[key] && typeof set[key].one === 'string' && typeof set[key].many === 'string' ? set[key] : null;
+    if (!w) return o && typeof o.fallback === 'string' ? o.fallback : String(key);
+    const text = o && o.a ? (typeof w.a === 'string' && w.a ? w.a : `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}`) : o && o.many ? w.many : w.one;
+    return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
+  }
+  // host.util.geo and a library's ctx.util.geo: places on the earth, for the modules that have them (a place, a map): coordinates
+  // checked and read, and the link that opens a spot in the person's own maps app. Pure (no network, no page), so a check and the
+  // server's runner can run it; frozen, since every module and library shares this one copy.
+  const utilGeo = Object.freeze((() => {
+    const inRange = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+    const round6 = (n) => Math.round(n * 1e6) / 1e6;
+    // Text on one line, without control characters, at most `max` long.
+    const oneLine = (s, max) => String(s == null ? '' : s).replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+    // A latitude or longitude typed in a field (`max` is 90 or 180): a number in range, or null.
+    const coord = (text, max) => {
+      const t = String(text == null ? '' : text).trim().replace(',', '.');
+      if (!/^[-+]?\d{1,3}(\.\d+)?$/.test(t)) return null;
+      const n = Number(t);
+      return Math.abs(n) <= max ? n : null;
+    };
+    // What was typed or pasted: a pair of coordinates ("38.7075, -9.1364"), or a map link that carries them (a geo: link,
+    // ?ll= or ?q= or ?mlat=&mlon=, /@lat,lng, #map=zoom/lat/lng, !3dLAT!4dLNG). { lat, lng } or null.
+    const parsePoint = (text) => {
+      const t = String(text == null ? '' : text).trim();
+      if (!t) return null;
+      const NUM = '(-?\\d{1,3}(?:\\.\\d+)?)';
+      const pair = (re) => {
+        const m = t.match(re);
+        if (!m) return null;
+        const lat = Number(m[1]);
+        const lng = Number(m[2]);
+        return inRange(lat, lng) ? { lat: round6(lat), lng: round6(lng) } : null;
+      };
+      if (/^[-+]?\d/.test(t) && !/[a-z]/i.test(t)) return pair(new RegExp(`^${NUM}\\s*[,;\\s]\\s*${NUM}$`));
+      return (
+        pair(new RegExp(`^geo:${NUM},${NUM}`, 'i')) ||
+        pair(new RegExp(`[?&](?:ll|q|query|center|sll)=${NUM}(?:,|%2C)\\s*${NUM}`, 'i')) ||
+        pair(new RegExp(`[?&]mlat=${NUM}&(?:amp;)?mlon=${NUM}`, 'i')) ||
+        pair(new RegExp(`!3d${NUM}!4d${NUM}`)) ||
+        pair(new RegExp(`/@${NUM},${NUM}`)) ||
+        pair(new RegExp(`#map=\\d{1,2}(?:\\.\\d+)?/${NUM}/${NUM}`))
+      );
+    };
+    const fmt = (n) => (Math.round(n * 1e5) / 1e5).toFixed(5);
+    // "38.70750, -9.13640"
+    const coordsText = (lat, lng) => `${fmt(lat)}, ${fmt(lng)}`;
+    // The link that opens a spot in the person's own maps app: the platform's own link on Apple devices (`apple`
+    // true), a geo: link on Android, which hands it to the maps app, and an ordinary web link everywhere else. A
+    // desktop browser has nothing registered for geo:, so it would open nothing (Windows shows a blank page).
+    // Directions are that app's business.
+    const android = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
+    const mapsLink = (lat, lng, name, apple) => {
+      const n = oneLine(name, 80).replace(/[()]/g, ' ');
+      if (apple) return `https://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(n || 'Place')}`;
+      if (android()) return `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(n || 'Place')})`;
+      return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
+    };
+    // The same for a place with only a name or an address: the maps app searches for it.
+    const mapsSearch = (text, apple) => {
+      const q = encodeURIComponent(oneLine(text, 160));
+      if (apple) return `https://maps.apple.com/?q=${q}`;
+      if (android()) return `geo:0,0?q=${q}`;
+      return `https://www.openstreetmap.org/search?query=${q}`;
+    };
+    return { inRange, round6, oneLine, coord, parsePoint, coordsText, mapsLink, mapsSearch };
+  })());
+
   // env: { call(method, params) -> Promise, root, rootElement, elementAt({x, y}), localPoint(clientX, clientY),
   // applyTheme(theme) }.
   // Returns { host, emit }: `emit` is how the host pushes an event to the module.
@@ -3550,13 +3622,7 @@
       // it renames it, else the manifest's. The twin of word: label('event') "meeting", label('event', { many: true, cap:
       // true }) "Meetings", label('event', { a: true }) "a meeting". A key the manifest does not declare (or before
       // ready) answers `fallback` when given, else the key itself. Plain text: set it with textContent, never as HTML.
-      label: (key, o) => {
-        const set = locale().labels;
-        const w = set && typeof set === 'object' && Object.prototype.hasOwnProperty.call(set, key) && set[key] && typeof set[key].one === 'string' && typeof set[key].many === 'string' ? set[key] : null;
-        if (!w) return o && typeof o.fallback === 'string' ? o.fallback : String(key);
-        const text = o && o.a ? (typeof w.a === 'string' && w.a ? w.a : `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}`) : o && o.many ? w.many : w.one;
-        return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
-      },
+      label: (key, o) => utilLabel(locale().labels, key, o),
       // Fill every element marked data-word="<code name>" in `root` (an element, a fragment or the module's root) with
       // its word, as the host's own pages do: data-word-form takes any of many, cap and a, space-separated.
       // <span data-word="owner" data-word-form="a cap"></span> reads "An owner". Answers `root`.
@@ -3652,64 +3718,7 @@
       parseYmd: utilParseYmd,
       // Places on the earth, for the modules that have them (a place, a map): coordinates checked and read, and the link
       // that opens a spot in the person's own maps app. Pure, so a check can run it without a browser.
-      geo: (() => {
-        const inRange = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-        const round6 = (n) => Math.round(n * 1e6) / 1e6;
-        // Text on one line, without control characters, at most `max` long.
-        const oneLine = (s, max) => String(s == null ? '' : s).replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
-        // A latitude or longitude typed in a field (`max` is 90 or 180): a number in range, or null.
-        const coord = (text, max) => {
-          const t = String(text == null ? '' : text).trim().replace(',', '.');
-          if (!/^[-+]?\d{1,3}(\.\d+)?$/.test(t)) return null;
-          const n = Number(t);
-          return Math.abs(n) <= max ? n : null;
-        };
-        // What was typed or pasted: a pair of coordinates ("38.7075, -9.1364"), or a map link that carries them (a geo: link,
-        // ?ll= or ?q= or ?mlat=&mlon=, /@lat,lng, #map=zoom/lat/lng, !3dLAT!4dLNG). { lat, lng } or null.
-        const parsePoint = (text) => {
-          const t = String(text == null ? '' : text).trim();
-          if (!t) return null;
-          const NUM = '(-?\\d{1,3}(?:\\.\\d+)?)';
-          const pair = (re) => {
-            const m = t.match(re);
-            if (!m) return null;
-            const lat = Number(m[1]);
-            const lng = Number(m[2]);
-            return inRange(lat, lng) ? { lat: round6(lat), lng: round6(lng) } : null;
-          };
-          if (/^[-+]?\d/.test(t) && !/[a-z]/i.test(t)) return pair(new RegExp(`^${NUM}\\s*[,;\\s]\\s*${NUM}$`));
-          return (
-            pair(new RegExp(`^geo:${NUM},${NUM}`, 'i')) ||
-            pair(new RegExp(`[?&](?:ll|q|query|center|sll)=${NUM}(?:,|%2C)\\s*${NUM}`, 'i')) ||
-            pair(new RegExp(`[?&]mlat=${NUM}&(?:amp;)?mlon=${NUM}`, 'i')) ||
-            pair(new RegExp(`!3d${NUM}!4d${NUM}`)) ||
-            pair(new RegExp(`/@${NUM},${NUM}`)) ||
-            pair(new RegExp(`#map=\\d{1,2}(?:\\.\\d+)?/${NUM}/${NUM}`))
-          );
-        };
-        const fmt = (n) => (Math.round(n * 1e5) / 1e5).toFixed(5);
-        // "38.70750, -9.13640"
-        const coordsText = (lat, lng) => `${fmt(lat)}, ${fmt(lng)}`;
-        // The link that opens a spot in the person's own maps app: the platform's own link on Apple devices (`apple`
-        // true), a geo: link on Android, which hands it to the maps app, and an ordinary web link everywhere else. A
-        // desktop browser has nothing registered for geo:, so it would open nothing (Windows shows a blank page).
-        // Directions are that app's business.
-        const android = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
-        const mapsLink = (lat, lng, name, apple) => {
-          const n = oneLine(name, 80).replace(/[()]/g, ' ');
-          if (apple) return `https://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(n || 'Place')}`;
-          if (android()) return `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(n || 'Place')})`;
-          return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
-        };
-        // The same for a place with only a name or an address: the maps app searches for it.
-        const mapsSearch = (text, apple) => {
-          const q = encodeURIComponent(oneLine(text, 160));
-          if (apple) return `https://maps.apple.com/?q=${q}`;
-          if (android()) return `geo:0,0?q=${q}`;
-          return `https://www.openstreetmap.org/search?query=${q}`;
-        };
-        return { inRange, round6, oneLine, coord, parsePoint, coordsText, mapsLink, mapsSearch };
-      })(),
+      geo: utilGeo,
     },
 
     // Interface the modules share, drawn the same everywhere and following the theme.
@@ -5996,22 +6005,24 @@
   // the very code server/module-actions.js runs for an agent's request to a bundled module that declares it (actions.server).
   // host.actions.fromLibrary(ACTION_HANDLERS, o) answers handlers for host.actions.provide that run it here exactly as the
   // runner does there, so a page and the server give the same answer:
-  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, action, read(key), list(prefix) }, `carrier`
+  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, settings, action, read(key), list(prefix) }, `carrier`
   //     'page' here ('server' on the runner, which does nothing only a page does: a handler says so in its note), `credit` the one
   //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
   //     was when the request was taken (each a copy), plus the facts below;
   //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each exactly { key, value }, no delete, a
-  //     pointer only to this module's own object here, `data` plain and small); a throw is a refusal, its message the
-  //     sentence the asker reads, on one line;
+  //     pointer only to this module's own object here, `data` plain and small, and `links`, `schedules` and `notify` as
+  //     server/action-effects.js takes them: libraryEffects below); a throw is a refusal, its message the sentence the
+  //     asker reads, on one line;
   //   - each write goes through host.storage.set with the version the handler read (none: it must still be absent), so the
   //     server checks it as any write of this page's; one refused write puts back the ones before it, and nothing is left
   //     half done. A value changed meanwhile is refused with the runner's own sentence.
   // The facts, the same plain data the runner hands a library: `space` { id, name, currency, defaultCurrency, phases: [{ id,
-  // main }], bands } (`currency` the space's budget's, `defaultCurrency` the server's; bands: host.util.phaseTimeline(), []
-  // without phases), `people` [{ key, name }], `refs` { <objectKey>: { title,
+  // label, main }], bands } (`currency` the space's budget's, `defaultCurrency` the server's; `label` the phase's name as the space
+  // shows it; bands: host.util.phaseTimeline(), [] without phases), `people` [{ key, name }], `refs` { <objectKey>: { title,
   // subtitle, kind, copy?, original? } } for each pointer in the input, as this person may see it (`original`, for a copy:
-  // { module, name } of what it copies), and `util`: the SDK's plain, localWhen, detailLines, time, ymd, parseYmd,
-  // objectKey, id and word, the only functions it gets.
+  // { module, name } of what it copies), `settings` the module's settings as host.settings.get() gives them ({} when they can't be
+  // read), and `util`: the SDK's plain, localWhen, detailLines, time, ymd, parseYmd, objectKey, id, word, label, order and rollup,
+  // the only functions it gets, and geo, the frozen place helpers.
   // `o.after({ action, input, writes: [{ key, value, version, before }], ref, data })` runs once the writes are in, for what
   // only a page does (redraw at once, tell the host about links, set a reminder); a throw from it is the request's answer,
   // the writes kept. `o.only` (names) keeps only those handlers.
@@ -6027,7 +6038,7 @@
   function libraryOutcome(answer, own, name) {
     const fault = (why) => new Error(`${name} could not carry that out: ${why}.`);
     const result = answer === undefined || answer === null ? {} : answer;
-    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data'].includes(k))) throw fault('it answered something the server can\'t use');
+    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data', 'links', 'schedules', 'notify'].includes(k))) throw fault('it answered something the server can\'t use');
     const given = result.writes === undefined || result.writes === null ? [] : result.writes;
     if (!Array.isArray(given)) throw fault('it answered something the server can\'t use');
     if (given.length > LIBRARY_WRITES) throw fault(`it tried to change more than ${LIBRARY_WRITES} things at once`);
@@ -6052,7 +6063,52 @@
       if (text.length > LIBRARY_DATA) throw fault('it answered more than the server takes');
       data = JSON.parse(text);
     }
-    return { writes, ref, ...(data !== undefined ? { data } : {}) };
+    return { writes, ref, ...(data !== undefined ? { data } : {}), effects: libraryEffects(result, own, fault) };
+  }
+  // The links, schedules and notice in an answer, held to the runner's rules (server/action-effects.js effectsOf): known
+  // fields only, at most 5 link changes, 5 schedules and 1 notice, a link from and a schedule or notice about this module's
+  // own object here. { links: [{ op, from, to }], schedules: [{ op, key, at?, about?, notify?, repeat?, payload? }], notify }.
+  const LIBRARY_EFFECTS = { links: 5, schedules: 5, notify: 1 };
+  function libraryEffects(result, own, fault) {
+    const bad = () => fault('it answered something the server can\'t use');
+    const only = (v, keys) => libraryPlain(v) && Object.keys(v).every((k) => keys.includes(k));
+    const pointer = (r) => only(r, ['module', 'kind', 'id', 'scope', 'space']) && ['module', 'kind', 'id', 'scope'].every((k) => typeof r[k] === 'string' && r[k] && r[k].length <= 128) && (r.space === undefined || (typeof r.space === 'string' && r.space.length <= 128));
+    const text = (v, max) => v === undefined || v === null || (typeof v === 'string' && v.length <= max);
+    const note = (v, keys) => only(v, keys) && typeof v.title === 'string' && Boolean(v.title.trim()) && v.title.length <= 400 && text(v.body, 2000) && text(v.to, 64);
+    const listOf = (name) => { const v = result[name]; if (v === undefined || v === null) return []; if (!Array.isArray(v)) throw bad(); return v; };
+    const one = (v, a, b) => { if (!libraryPlain(v) || Object.keys(v).length !== 1 || !(Object.prototype.hasOwnProperty.call(v, a) || Object.prototype.hasOwnProperty.call(v, b))) throw bad(); return Object.prototype.hasOwnProperty.call(v, a) ? a : b; };
+    const rawLinks = listOf('links');
+    const rawSchedules = listOf('schedules');
+    const rawNotify = listOf('notify');
+    if (rawLinks.length > LIBRARY_EFFECTS.links) throw fault(`it tried to change more than ${LIBRARY_EFFECTS.links} links at once`);
+    if (rawSchedules.length > LIBRARY_EFFECTS.schedules) throw fault(`it tried to set or cancel more than ${LIBRARY_EFFECTS.schedules} reminders at once`);
+    if (rawNotify.length > LIBRARY_EFFECTS.notify) throw fault(`it tried to send more than ${LIBRARY_EFFECTS.notify} notice at once`);
+    const links = rawLinks.map((l) => {
+      const op = one(l, 'add', 'remove');
+      if (!only(l[op], ['from', 'to']) || !pointer(l[op].from) || !pointer(l[op].to)) throw bad();
+      if (!own(l[op].from)) throw fault('it tried to link from something that is not its own here');
+      return libraryCopy({ op, from: l[op].from, to: l[op].to });
+    });
+    const keys = new Set();
+    const schedules = rawSchedules.map((x) => {
+      const op = one(x, 'set', 'cancel');
+      const v = x[op];
+      if (!only(v, op === 'set' ? ['key', 'at', 'about', 'notify', 'repeat', 'payload'] : ['key']) || typeof v.key !== 'string' || !/^[A-Za-z0-9_.:/-]{1,128}$/.test(v.key) || keys.has(v.key)) throw bad();
+      keys.add(v.key);
+      if (op === 'cancel') return { op, key: v.key };
+      if (!(typeof v.at === 'number' && Number.isFinite(v.at)) && !(typeof v.at === 'string' && v.at.length <= 64)) throw bad();
+      if (!pointer(v.about) || !own(v.about)) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
+      if (v.notify !== undefined && v.notify !== null && !note(v.notify, ['to', 'title', 'body'])) throw bad();
+      if (v.repeat !== undefined && v.repeat !== null && !(only(v.repeat, ['every', 'until', 'tz']) && typeof v.repeat.every === 'string')) throw bad();
+      if (v.payload !== undefined && JSON.stringify(v.payload).length > 4000) throw bad();
+      return libraryCopy({ op, key: v.key, at: v.at, about: v.about, ...(v.notify ? { notify: v.notify } : {}), ...(v.repeat ? { repeat: v.repeat } : {}), ...(v.payload !== undefined ? { payload: v.payload } : {}) });
+    });
+    const notify = rawNotify.map((n) => {
+      if (!note(n, ['to', 'title', 'body', 'about'])) throw bad();
+      if (n.about !== undefined && n.about !== null && (!pointer(n.about) || !own(n.about))) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
+      return libraryCopy({ title: n.title, ...(typeof n.body === 'string' ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}), ...(n.about ? { about: n.about } : {}) });
+    });
+    return { links, schedules, notify };
   }
   // The pointers in a request's input (its own fields, as the bus checks them): what `refs` describes.
   const libraryPointers = (input) => Object.values(input && typeof input === 'object' ? input : {})
@@ -6092,22 +6148,29 @@
     const loc = typeof host.locale === 'function' ? host.locale() || {} : {};
     const deflt = typeof loc.currency === 'string' ? loc.currency.trim().toUpperCase() : '';
     return {
-      space: { id: sp ? sp.id : null, name: sp && typeof sp.name === 'string' ? sp.name : '', currency: budget, defaultCurrency: deflt, phases: phases.map((p) => ({ id: p.id, main: Boolean(p.main) })), bands: libraryCopy(bands) },
+      space: { id: sp ? sp.id : null, name: sp && typeof sp.name === 'string' ? sp.name : '', currency: budget, defaultCurrency: deflt, phases: phases.map((p) => ({ id: p.id, label: typeof p.label === 'string' ? p.label : '', main: Boolean(p.main) })), bands: libraryCopy(bands) },
       people: (Array.isArray(people) ? people : []).filter((p) => p && typeof p.key === 'string').map((p) => ({ key: p.key, name: String(p.name || '') })),
       refs,
     };
   }
-  // The SDK helpers a handler may call (`ctx.util`): plain functions of their arguments, the same ones the runner hands it.
-  const LIBRARY_UTIL = ['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word'];
-  const libraryUtil = (util) => Object.freeze(Object.fromEntries(LIBRARY_UTIL.filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])));
-  // The same helpers with no page: `time` on `locale.clock` ('12' or '24') and `word` from `locale.words` (an environment's, as
-  // host.locale().words gives them; the defaults for any it leaves out). What server/module-actions-worker.js hands a module's
+  // The SDK helpers a handler may call (`ctx.util`): plain functions of their arguments, the same ones the runner hands it, and
+  // `geo`, the frozen set of place helpers (host.util.geo). `order` and `rollup` are the outline's (host.util.order, rollup) and
+  // `label` the module's own renameable words as this place reads them (host.util.label).
+  const LIBRARY_UTIL = ['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word', 'label', 'order', 'rollup'];
+  const libraryUtil = (util) => Object.freeze({
+    ...Object.fromEntries(LIBRARY_UTIL.filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])),
+    ...(util.geo === utilGeo ? { geo: utilGeo } : {}),
+  });
+  // The same helpers with no page: `time` on `locale.clock` ('12' or '24'), `word` from `locale.words` (an environment's, as
+  // host.locale().words gives them; the defaults for any it leaves out) and `label` from `locale.labels` (the module's words as the
+  // space's template renames them, as host.locale().labels gives them). What server/module-actions-worker.js hands a module's
   // actions library on the server, built from this very file.
   const libraryUtilFor = (locale) => {
     const loc = locale && typeof locale === 'object' ? locale : {};
     const clock = loc.clock === '24' ? '24' : '12';
     const words = loc.words && typeof loc.words === 'object' ? loc.words : {};
-    return libraryUtil({ plain: plainText, localWhen, detailLines, time: (hhmm) => utilTime(hhmm, clock), ymd: utilYmd, parseYmd: utilParseYmd, objectKey: utilObjectKey, id: utilId, word: (key, o) => utilWord(words, key, o) });
+    const labels = loc.labels && typeof loc.labels === 'object' ? loc.labels : {};
+    return libraryUtil({ plain: plainText, localWhen, detailLines, time: (hhmm) => utilTime(hhmm, clock), ymd: utilYmd, parseYmd: utilParseYmd, objectKey: utilObjectKey, id: utilId, word: (key, o) => utilWord(words, key, o), label: (key, o) => utilLabel(labels, key, o), order: outlineOrder, rollup: outlineRollup, geo: utilGeo });
   };
   // One request carried out with the library's handler `fn` (see above). `carried` is what provide gives: { from, by, byKey, credit }.
   async function carryLibrary(host, name, fn, input, carried, o) {
@@ -6124,7 +6187,9 @@
     let tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (err) { tz = 'UTC'; }
     const credit = carried.credit || { name: '', key: '' };
-    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, action: name });
+    let settings = {};
+    try { settings = host.settings && typeof host.settings.get === 'function' ? (await host.settings.get()) || {} : {}; } catch (err) { settings = {}; }
+    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, settings: libraryPlain(settings) ? settings : {}, action: name });
     ctx.read = (key) => (typeof key === 'string' && data.has(key) ? libraryCopy(data.get(key)) : null);
     ctx.list = (prefix) => {
       const p = typeof prefix === 'string' ? prefix : '';
@@ -6139,24 +6204,48 @@
     }
     const outcome = libraryOutcome(answer, own, moduleName);
     const applied = [];
+    // Puts back what was written, newest first: the value as it was, or no value where there was none.
+    const putBack = async () => {
+      for (const a of [...applied].reverse()) {
+        try {
+          if (a.before !== null) await host.storage.set(a.key, a.before, { version: a.version });
+          else await host.storage.delete(a.key, { version: a.version });
+        } catch (e) { /* changed again meanwhile: left as it is */ }
+      }
+    };
     for (const w of outcome.writes) {
       try {
         const saved = await host.storage.set(w.key, w.value, { version: versions.get(w.key) || 0 });
         applied.push({ key: w.key, value: w.value, version: saved && saved.version, before: data.has(w.key) ? libraryCopy(data.get(w.key)) : null });
       } catch (err) {
-        // Put back what was written before, newest first: the value as it was, or no value where there was none.
-        for (const a of [...applied].reverse()) {
-          try {
-            if (a.before !== null) await host.storage.set(a.key, a.before, { version: a.version });
-            else await host.storage.delete(a.key, { version: a.version });
-          } catch (e) { /* changed again meanwhile: left as it is */ }
-        }
+        await putBack();
         throw new Error(err && err.status === 409 ? LIBRARY_CHANGED : libraryLine(err && err.message) || `${moduleName} could not do that.`);
       }
     }
+    // The links, schedules and notice the handler answered, done here through this page's own host calls (the routes hold
+    // each to this person's rights), after the writes and in the runner's order, the notice last. One that fails takes the
+    // links back out, cancels the schedules this request set and puts the writes back, as the runner does.
+    const fx = outcome.effects;
+    const undone = [];
+    try {
+      for (const l of fx.links) {
+        await host.objects.setLinks(l.from, [l.to], { kind: l.to.kind, op: l.op });
+        undone.push(() => host.objects.setLinks(l.from, [l.to], { kind: l.to.kind, op: l.op === 'add' ? 'remove' : 'add' }));
+      }
+      for (const x of fx.schedules) {
+        if (x.op === 'cancel') { await host.cancelSchedule(x.key); continue; }
+        await host.schedule({ key: x.key, at: x.at, ref: x.about, ...(x.payload !== undefined ? { payload: x.payload } : {}), ...(x.notify ? { notify: x.notify } : {}), ...(x.repeat ? { repeat: x.repeat } : {}) });
+        undone.push(() => host.cancelSchedule(x.key));
+      }
+      for (const n of fx.notify) await host.notify({ title: n.title, ...(n.body !== undefined ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}) });
+    } catch (err) {
+      for (const back of undone.reverse()) { try { await back(); } catch (e) { /* left as it is */ } }
+      await putBack();
+      throw new Error(libraryLine(err && err.message) || `${moduleName} could not do that.`);
+    }
     // On a module's environment page (no space: ctx.space.id is null) the pointer a handler made is to this page's own place.
     const ref = outcome.ref && here === null && host.objects && typeof host.objects.make === 'function' ? host.objects.make(outcome.ref.kind, outcome.ref.id) : outcome.ref;
-    if (o && typeof o.after === 'function') await o.after({ action: name, input, writes: applied, ref, data: outcome.data });
+    if (o && typeof o.after === 'function') await o.after({ action: name, input, writes: applied, ref, data: outcome.data, effects: fx });
     return { ...(ref ? { ref } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}) };
   }
   // Handlers for provide, one for each of the library's (or of o.only).

@@ -1,7 +1,7 @@
 {
   "id": "polls",
   "name": "Polls",
-  "version": "1.15.33",
+  "version": "1.15.34",
   "icon": "square-poll-vertical",
   "color": "purple",
   "description": "Quick polls and votes for the whole {environment} and for each {space}, with live results.",
@@ -135,6 +135,7 @@
     ]
   },
   "hooks": {
+    "schedule": true,
     "notify": true
   },
   "events": {
@@ -153,6 +154,7 @@
     ]
   },
   "actions": {
+    "server": "src/polls-lib-actions.js",
     "provides": [
       {
         "name": "draftPoll",

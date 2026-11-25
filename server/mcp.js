@@ -21,7 +21,7 @@
 // mount() registers the routes.
 const http = require('node:http');
 const { Duplex } = require('node:stream');
-const { SETUP_LIMITS, SETUP_ASKS, SETUP_ASK_DAYS } = require('./agent-routes');
+const { SETUP_LIMITS, SETUP_ASKS, AGENT_ASK_DAYS } = require('./agent-routes');
 
 // The protocol versions spoken, newest first. initialize answers the client's own when it is one of these, else the newest.
 const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
@@ -134,6 +134,14 @@ const TOOLS = [
     plan: (a) => ({ method: 'GET', path: `/api/objects/kinds${query({ from: a.from })}` }),
   },
   {
+    name: 'object_format',
+    title: 'The objects format',
+    description: 'The JSON Schema of a typed object: { kind, title, details }, every kind and the fields and types of its details (a flight\'s airline, number, from, to, departs, terminal, gate, seat...). Read it before you send an object input to ask_for_change; list_actions\' objectKinds says which kinds each action takes.',
+    inputSchema: object({}),
+    annotations: READ_ONLY,
+    plan: () => ({ method: 'GET', path: '/api/objects/format/schema' }),
+  },
+  {
     name: 'resolve_objects',
     title: 'Look up objects',
     description: 'A summary of each object pointer given (up to 50), or why it can\'t be read. Every pointer must be into one of your spaces.',
@@ -152,7 +160,7 @@ const TOOLS = [
   {
     name: 'list_actions',
     title: 'What I can ask for',
-    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name, label, description and the input it takes, and hints saying what to put in an input. clears lists the inputs you may send as "" to clear them (an input left out is kept); patch: true means its object input changes only what it gives, so it needs no title. now is true when the change is made at once; when it is false, waiting says what the request will wait for. Read an action\'s description and hints before you call ask_for_change.',
+    description: 'The changes you may ask the modules in a space for (ask_for_change): each action\'s name, label, description, input and hints. clears: inputs you may send as "" to clear them (one left out is kept). patch: true: its object input changes only what it gives. objectKinds: the kinds an object input takes, with their details fields and types ("*": any kind, see object_format). now: true when it is made at once; else waiting says what it waits for. Read its description and hints before you call ask_for_change.',
     inputSchema: object({ space: SPACE }, ['space']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/actions` }),
@@ -160,7 +168,7 @@ const TOOLS = [
   {
     name: 'ask_for_change',
     title: 'Ask a module for a change',
-    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its own rules and your own rights. Where list_actions says now: true, it is done at once: the answer has ok, ref (what it made or changed) or the module\'s error. Otherwise it waits (up to seven days) until a person opens that module there, as waiting says; follow it with request_status or wait_for_result. Read the action\'s description and hints in list_actions first. Counts as a write.',
+    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its rules and your rights; read its description and hints in list_actions first. Where list_actions says now: true, it is done at once: the answer has ok, ref (what it changed), note and data (when the module says more) or the module\'s error. Otherwise it waits (up to seven days) for a person to open that module, as waiting says; see request_status, wait_for_result. Adds and edits are direct; the people who run the space may undo them for seven days. Counts as a write.',
     inputSchema: object({
       space: SPACE,
       action: { type: 'string', minLength: 3, maxLength: 100, description: '<module>:<name>, from list_actions.' },
@@ -172,7 +180,7 @@ const TOOLS = [
   {
     name: 'request_status',
     title: 'How a request went',
-    description: 'How one of your own requests from ask_for_change went: pending or claimed (with waiting, saying what it waits for), done (with ok, and error or note, and ref, the pointer of what it made or changed) or expired. Kept for ten minutes after it finished.',
+    description: 'How one of your own requests from ask_for_change went: pending or claimed (with waiting, saying what it waits for), done (with ok, and error or note, ref, the pointer of what it made or changed, and data, what the module says back when it says more) or expired. Kept for ten minutes after it finished.',
     inputSchema: object({ space: SPACE, request: { type: 'integer', minimum: 1, description: 'The request id ask_for_change gave.' } }, ['space', 'request']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/action/${seg(a.request)}` }),
@@ -271,7 +279,7 @@ const SETUP_TOOLS = [
   {
     name: 'ask_owner',
     title: 'Ask an owner about a person',
-    description: `Ask an owner to add a member to a space you made (add), take one off (remove), or tick or untick one as its moderator (moderator, with on). Nothing changes until an owner says yes; the owners are told. An ask waits up to ${SETUP_ASK_DAYS} days, then expires, and at most ${SETUP_LIMITS.waiting} wait at once. Answers the ask's id; read how it went with ask_status. Works only when permissions in me includes agentAskPeople. Counts as a write.`,
+    description: `Ask an owner to add a member to a space you made (add), take one off (remove), or tick or untick one as its moderator (moderator, with on). Nothing changes until an owner says yes; the owners are told. An ask waits up to ${AGENT_ASK_DAYS} days, then expires, and at most ${SETUP_LIMITS.waiting} wait at once. Answers the ask's id; read how it went with ask_status. Works only when permissions in me includes agentAskPeople. Counts as a write.`,
     inputSchema: object({
       space: SPACE,
       ask: { type: 'string', enum: [...SETUP_ASKS], description: 'add, remove or moderator.' },

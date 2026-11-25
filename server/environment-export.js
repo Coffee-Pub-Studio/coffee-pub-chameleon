@@ -20,8 +20,8 @@
 //              (copies of the data from before the Names migration, which hold the same secrets), agreements.json
 //              (guests' agreements: the host's backup carries them, never an owner's copy), access.json (requests to enter
 //              a space, by people and guests, and a guest's approvals: the same), tokens.json (agents' tokens and sign-in connections:
-//              a restore of the copy leaves every agent without one), oauth-clients.json (the apps registered for sign-in) and agent-log/ (what agents did), agent-setup.json (set-up agents'
-//              asks and the undo records of their changes: a restore starts with none), chat-private.json and
+//              a restore of the copy leaves every agent without one), oauth-clients.json (the apps registered for sign-in) and agent-log/ (what agents did), agent-records.json and
+//              modules/<id>/trash/agent/ (agents' asks and the undo records of their changes, and what those hold: a restore starts with none), chat-private.json and
 //              ai-threads.moved.json (other people's private chat), each person's own module data, held clears and
 //              uploads (modules/<id>/data/person-<key>.json, modules/<id>/trash/person-<key>.json,
 //              modules/<id>/uploads/person-<key>/...: private to that person), a library module's share links
@@ -166,7 +166,8 @@ const FILE_LEFT_OUT = [
   /^tokens\.json$/, // agents' tokens (server/tokens.js, their hashes): never in an owner's copy, so a restore of one leaves agents without a token
   /^oauth-clients\.json$/, // the apps registered for sign-in (server/oauth.js): with tokens.json, the host's backup only
   /^agent-log\//, // what agents did (server/agent-log.js, a folder of day files): the host's backup only
-  /^agent-setup(\.unreadable-\d+)?\.json$/, // set-up agents' asks and undo records (server/setup-records.js): the host's backup only
+  /^agent-records(\.unreadable-\d+)?\.json$/, // agents' asks and undo records (server/agent-records.js): the host's backup only
+  new RegExp(`^modules/${MODULE_ID}/trash/agent/`), // what agents' changes held for an Undo (server/module-holds.js): with agent-records.json
   (name) => name === LEGACY_ENVIRONMENT_RECORD, // the older name of app.json: only app.json speaks for the environment
   /^tmp\//,
   /^workspaces\.json$/, // each person's own workspaces and arrangements (server/workspaces.js): personal state, the host's backup only
@@ -218,11 +219,11 @@ function exportEntries(files, appData, { declared } = {}) {
 function restoreEntries(files, { backup = false } = {}) {
   // An owner's copy never carries the sealed values of modules' `secret` settings (modules/secrets.json): a zip written by hand
   // cannot plant one, and they were never made with this host's key anyway. Nor agents' tokens (tokens.json) or their log
-  // (agent-log/, which sets the day's counts), nor set-up agents' asks and undo records (agent-setup.json): a hand-made copy
+  // (agent-log/, which sets the day's counts), nor agents' asks and undo records (agent-records.json) and what they hold (modules/<id>/trash/agent/): a hand-made copy
   // could otherwise plant a token it chose, spend a limit, or plant an ask or an undo an owner never saw made.
   // Names are compared as a case-insensitive folder, or one that reads "\" as "/", would store them; a name with a NUL in it
   // names no file anywhere and is dropped.
-  const kept = backup ? files : files.filter(([name]) => { const n = path.posix.normalize(String(name).replace(/\\/g, '/')).replace(/^\/+/, '').toLowerCase(); return !n.includes('\u0000') && !/^(agreements|access|agent-setup)(\.unreadable-\d+)?\.json$/.test(n) && n !== 'modules/secrets.json' && !/^(tokens\.json|oauth-clients\.json|agent-log)(\/|$)/.test(n); });
+  const kept = backup ? files : files.filter(([name]) => { const n = path.posix.normalize(String(name).replace(/\\/g, '/')).replace(/^\/+/, '').toLowerCase(); return !n.includes('\u0000') && !/^(agreements|access|agent-records)(\.unreadable-\d+)?\.json$/.test(n) && !/^modules\/[^/]+\/trash\/agent\//.test(n) && n !== 'modules/secrets.json' && !/^(tokens\.json|oauth-clients\.json|agent-log)(\/|$)/.test(n); });
   return kept.map(([name, data]) => {
     const where = path.posix.normalize(name);
     if (where !== APP_FILE && where !== LEGACY_ENVIRONMENT_RECORD) return [name, data];

@@ -88,21 +88,35 @@ function fieldSchema(type) {
   throw new Error(`no schema for input type ${type}`);
 }
 
+// A text or date input the action clears (its `clears`) as the model is told it: "" is allowed and clears it. A number or a
+// pointer keeps its one real type (a schema here never has two), so the model can't send "" for one; null still leaves it out.
+const CLEAR_WORDS = 'Send "" to clear it.';
+function clearableSchema(s) {
+  if (s.type !== 'string' || s.format) return s;
+  const out = { ...s, description: s.description ? `${s.description} ${CLEAR_WORDS}` : CLEAR_WORDS };
+  delete out.minLength;
+  if (out.pattern) out.pattern = `^(${out.pattern.replace(/^\^|\$$/g, '')})?$`;
+  return out;
+}
+
 // The schema the model is given, written to the strictest form the providers take (OpenAI's strict mode, as search_objects
 // is): every property is listed in `required`, and an optional one (a type ending in ?) may be null, meaning absent.
-function inputSchema(input) {
+// `clears`: the action's inputs that "" clears (see clearableSchema).
+function inputSchema(input, clears) {
   const properties = {};
+  const cleared = new Set(Array.isArray(clears) ? clears : []);
   for (const [field, type] of Object.entries(input || {})) {
-    const s = fieldSchema(type);
-    properties[field] = String(type).endsWith('?') ? { ...s, type: [s.type, 'null'] } : s;
+    const optional = String(type).endsWith('?');
+    const s = optional && cleared.has(field) ? clearableSchema(fieldSchema(type)) : fieldSchema(type);
+    properties[field] = optional ? { ...s, type: [s.type, 'null'] } : s;
   }
   return { type: 'object', properties, required: Object.keys(properties), additionalProperties: false };
 }
 
 // The catalog for a list of cleaned manifests (the enabled ones, in this environment's words): { tools, leftOut }.
-// `tools`, sorted by name, each { name, module, action, label, description, effect, input, schema }: `input` the action's
-// own field types (for turning numbers back into pointers), `schema` what the model is given. `leftOut`: every other action
-// a module provides, { module, action, why }.
+// `tools`, sorted by name, each { name, module, action, label, description, effect, input, clears, schema }: `input` the
+// action's own field types (for turning numbers back into pointers), `clears` the optional inputs "" clears (the manifest's,
+// [] when none), `schema` what the model is given. `leftOut`: every other action a module provides, { module, action, why }.
 function buildCatalog(manifests) {
   const tools = [];
   const leftOut = [];
@@ -110,7 +124,7 @@ function buildCatalog(manifests) {
     for (const a of (m && m.actions && m.actions.provides) || []) {
       const why = whyLeftOut(m.id, a);
       if (why) { leftOut.push({ module: m.id, action: a.name, why }); continue; }
-      tools.push({ name: `${m.id}${SEP}${a.name}`, module: m.id, action: a.name, label: a.label, description: a.description, effect: a.effect, input: { ...a.input }, schema: inputSchema(a.input) });
+      tools.push({ name: `${m.id}${SEP}${a.name}`, module: m.id, action: a.name, label: a.label, description: a.description, effect: a.effect, input: { ...a.input }, clears: Array.isArray(a.clears) ? [...a.clears] : [], schema: inputSchema(a.input, a.clears) });
     }
   }
   tools.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
@@ -122,7 +136,9 @@ const DATETIME_RE = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)
 const dateTimeOk = (v) => { const m = DATETIME_RE.exec(v); return Boolean(m) && Boolean(dayText(m[1])); };
 
 // A model's input for a tool, checked against its schema: { ok: true, input } or { ok: false, error } with one sentence the
-// model is sent back. Numbers stay numbers; turning them into pointers, and the bus's own checks, are the caller's.
+// model is sent back. Numbers stay numbers; turning them into pointers, and the bus's own checks, are the caller's. An
+// optional input the action clears (`tool.clears`) keeps "" (or text that is only spaces, as "") so the clear reaches the
+// action, as the bus keeps it; any other optional "" is the same as left out.
 function checkToolInput(tool, value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: "The input must be named fields, as the tool's schema says." };
   const { properties } = tool.schema;
@@ -130,11 +146,16 @@ function checkToolInput(tool, value) {
   const needed = (key) => !String((tool.input || {})[key] ?? '').endsWith('?');
   for (const key of Object.keys(value)) if (!Object.hasOwn(properties, key)) return { ok: false, error: `${tool.name} takes no ${String(key).slice(0, 40)}.` };
   for (const key of Object.keys(properties)) if (needed(key) && (value[key] === undefined || value[key] === null)) return { ok: false, error: `${key} is needed.` };
+  const clears = new Set(Array.isArray(tool.clears) ? tool.clears : []);
   const input = {};
   for (const [key, s] of Object.entries(properties)) {
     let v = value[key];
-    // An optional text left empty is the same as left out (a model fills every field in strict form).
-    if (!needed(key) && typeof v === 'string' && !v.trim()) v = undefined;
+    if (!needed(key) && typeof v === 'string' && !v.trim()) {
+      // A declared clear keeps "" for the action; any other optional text left empty is the same as left out (a model fills
+      // every field in strict form).
+      if (clears.has(key)) { input[key] = ''; continue; }
+      v = undefined;
+    }
     if (v === undefined || v === null) continue;
     const type = Array.isArray(s.type) ? s.type.find((x) => x !== 'null') : s.type;
     if (type === 'integer') {
