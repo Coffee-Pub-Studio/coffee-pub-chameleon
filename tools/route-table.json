@@ -171,6 +171,8 @@
   {"kind":"route","method":"POST","path":"/api/users/:key/asks/:id","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/users/:key/changes","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/users/:key/changes/:id/undo","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/api/spaces/:id/agent-review","name":null,"part":null},
+  {"kind":"route","method":"POST","path":"/api/spaces/:id/changes/:changeId/undo","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/agent/me","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/spaces/:id/members","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/agent/templates","name":null,"part":null},

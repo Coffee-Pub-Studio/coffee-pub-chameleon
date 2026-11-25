@@ -472,11 +472,11 @@
 
   // Closing a poll is something other modules may care about (a task waiting on it, say): say so through
   // the host, which delivers it to whichever modules were approved to hear it. Nothing here knows which.
+  // How it turned out (pollOutcomeOf in polls-lib-actions.js, which the server's notice reads too).
+  const outcomeOf = (x) => pollOutcomeOf(x.p, [...(votes.get(x.key) || new Map()).values()]);
   function winnerOf(x) {
-    const { counts } = tally(x);
-    const max = Math.max(0, ...[...counts.values()].map((v) => v.length));
-    const top = max > 0 ? x.p.options.filter((o) => counts.get(o.id).length === max) : [];
-    return { winner: top.length === 1 ? top[0].text : null, tied: top.length > 1 ? top.map((o) => o.text).slice(0, 5) : [] };
+    const { winner, tied } = outcomeOf(x);
+    return { winner, tied };
   }
   // The object the winning option points at, when there is one winner and it points at something.
   function pickOf(x) {
@@ -485,10 +485,7 @@
     return { ...(o && o.link ? { pick: o.link } : {}), ...(o && o.date ? { date: o.date } : {}) };
   }
   // A short line on how it turned out, for whoever follows the poll.
-  function summaryOf(x) {
-    const { winner, tied } = winnerOf(x);
-    return (winner ? `${x.p.question}: ${winner}` : tied.length ? `${x.p.question}: tied between ${tied.join(', ')}` : `${x.p.question}: no votes`).slice(0, 200);
-  }
+  const summaryOf = (x) => outcomeOf(x).summary;
   const announcing = new Set();
   async function announceClosed(x) {
     try {
@@ -498,20 +495,45 @@
       if (host.objects && host.objects.trace) host.objects.trace('polls: could not announce the close: ' + err.message);
     }
   }
-  // A poll that closes by its time closes with nobody clicking: whoever sees it first announces it, once.
-  async function announceIfDue() {
-    if (!host.events || !canVote) return;
-    for (const x of polls.values()) {
-      if (x.scope !== 'own' || x.p.closed || x.p.announced || !x.p.closesAt || Date.now() < x.p.closesAt || announcing.has(x.key)) continue;
-      announcing.add(x.key);
-      const p = { ...x.p, announced: true };
-      try {
-        const saved = await host.storage.set('poll:' + x.id, p, { version: x.version });
-        rememberPoll('own', { key: 'poll:' + x.id, value: p, version: saved.version });
-        await announceClosed({ ...x, p });
-      } catch (err) {
-        // someone else got there first
+  // People are told a poll closed by the server, page or not: its closing schedule's notice, or the notice of End poll
+  // (pollCloseEffects in polls-lib-actions.js). Other modules hear the `closed` event from a page, once (`announced`): the
+  // page that ended it, an open page when the closing schedule fires, or the next page to open after a poll closed
+  // with none open. Whoever writes `announced` first tells them.
+  async function tellOthers(x) {
+    if (!host.events || !canVote || !x || x.scope !== 'own' || x.p.announced || !isClosed(x.p) || announcing.has(x.key)) return;
+    announcing.add(x.key);
+    const p = { ...x.p, announced: true };
+    try {
+      const saved = await host.storage.set('poll:' + x.id, p, { version: x.version });
+      rememberPoll('own', { key: 'poll:' + x.id, value: p, version: saved.version });
+      await announceClosed({ ...x, p });
+    } catch (err) {
+      // someone else got there first
+    } finally {
+      announcing.delete(x.key);
+    }
+  }
+  const tellAllClosed = () => { for (const x of [...polls.values()]) tellOthers(x); };
+  // A poll's closing schedule fired (the server has sent its notice): the poll is closed by its time now.
+  host.on('schedule', (e) => {
+    if (!e || typeof e.key !== 'string' || !e.key.startsWith('close:')) return;
+    render();
+    tellOthers(polls.get(pollKey('own', e.key.slice(6))));
+  });
+  // What a person's own change to a poll asks beside its write, done through this page's host calls: the closing schedule
+  // set or cancelled, and the notice when it was ended now. The poll is saved either way; one that can't be done (the
+  // schedule hook not approved yet, say) is only traced.
+  async function closeEffects(before, after) {
+    if (!host.space || !host.space()) return; // the environment's own page: as an agent's request there (pollWithEffects)
+    const fx = pollCloseEffects(before, after, { about: host.objects.make('poll', after.id), now: Date.now(), votes: [...(votes.get(pollKey('own', after.id)) || new Map()).values()] });
+    try {
+      for (const s of fx.schedules) {
+        if (s.cancel) await host.cancelSchedule(s.cancel.key);
+        else await host.schedule({ key: s.set.key, at: s.set.at, ref: s.set.about, notify: s.set.notify, payload: s.set.payload });
       }
+      for (const n of fx.notify) await host.notify({ title: n.title, body: n.body });
+    } catch (err) {
+      if (host.objects && host.objects.trace) host.objects.trace('polls: the closing could not be scheduled or told: ' + err.message);
     }
   }
 
@@ -523,6 +545,7 @@
     try {
       const saved = await host.storage.set('poll:' + x.id, p, { version: x.version });
       rememberPoll('own', { key: 'poll:' + x.id, value: p, version: saved.version });
+      closeEffects(x.p, p);
       if (closing) announceClosed({ ...x, p });
     } catch (err) {
       showNote(err.status === 409 ? 'Someone changed that poll first. It has been refreshed.' : err.message);
@@ -703,6 +726,7 @@
     try {
       const saved = await host.storage.set('poll:' + p.id, p);
       rememberPoll('own', { key: 'poll:' + p.id, value: p, version: saved.version });
+      closeEffects(null, p);
       if ($('f-notify').checked) {
         try { await host.notify({ title: 'New poll', body: question }); } catch (err) { showNote('Started, but people could not be notified: ' + err.message); }
       }
@@ -862,13 +886,13 @@
       updatePoll: withSettings(ACTION_HANDLERS.updatePoll),
     };
   }
-  // What only a page does once a request's poll is written: it shows at once, and a poll the request ended is told to whoever
-  // follows it, as End poll tells them.
+  // What only a page does once a request's poll is written: it shows at once, and a poll the request ended is told to the
+  // modules that follow it, as End poll tells them (its schedule and notice were the answer's, done by the adapter).
   async function afterAction({ writes }) {
     for (const w of writes) {
       rememberPoll('own', { key: w.key, value: w.value, version: w.version });
       const x = polls.get(pollKey('own', w.key.slice(5)));
-      if (x && w.before && !w.before.closed && w.value.closed) announceClosed(x);
+      if (x && w.before && !w.before.closed && w.value.closed) tellOthers(x);
     }
     render();
   }
@@ -893,9 +917,9 @@
       },
     });
   }
-  // A poll with a closing time closes on its own: redraw now and then to show it.
+  // A poll with a closing time closes on its own: redraw now and then to show it (the server tells people; see tellOthers).
   // Stopped once this module is closed (in the page, its elements go and the timer would draw into nothing).
-  const redraw = setInterval(() => { if (!$('app')) return void clearInterval(redraw); render(); announceIfDue(); }, 30000);
+  const redraw = setInterval(() => { if (!$('app')) return void clearInterval(redraw); render(); }, 30000);
 
   async function start() {
     try {
@@ -912,7 +936,7 @@
     $('loading').hidden = true;
     $('app').hidden = false;
     render();
-    announceIfDue();
+    tellAllClosed();
   }
   await start();
 })();

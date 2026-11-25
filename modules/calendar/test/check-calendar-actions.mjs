@@ -24,6 +24,7 @@ async function same(action, input, world) {
   assert.deepEqual(r.runner.writes, r.page.writes, `${action}: the same writes`);
   assert.deepEqual(r.runner.ref, r.page.ref, `${action}: the same pointer`);
   assert.deepEqual(r.runner.data, r.page.data, `${action}: the same note`);
+  assert.deepEqual(r.runner.effects, r.page.effects, `${action}: the same reminder and links`);
   return r.page;
 }
 const refuses = async (action, input, world, words) => assert.equal((await same(action, input, world)).refused, words);
@@ -115,19 +116,39 @@ await test('updateEvent: "" clears the end, the repeat, the reminder or the note
   assert.deepEqual(m.actions.provides.find((a) => a.name === 'updateEvent').clears, ['endTime', 'endDate', 'repeat', 'remind', 'notes']);
   assert.equal(m.actions.server, 'src/calendar-lib-actions.js');
 });
-await test('carried on the server, a reminder waits for a page: marked remindPending and said; a page sets it at once', async () => {
-  const made = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', remind: 90 }, world(), { carrier: 'server', kinds: ['event'], now: Date.parse('2026-11-01T12:00Z') });
-  assert.equal(made.writes[0].value.remindPending, true);
-  assert.equal(made.data.note, 'The reminder is for Friday 20 November, 8:30 AM, 90 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
-  const none = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20' }, world(), { carrier: 'server', kinds: ['event'] });
-  assert.deepEqual([none.writes[0].value.remindPending, none.data], [undefined, undefined], 'no reminder: no mark, nothing said');
-  const rows = { 'event:e1': { ...TIMED, remindPending: true } };
-  const off = await onRunner('calendar', 'updateEvent', { event: ref('e1'), remind: '' }, world(rows), { carrier: 'server', kinds: ['event'] });
-  assert.deepEqual([off.writes[0].value.remind, off.writes[0].value.remindPending, off.data], [null, undefined, undefined], 'taken off: no mark');
-  const page = await same('updateEvent', { event: ref('e1'), title: 'Dinner, later' }, world(rows));
-  assert.equal(written(page, 'event:e1').remindPending, undefined, 'a page sets it itself, so the mark goes');
+await test('a reminder is answered as its schedule, set at once by either carrier: nothing waits for a page', async () => {
+  const server = (action, input, w, o = {}) => onRunner('calendar', action, input, w, { carrier: 'server', kinds: ['event'], ...o });
+  const made = await server('createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', remind: 90 }, world(), { now: Date.parse('2026-11-01T12:00Z') });
+  assert.equal(made.writes[0].value.remindPending, undefined, 'no mark');
+  assert.equal(made.data.note, 'The reminder is for Friday 20 November, 8:30 AM, 90 minutes before it starts.');
+  assert.deepEqual(made.effects.schedules, [{ op: 'set', key: 'remind:n1', at: Date.parse(at('2026-11-20', '10:00')) - 90 * 60000, about: ref('n1'), payload: { id: 'n1' }, notify: { title: 'Car', body: 'Starts in 1 hour 30 minutes' } }]);
+  // An all-day event counts from 9:00 on its day, read in the request's zone (Tokyo here), not the process's (Chicago).
+  const tokyo = await server('createEvent', { title: 'Market', date: '2026-11-21', remind: 0 }, world(), { tz: 'Asia/Tokyo', now: Date.parse('2026-11-01T12:00Z') });
+  assert.equal(tokyo.effects.schedules[0].set, undefined);
+  assert.equal(tokyo.effects.schedules[0].at, Date.parse('2026-11-21T00:00:00Z'), '9:00 in Tokyo');
+  // A weekly all-day repeat: the next one not passed and not skipped, the host's repeat to its Until's last moment.
+  const weekly = await server('updateEvent', { event: ref('e2'), remind: 60 }, world({ 'event:e2': ALLDAY }), { now: Date.parse('2026-11-25T12:00Z') });
+  assert.deepEqual(weekly.effects.schedules, [{ op: 'set', key: 'remind:e2', at: Date.parse('2026-12-05T14:00:00Z'), about: ref('e2'), payload: { id: 'e2' }, notify: { title: 'Market', body: 'Starts in an hour' }, repeat: { every: 'week', until: Date.parse('2027-01-01T05:59:59.999Z'), tz: 'America/Chicago' } }], '28 November is skipped; 8:00 on 5 December, Chicago');
+  const none = await server('createEvent', { title: 'Car', date: '2026-11-20' }, world());
+  assert.deepEqual([none.data, none.effects.schedules], [undefined, []], 'no reminder: none set, nothing said');
+  const off = await server('updateEvent', { event: ref('e1'), remind: '' }, world({ 'event:e1': TIMED }));
+  assert.deepEqual([off.writes[0].value.remind, off.data, off.effects.schedules], [null, undefined, [{ op: 'cancel', key: 'remind:e1' }]], 'taken off');
+  const passed = await server('createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', remind: 15 }, world(), { now: Date.parse('2026-11-21T12:00Z') });
+  assert.deepEqual(passed.effects.schedules, [], 'passed: nothing to set');
+  const far = await server('createEvent', { title: 'Car', date: '2028-01-10', time: '10:00', remind: 15 }, world(), { now: Date.parse('2026-11-01T12:00Z') });
+  assert.deepEqual([far.effects.schedules, far.data.note], [[], 'The reminder is for Monday 10 January, 9:45 AM, 15 minutes before it starts. A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year.'], 'more than a year off: not set, and said');
+  // Made from an object in this space: linked in the answer, so the server makes the link too.
+  const linked = await server('createEvent', { title: 'Dinner', date: '2026-11-20', ref: { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: 's1' } }, world({}, { summaries: [{ ref: { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: 's1' }, title: 'Book dinner', kind: 'task' }] }));
+  assert.deepEqual(linked.effects.links, [{ op: 'add', from: ref('n1'), to: { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: 's1' } }]);
+  // A page carries the very same answer through its own host calls.
+  const calls = [];
+  const { onPage } = await import('../../../tools/module-actions-harness.mjs');
+  const soon = new Date(Date.now() + 30 * 24 * 3600000).toISOString().slice(0, 10); // within the host's year ahead
+  await onPage('calendar', 'createEvent', { title: 'Car', date: soon, time: '10:00', remind: 90 }, world(), { name: 'Calendar', calls });
+  assert.deepEqual(calls.map((c) => [c.call, c.key, c.at]), [['schedule', 'remind:n1', Date.parse(at(soon, '10:00')) - 90 * 60000]]);
   const js = fs.readFileSync(new URL('../src/calendar.js', import.meta.url), 'utf8');
-  assert.ok(/async function setWaitingReminders[\s\S]*remindPending[\s\S]*applyReminder\(x\.id, x\.ev, \{\}, true\)[\s\S]*delete ev\.remindPending/.test(js), 'the page sets a waiting reminder and takes the mark off');
+  assert.ok(!/remindPending|setWaitingReminders/.test(js), 'no catch-up on the page');
+  assert.ok(/const r = reminderOf\(ev, TZ, Date\.now\(\)\)/.test(js), 'the form sets its reminder by the same rule');
 });
 
 // --- remindAt: the reminder as a clock time --------------------------------------------------------------------------------
@@ -135,7 +156,9 @@ await test('carried on the server, a reminder waits for a page: marked remindPen
 // change in Pacific time and the server's own note are on the runner, whose `now` and zone a test sets.
 const SAY_AT = 'Say remindAt as a date and time, for example 2026-11-24 11:00, or a time on the event\'s day, for example 11:00, 11:00 AM or 9am.';
 const lead = (r) => written(r, 'event:n1').remind;
-const note = (r) => (r.data || {}).note;
+// These events are more than a year off, so the answer also says the reminder is not set yet (checked on its own above).
+const FAR = ' A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year.';
+const note = (r) => ((r.data || {}).note || '').replace(FAR, '') || undefined;
 await test('remindAt: every accepted form, for an all-day and a timed event, stored as minutes before', async () => {
   // Thomas's case: 11:00 on 24 November for an all-day event on the 26th. An all-day event reminds from 9:00 on its day, so
   // that is 46 hours (2760 minutes), not the 37 hours counted from midnight (which would have come at 20:00 on the 24th).
@@ -238,9 +261,9 @@ await test('updateEvent with remindAt: read against the event as changed; a move
   await refuses('updateEvent', { event: ref('e4'), remindAt: '10:00' }, world(rows), 'An all-day event\'s reminder can be at 9:00 AM on its day at the latest; give an earlier time.');
   await refuses('updateEvent', { event: ref('e3'), remindAt: '2030-10-01 19:00' }, world(rows), 'remindAt can be at most 28 days before the event starts.');
   await refuses('updateEvent', { event: ref('e3'), remindAt: 'soon' }, world(rows), SAY_AT);
-  const server = await onRunner('calendar', 'updateEvent', { event: ref('e3'), remindAt: '18:30' }, world(rows), { carrier: 'server', kinds: ['event'] });
-  assert.deepEqual([server.writes[0].value.remind, server.writes[0].value.remindPending], [30, true]);
-  assert.equal(server.data.note, 'The reminder is for Wednesday 20 November, 6:30 PM, 30 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
+  const server = await onRunner('calendar', 'updateEvent', { event: ref('e3'), remindAt: '18:30' }, world(rows), { carrier: 'server', kinds: ['event'], now: Date.parse('2030-11-01T12:00Z') });
+  assert.deepEqual([server.writes[0].value.remind, server.writes[0].value.remindPending, server.effects.schedules[0].op], [30, undefined, 'set']);
+  assert.equal(server.data.note, 'The reminder is for Wednesday 20 November, 6:30 PM, 30 minutes before it starts.');
 });
 
 // --- reminders in the form and in the notification --------------------------------------------------------------------
@@ -268,7 +291,7 @@ await test('the form: the presets first, Other with a number and minutes, hours 
   assert.match(html, /id="f-remind-n" type="number" min="1" max="40320"/);
   assert.match(html, /<select id="f-remind-unit"[^>]*><option value="1">minutes<\/option><option value="60">hours<\/option><option value="1440">days<\/option><\/select>/);
   const js = fs.readFileSync(new URL('../src/calendar.js', import.meta.url), 'utf8');
-  assert.ok(js.includes('const label = remindWords(ev.remind);'), 'the notification says the lead time');
+  assert.ok(library('calendar').js.includes('body: remindWords(ev.remind)'), 'the notification says the lead time');
   assert.ok(/remindFromForm\(\$\('f-remind-n'\)\.value, Number\(\$\('f-remind-unit'\)\.value\)\)/.test(js), 'save reads Other');
   assert.ok(/async function afterAction[\s\S]*applyReminder\(id, ev, \{\}\)/.test(js), 'a page that carries a request sets its reminder');
 });

@@ -260,8 +260,8 @@ test("a restore's files carry no session or stream key; every other file is as i
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['Tokens.json', other], ['TOKENS.JSON', other], ['Agent-Log/abcd1234/2026-11-16.jsonl', other], ['agent-log\\abcd1234\\2026-11-16.jsonl', other], ['.\\tokens.json', other], ['tokens.json\u0000', other], ['chat.json\u0000', other]]).map(([n]) => n), ['app.json']);
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['agent-log/abcd1234/2026-11-16.jsonl', other]], { backup: true }).map(([n]) => n), ['app.json', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl']);
   // Set-up agents' asks and undo records (plan-admin-agent.md, step 2): an owner's copy can't plant an ask or an undo; the host's backup keeps them.
-  assert.deepEqual(ex.restoreEntries([['app.json', app], ['agent-setup.json', other], ['./Agent-Setup.json', other], ['agent-setup.unreadable-1.json', other]]).map(([n]) => n), ['app.json']);
-  assert.deepEqual(ex.restoreEntries([['app.json', app], ['agent-setup.json', other]], { backup: true }).map(([n]) => n), ['app.json', 'agent-setup.json']);
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['agent-records.json', other], ['./Agent-Records.json', other], ['agent-records.unreadable-1.json', other]]).map(([n]) => n), ['app.json']);
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['agent-records.json', other]], { backup: true }).map(([n]) => n), ['app.json', 'agent-records.json']);
   assert.ok(JSON.parse(copy[0][1].toString('utf8')).users.every((u) => !('agreed' in u)));
   assert.equal(ex.restoreEntries([['app.json', Buffer.from('not json')]])[0][1].toString(), 'not json');
 });
@@ -303,7 +303,7 @@ const FILES = {
     'modules/vault/library/space-trip01.json', 'modules/maps/geocode.json', 'modules/maps/image-map/castle.png',
   ],
   leftOut: [
-    'secrets.key', 'modules/secrets.json', 'pre-names/a-part/app.json', 'chat-private.json', 'ai-threads.moved.json', 'ai-threads.json', LEGACY_ENVIRONMENT_RECORD, 'tmp/region-cut/x.pmtiles', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl', 'agent-setup.json',
+    'secrets.key', 'modules/secrets.json', 'pre-names/a-part/app.json', 'chat-private.json', 'ai-threads.moved.json', 'ai-threads.json', LEGACY_ENVIRONMENT_RECORD, 'tmp/region-cut/x.pmtiles', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl', 'agent-records.json',
     'modules/todo/data/person-ownerkey.json', 'modules/todo/trash/person-ownerkey.json', 'modules/research/uploads/person-ownerkey/abc123.png', 'modules/research/uploads/person-ownerkey/abc123.json',
     'modules/vault/library/space-trip01.shares.json', 'app.json.tmp', 'modules/maps/image-map/.upload-1a2b.part', 'modules/.staging-1-2/todo/module.json', 'modules/maps/map-tiles/x.pmtiles.part',
   ],
