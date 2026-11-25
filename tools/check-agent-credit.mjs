@@ -96,8 +96,8 @@ await has('modules/goals/src/goals-lib-actions.js', /function add\(kind, raw, ct
 await has('modules/goals/src/goals.js', /host\.actions\.fromLibrary\(/, 'goals: the page carries the library\'s handlers');
 await has('modules/budget/src/budget-lib-actions.js', /costFromRequest\(input, ctx\.credit\.key, ctx\.people/, 'budget: addCost stamps the credit key');
 await has('modules/budget/src/budget.js', /host\.actions\.fromLibrary\(/, 'budget: the page carries the library\'s handlers');
-await has('modules/maps/src/maps-lib-g-list-view.js', /placeWhere\(ticks, input, \(ctx && ctx\.credit && ctx\.credit\.key\)/, 'maps: addPlace stamps the credit key');
-await has('modules/maps/src/maps-lib-g-list-view.js', /placeChanged\(p, input, \(ctx && ctx\.credit && ctx\.credit\.key\)/, 'maps: updatePlace stamps the credit key');
+await has('modules/maps/src/maps-lib-actions.js', /placeFromRequest\(i, \(ctx\.credit && ctx\.credit\.key\)/, 'maps: addPlace stamps the credit key');
+await has('modules/maps/src/maps-lib-actions.js', /placeChanged\(p, input, \(ctx\.credit && ctx\.credit\.key\)/, 'maps: updatePlace stamps the credit key');
 await has('modules/research/src/research-lib.js', /byOf = \(ctx\) => \(ctx && ctx\.credit && ctx\.credit\.name\)/, 'research: byOf reads the credit');
 await has('modules/research/src/research-lib-actions.js', /function rsNew\(ctx, fields\) \{[\s\S]*by: \(ctx\.credit && ctx\.credit\.name\)/, 'research: saveNote and saveLink stamp the credit');
 await has('modules/todo/src/todo-lib-actions.js', /createTask\(input, ctx\)[\s\S]*by: \(ctx\.credit && ctx\.credit\.name\)/, 'to-do: createTask stamps the credit');
