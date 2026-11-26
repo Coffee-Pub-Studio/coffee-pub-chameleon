@@ -13990,7 +13990,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
     const src = e.value && e.value.source;
     return Boolean(src) && (src.repo !== repo || src.from !== adapter.id);
   });
-  if (others.length) return res.status(409).json({ error: `Clear the plan first, or use a new ${word('space')}.` });
+  if (others.length) return res.status(409).json({ error: `Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new ${word('space')}.` });
   const now = Date.now();
   const moved = !had || had.repo !== repo || had.provider !== adapter.id;
   issuePulls.set(space.id, {

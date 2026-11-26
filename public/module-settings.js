@@ -62,40 +62,48 @@ function control(def, draft = false) {
   if (def.type === 'url') return `${head}<input id="${id}" type="url" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="500" placeholder="https://"></label>`;
   if (def.type === 'number') return `${head}<input id="${id}" type="number" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" ${def.min !== undefined ? `min="${def.min}"` : ''} ${def.max !== undefined ? `max="${def.max}"` : ''} step="any"></label>`;
   if (def.type === 'color') return `${head}<input id="${id}" type="text" data-colour-field data-key="${escapeHtml(def.key)}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(def.value) ? def.value : '#000000')}"></label>`;
-  // A repository the space follows (`follows: "issues"`): the box, and under it the pull's own status and On and Off, filled in by
-  // wireFollows once the card is drawn. It acts at once, as deleting a file does, also in the Set up panel; with no space yet the block is left out.
-  const follows = def.follows === 'issues' ? `<div class="follows-pull" data-follows="${escapeHtml(def.key)}"><div class="row"><span class="sdk-status" data-follows-state role="status" aria-live="polite">Looking...</span><button type="button" class="btn btn-small" data-follows-toggle hidden></button></div><p class="hint" data-follows-line hidden></p></div>` : '';
-  return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"${def.follows ? ' autocapitalize="off" spellcheck="false" placeholder="owner/name"' : ''}></label>${follows}`;
+  // A repository the space follows (`follows: "issues"`): the box (no data-key: it is never part of Save, the pull's own record on the
+  // server is the truth and the box shows it), one button that follows or stops following at once, and one line saying how it stands,
+  // all filled in by wireFollows once the card is drawn. With no space yet the block is left out.
+  if (def.follows === 'issues') {
+    return `${head}<input id="${id}" type="text" data-follows-input maxlength="${def.maxLength || 100}" autocapitalize="off" spellcheck="false" placeholder="owner/name or the repository's address"></label><div class="follows-pull" data-follows="${escapeHtml(def.key)}"><div class="row"><button type="button" class="btn btn-primary btn-small" data-follows-toggle hidden></button></div><p class="hint" data-follows-line role="status" aria-live="polite">Looking...</p></div>`;
+  }
+  return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"></label>`;
 }
 
-// The "Follows GitHub" block under a repository box (see control): reads the space's pull (GET /api/spaces/:id/issues-pull) and
-// turns it on with the repository typed in the box, or off (PUT). The server's own sentences are shown as they come: the terms
-// not accepted (and where to accept them), a plan that is not empty, a person who is not the owner.
+// The "Follows GitHub" block under a repository box (see control). It reads the space's pull (GET /api/spaces/:id/issues-pull) and has
+// one button: "Follow this repository" stores the repository typed in the box and turns the pull on in one step (PUT), "Stop following"
+// turns it off. Neither waits for Save: the box is no part of Save, the server's record is the truth and the box shows its owner/name.
+// One line says how it stands; a refusal is the server's own sentence (terms not accepted, a plan that is not empty, not the owner).
 function wireFollows(box, space) {
-  const state = box.querySelector('[data-follows-state]');
   const toggle = box.querySelector('[data-follows-toggle]');
   const line = box.querySelector('[data-follows-line]');
-  const input = box.closest('.module-setting').querySelector('input[data-key]');
+  const input = box.closest('.module-setting').querySelector('input[data-follows-input]');
   const route = `/api/spaces/${encodeURIComponent(space)}/issues-pull`;
   const at = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); };
   let on = false;
-  const say = (text, error = false) => { line.textContent = text; line.hidden = !text; line.classList.toggle('error', error); };
+  const say = (text, error = false) => { line.textContent = text; line.classList.toggle('error', error); };
   const draw = (v) => {
     on = Boolean(v && v.on);
     const name = (v && v.name) || 'GitHub';
-    state.textContent = on ? `Following ${v.repo}` : 'Not following';
-    state.dataset.tone = on ? (v.error ? 'warn' : 'ok') : 'neutral';
-    toggle.textContent = on ? 'Turn off' : 'Turn on';
+    toggle.textContent = on ? 'Stop following' : 'Follow this repository';
+    toggle.classList.toggle('btn-primary', !on);
     toggle.classList.toggle('btn-danger', on);
     toggle.hidden = false;
-    if (on && v.repo && input && !input.value) input.value = v.repo;
-    say(on ? (v.error || (v.last ? `Pulled from ${name} ${at(v.last)}.` : `Waiting for the first pull from ${name}.`)) : '', Boolean(on && v.error));
+    if (input) {
+      input.readOnly = on;
+      if (v && v.repo && (on || !input.value)) input.value = v.repo; // the server's clean owner/name, never what was pasted
+    }
+    if (!on) say('Not following. Enter a repository and press Follow this repository.');
+    else if (v.error) say(v.error, true);
+    else if (v.last) say(`Following ${v.repo}, last pulled ${at(v.last)}.`);
+    else say(`Waiting for the first pull from ${name}.`);
   };
-  api('GET', route).then(draw).catch((err) => { state.textContent = 'Not following'; say(err.message, true); });
+  api('GET', route).then(draw).catch((err) => { toggle.hidden = true; say(err.message, true); });
   toggle.addEventListener('click', async () => {
     const repo = (input ? input.value : '').trim();
     if (!on && !repo) { say('Enter the repository as owner/name, or paste its address, first.', true); return; }
-    if (on && !await confirmDialog({ title: 'Turn off the pull?', message: 'The work already pulled stays in the plan as your own, and can be changed here again.', action: 'Turn off', kind: 'destructive' })) return;
+    if (on && !await confirmDialog({ title: 'Stop following?', message: 'The work already pulled stays in the plan as your own, and can be changed here again.', action: 'Stop following', kind: 'destructive' })) return;
     toggle.disabled = true;
     try {
       draw(await api('PUT', route, on ? { on: false } : { on: true, repo }));
@@ -244,7 +252,7 @@ export async function renderModuleSettings(container, { scope, space = null, onl
   }
   colourFields(container); // the colour settings and the list rows' colours: the SDK's colour picker on each
   for (const box of container.querySelectorAll('[data-list-setting]')) wireList(box);
-  for (const box of container.querySelectorAll('[data-follows]')) { if (space) wireFollows(box, space); else box.remove(); }
+  for (const box of container.querySelectorAll('[data-follows]')) { if (space) wireFollows(box, space); else box.closest('.module-setting').remove(); }
   for (const card of container.querySelectorAll('.module-settings-card')) {
     refresh(card);
     card.addEventListener('change', () => refresh(card));

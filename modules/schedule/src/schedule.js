@@ -81,6 +81,7 @@
     filter: scFilterEmpty(), // this person's Board filters (kept in this browser)
     loaded: false,
     pull: { on: false, name: 'GitHub', last: '', next: '', error: '' }, // the space's issue pull (host.issues.status)
+    canFollow: false, // an owner may set the pull up (host.setup.can): the empty plan offers the way
     editing: null,
     openWanted: null,
   };
@@ -365,7 +366,16 @@
       b.append(icon('plus'), ' ', cap(`Add ${kindWord('milestone', { a: true })}`));
       b.addEventListener('click', () => openEditor(null, { kind: 'milestone' }));
       actions.append(b);
-    } else actions.hidden = true;
+    }
+    if (!pullOn() && state.canFollow && host.setup && host.setup.open) { // an owner: the way to the setting, in Set up (not a dialog of ours)
+      const f = document.createElement('button');
+      f.type = 'button';
+      f.className = canAdd() ? 'btn' : 'btn btn-primary';
+      f.append(icon('link'), ' Follow a GitHub repository');
+      f.addEventListener('click', () => { host.setup.open('modules').catch((err) => say(err && err.message ? err.message : 'Set up could not be opened.', 'danger')); });
+      actions.append(f);
+    }
+    if (!actions.childNodes.length) actions.hidden = true;
     $('msg').replaceChildren(...el.childNodes);
     delete $('msg').dataset.kind;
     $('msg').hidden = false;
@@ -1384,12 +1394,14 @@
     $('loading').hidden = true;
     $('app').hidden = false;
     try {
-      const [people, settings, pull] = await Promise.all([
+      const [people, settings, pull, , canFollow] = await Promise.all([
         host.people().catch(() => []),
         host.settings.get().catch(() => null),
         host.issues && host.issues.status ? host.issues.status().catch(() => null) : null,
         loadEntries(),
+        host.setup && host.setup.can ? host.setup.can().catch(() => false) : false,
       ]);
+      state.canFollow = canFollow === true;
       takePull(pull);
       state.people = people;
       takeSettings(settings);
@@ -1407,6 +1419,11 @@
         wired = true;
         host.settings.onChange((v) => { takeSettings(v); if (state.loaded) render(); });
         // A pull runs on the server's timer: look again each minute, and read the plan when it has moved.
+        // Set up is the host's panel: the 'setup' event says it closed. Coming back to the page (a click here, or the tab shown again) looks at once too.
+        const again = () => { if ($('app') && !document.hidden) refreshPull(true); };
+        window.addEventListener('focus', again);
+        document.addEventListener('visibilitychange', again);
+        host.on('setup', () => refreshPull(true)); // Set up closed: the Follow button there acts at once
         const t = setInterval(() => { if (!$('app')) return void clearInterval(t); if (!document.hidden) refreshPull(true); }, 60000);
       }
       if (state.openWanted) { const f = state.openWanted; state.openWanted = null; f(); }

@@ -417,7 +417,7 @@ await live('the gate: only an owner turns it on, the terms first, only into an e
   assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'service-terms.json'), 'utf8')).services['issues-standin'].by, 'admin');
   ok(await putKey(S.bugs, 'plan:hand', { kind: 'work', title: 'By hand', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia), 'work by hand');
   const full = await call('PUT', P(S.bugs), { token: S.admin, body: on });
-  assert.deepEqual([full.status, full.json.error], [409, 'Clear the plan first, or use a new space.']);
+  assert.deepEqual([full.status, full.json.error], [409, 'Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space.']);
   ok(await call('DELETE', `/api/modules/schedule/data/plan%3Ahand?scope=space&space=${S.bugs}`, { token: S.mia }), 'gone again');
   assert.equal(gh.seen.length, 0);
 });

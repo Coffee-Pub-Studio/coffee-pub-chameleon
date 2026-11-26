@@ -3275,6 +3275,7 @@ function leaveSetup() {
   nav.setActive('setup', false);
   setupTabInAddress(null);
   if (spaceSetup.isOpen()) spaceSetup.close();
+  document.dispatchEvent(new CustomEvent('app:setup-closed')); // the modules hear it ('setup' event): a setting that acts at once may have changed
   updateCrumb(); // the name back as words, Set up back in the bar
   const tool = nav.elementOf('setup');
   if (tool && tool.getClientRects().length) tool.focus();
