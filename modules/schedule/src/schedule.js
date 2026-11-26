@@ -71,6 +71,7 @@
     phases: [],
     links: new Map(), // id -> [summary] (what links to each entry: To-do's tasks and the rest)
     view: '',
+    filter: scFilterEmpty(), // this person's Board filters (kept in this browser)
     loaded: false,
     editing: null,
     openWanted: null,
@@ -246,10 +247,14 @@
   const ADDS = () => (canEdit ? SC_KINDS.map((k) => ({ id: k, label: cap(`Add ${kindWord(k, { a: true })}`), icon: KIND_ICON[k] })) : []);
   function chrome() {
     host.add.set(ADDS()).catch(() => {});
-    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'right-left', label: 'Export and import', zone: 'end' }]).catch(() => {});
+    const onBoard = state.view === 'board' && state.entries.size > 0;
+    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'right-left', label: 'Export and import', zone: 'end' }, ...(onBoard ? filterItems() : [])]).catch(() => {});
     const p = scProgress(list(), state.settings.progressBy);
     const what = state.settings.progressBy === 'work' ? kindWord('work', { many: true }) : kindWord('milestone', { many: true });
-    host.status.set(p.total ? [{ text: `${p.done} of ${p.total} ${what} done`, icon: 'diagram-project' }] : []).catch(() => {});
+    const status = p.total ? [{ text: `${p.done} of ${p.total} ${what} done`, icon: 'diagram-project' }] : [];
+    const v = onBoard ? boardWork() : null;
+    if (v && v.on) status.push({ text: `Showing ${v.shown.length} of ${v.works.length} ${kindWord('work', { many: v.works.length !== 1 })}`, icon: 'filter' });
+    host.status.set(status).catch(() => {});
   }
   host.on('add', (e) => { if (canEdit && SC_KINDS.includes(e.id)) openEditor(null, { kind: e.id }); });
 
@@ -431,17 +436,91 @@
   // order is not stored: the end day (none last), then the place in the outline. A move runs the setColumn handler of the actions
   // library in the page (carried below), the same one the server runs for an agent, so both give the same writes and refusals.
   let board = null;
+  let boardOpts = null;
+  let boardRowsBy = '';
   let boardAsk = 0;
   const BOARD_FOLD_KEY = `schedule-board-folds:${info.context.spaceId || ''}`;
-  function boardCards(b) {
+  // --- the filters: this person's own view of the Board, kept in this browser (schedule-filter:<space>) ---
+  const FILTER_KEY = `schedule-filter:${info.context.spaceId || ''}`;
+  function loadFilter() {
+    try { state.filter = scFilterClean(JSON.parse(localStorage.getItem(FILTER_KEY) || 'null'), null); } catch (err) { state.filter = scFilterEmpty(); }
+  }
+  function keepFilter() { try { localStorage.setItem(FILTER_KEY, JSON.stringify(state.filter)); } catch (err) { /* not kept */ } }
+  // The kept filter with what is gone dropped (a person who has no work now, a removed tag, phase or milestone).
+  function currentFilter() {
+    const work = list().filter((e) => e.kind === 'work');
+    return scFilterClean(state.filter, {
+      who: new Set(work.flatMap((e) => e.owners)),
+      tags: new Set(state.settings.tags.map((t) => t.id)),
+      phases: new Set(state.phases.map((p) => p.id)),
+      milestones: new Set(list().filter((e) => e.kind === 'milestone').map((e) => e.id)),
+    });
+  }
+  // All the work, the work that passes the filter, and whether a filter is on.
+  function boardWork() {
+    const f = currentFilter();
+    const byId = new Map(list().map((e) => [e.id, e]));
+    const works = list().filter((e) => e.kind === 'work');
+    return { f, byId, works, shown: works.filter((e) => scFilterMatch(e, f, byId)), on: scFilterOn(f) };
+  }
+  function filterItems() {
+    const { f, byId, works } = boardWork();
+    const count = (fn) => works.filter(fn).length;
+    const items = [];
+    const keys = [...new Set(works.flatMap((e) => e.owners))];
+    const people = keys.map((k) => ({ k, name: nameOf(k) || 'Someone who left' })).sort((x, y) => x.name.localeCompare(y.name));
+    if (works.length) {
+      items.push({ type: 'chips', id: 'f-who', label: 'Who', options: [
+        ...people.map((p) => ({ id: p.k, label: p.name, count: count((e) => e.owners.includes(p.k)), on: f.who.includes(p.k), default: false })),
+        { id: SC_NONE, label: 'No one', count: count((e) => !e.owners.length), on: f.who.includes(SC_NONE), default: false },
+      ] });
+    }
+    // The plan's own tags (its `tags` setting), not the host's tag list: the ids here are the plan's.
+    const tags = state.settings.tags;
+    if (tags.length) {
+      items.push({ type: 'chips', id: 'f-tags', label: cap(label('tag', { many: true })), options: tags.map((t) => ({ id: t.id, label: t.label, count: count((e) => e.tags.includes(t.id)), on: f.tags.includes(t.id), default: false, ...(/^#[0-9a-f]{6}$/.test(t.color || '') ? { tint: t.color } : {}) })) });
+    }
+    if (state.phases.length) {
+      items.push({ type: 'chips', id: 'f-phase', label: 'Phase', single: true, value: f.phase || 'all', options: [
+        { id: 'all', label: 'Every phase', count: works.length },
+        ...state.phases.map((p) => ({ id: p.id, label: p.label, count: count((e) => e.phase === p.id) })),
+        { id: SC_NONE, label: 'No phase', count: count((e) => !e.phase) },
+      ] });
+    }
+    const milestones = scOrdered(list()).map((x) => x.entry).filter((e) => e.kind === 'milestone');
+    if (milestones.length) {
+      items.push({ type: 'chips', id: 'f-milestone', label: cap(kindWord('milestone')), single: true, value: f.milestone || 'all', options: [
+        { id: 'all', label: `Every ${kindWord('milestone')}`, count: works.length },
+        ...milestones.map((m) => ({ id: m.id, label: m.title, count: count((e) => scMilestoneOf(e, byId) === m.id) })),
+        { id: SC_NONE, label: `No ${kindWord('milestone')}`, count: count((e) => !scMilestoneOf(e, byId)) },
+      ] });
+    }
+    return items;
+  }
+  function takeFilter(e) {
+    const f = currentFilter();
+    const id = String(e.id);
+    const value = String(e.value == null ? '' : e.value);
+    const flip = (arr) => (e.on ? [...new Set([...arr, value])] : arr.filter((x) => x !== value));
+    if (id === 'f-who') f.who = flip(f.who);
+    else if (id === 'f-tags') f.tags = flip(f.tags);
+    else if (id === 'f-phase') f.phase = value === 'all' ? '' : value;
+    else if (id === 'f-milestone') f.milestone = value === 'all' ? '' : value;
+    else return false;
+    state.filter = f;
+    keepFilter();
+    redraw();
+    return true;
+  }
+  function boardCards(b, shown, rowOf) {
     const order = new Map(scOrdered(list()).map((x, i) => [x.entry.id, i]));
     const day = (e) => e.end || e.start || '';
-    return list().filter((e) => e.kind === 'work').sort((x, y) => {
+    return shown.slice().sort((x, y) => {
       const a = day(x);
       const c = day(y);
       if (a !== c) return !a ? 1 : !c ? -1 : a < c ? -1 : 1;
       return (order.get(x.id) || 0) - (order.get(y.id) || 0);
-    }).map((e) => ({ id: e.id, column: scColumnOf(e, b).id, title: e.title }));
+    }).map((e) => ({ id: e.id, column: scColumnOf(e, b).id, title: e.title, row: rowOf.get(e.id) || '' }));
   }
   // What a card says inside, as plain text and spans: the title, the end day with "Late" and who is doing it, up to two tags, the
   // milestone it is under, and a "Waits on" mark when something it waits on is not done.
@@ -498,26 +577,59 @@
   }
   function renderBoard() {
     const b = currentBoard();
-    const cards = boardCards(b);
+    const rowsBy = b.rowsBy || '';
+    const v = boardWork();
+    const { rows, of } = scBoardRows(v.shown, rowsBy, list(), nameOf, 'Someone who left');
+    const cards = boardCards(b, v.shown, of);
     const columns = b.columns.map((c) => ({ id: c.id, label: c.label, done: Boolean(c.done) }));
+    // The rows' own words (the no-row row, the line for a drop on another row) are given when the board is made, so a change of rows draws it again.
+    if (board && boardRowsBy !== rowsBy) { board.destroy(); board = null; }
     if (!board) {
-      board = host.ui.board($('board'), {
+      boardRowsBy = rowsBy;
+      boardOpts = {
         name: cap(label('plan')),
         columns,
         cards,
+        rows,
         foldKey: BOARD_FOLD_KEY,
+        labels: rowsBy === 'owners'
+          ? { noRow: 'No one', otherRow: 'Change who is doing it in Edit.' }
+          : { noRow: `No ${kindWord('milestone')}`, otherRow: `Change the ${kindWord('milestone')} in Edit.` },
         canMove: () => canEdit,
         canAdd: () => canEdit,
         card: drawCard,
         menu: cardMenu,
         columnMenu,
         onOpen: (c) => openEditor(c.id),
-        onAdd: (columnId) => openEditor(null, { kind: 'work', column: columnId }),
+        onAdd: (columnId) => openEditor(null, { kind: 'work', column: columnId, ...scFilterSeed(currentFilter()) }),
         onMove: (m) => moveCard(m),
-      });
-    } else board.set(cards, columns);
+      };
+      if (v.on) boardOpts.empty = 'Nothing matches.';
+      board = host.ui.board($('board'), boardOpts);
+    } else {
+      if (v.on) boardOpts.empty = 'Nothing matches.'; else delete boardOpts.empty;
+      board.set(cards, columns, rows);
+    }
     hide($('board-bar'), !canColumns());
+    $('rows-milestone').textContent = cap(kindWord('milestone'));
+    const sw = $('rows-switch');
+    for (const btn of sw.querySelectorAll('.mf-switch-btn')) {
+      const on = btn.dataset.rows === rowsBy;
+      btn.setAttribute('aria-checked', String(on));
+      btn.tabIndex = on ? 0 : -1;
+    }
   }
+  // The Rows switch (the `columns` right; the server refuses anyone else): one board:main write with Undo, as a column change.
+  async function setRows(value) {
+    if (!canColumns()) return;
+    const b = currentBoard();
+    const next = value === 'milestone' || value === 'owners' ? value : '';
+    if (next === (b.rowsBy || '')) return;
+    const board2 = { ...b };
+    if (next) board2.rowsBy = next; else delete board2.rowsBy;
+    await changeColumns(board2, [], next ? `The board has rows by ${next === 'owners' ? 'person' : kindWord('milestone')}.` : 'The board has no rows.');
+  }
+  for (const btn of $('rows-switch').querySelectorAll('.mf-switch-btn')) btn.addEventListener('click', () => setRows(btn.dataset.rows));
   async function moveCard(m) {
     if (!canEdit || !carried) return;
     const ask = ++boardAsk;
@@ -793,7 +905,7 @@
     const s = seed || {};
     // A "+" in a board column opens new work in that column (its done flag with it, so the Done box starts as the column says).
     const seedCol = s.column ? currentBoard().columns.find((c) => c.id === s.column) : null;
-    const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}) });
+    const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, owners: s.owners || [], phase: s.phase || '', tags: s.tags || [], ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}) });
     const readOnly = !canEdit;
     state.editing = { id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
     $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
@@ -896,6 +1008,10 @@
     try {
       await saveEntry(toSave, ed.version);
       editor.close();
+      if (!ed.id && kind === 'work' && state.view === 'board') {
+        const v = boardWork();
+        if (v.on && !scFilterMatch(toSave, v.f, v.byId)) say('Added. The filter hides it.');
+      }
     } catch (err) {
       if (err && err.status === 409) {
         if (err.current && state.editing) state.editing.version = err.current.version;
@@ -1129,6 +1245,7 @@
     return items;
   }
   host.on('toolbar', (e) => {
+    if (takeFilter(e)) return;
     if (e.id !== 'plan-more') return;
     host.menu.show({ id: 'plan-more', at: { x: Number(e.x) || 0, y: 4 }, items: moreItems() });
   });
@@ -1175,6 +1292,7 @@
       state.people = people;
       takeSettings(settings);
       takePhases();
+      loadFilter();
       // The view: the person's own choice, else the List on a phone, else the plan's default.
       let mine = '';
       try { mine = localStorage.getItem(VIEW_KEY) || ''; } catch (err) { /* none */ }
