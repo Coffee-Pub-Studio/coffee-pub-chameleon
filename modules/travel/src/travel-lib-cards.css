@@ -138,6 +138,8 @@
 .owner { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: -4px; border: 2px solid var(--surface-card); border-radius: var(--radius-round); background: color-mix(in srgb, var(--tone) 40%, var(--surface-card)); color: var(--text-primary); font-size: var(--text-11); font-weight: var(--weight-strong); }
 .owner:first-child { margin-left: 0; }
 
+/* the airline's links under a flight, from 48 hours before it leaves: they wrap on a narrow card */
+.card > .card-airline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border-top: 1px solid var(--edge-hairline); }
 /* ---- a boarding pass: a flight. The body is the route and the stub beside it, flush to the box: each owns its padding. ---- */
 /* the stub's notches are cut by the box's edge */
 :is(.pass, .admit) { overflow: clip; }
