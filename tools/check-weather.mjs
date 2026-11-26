@@ -695,7 +695,8 @@ await test('the space route\'s gate is read from the code, and each part of it m
       /weatherSpacePick\(who, perms, space\)/.test(route), // the place, as this asker
       /moduleSpaceRefusal\(entry, who, space\)/.test(pick), // the module on here, the asker in the space
       /!moduleCan\(manifest, perms, 'read'\)/.test(pick), // allowed to read the module the place comes from
-      /hiddenFor\(who, manifest, space\.id\)\.includes\(mn\.place\)/.test(pick), // a field hidden from them is not their place
+      /hide: hiddenFor\(who, manifest, space\.id\)/.test(pick) && /ctx\.hide\.includes\(mn\.place\)/.test(fnOf(text, 'function weatherMainText(')), // a field hidden from them is not their place
+      /weatherMainText\(ctx\)/.test(fnOf(text, "app.get('/api/modules/:id/weather'")) && /ctx\.hide\.includes\(st\.place\)/.test(fnOf(text, 'function weatherStopPlaces(')), // the module route's main place and stops' places, by the same rule
       /overLimit\(moduleId, by, 'weather'\)/.test(fnOf(text, 'function weatherCounter(')) && /weatherCounter\(res, pick\.manifest\.id, who\.user\.key\)/.test(route), // counted on the place's module
     ].every(Boolean);
   };
@@ -704,11 +705,13 @@ await test('the space route\'s gate is read from the code, and each part of it m
     ['the facts gate', (t) => t.replace("const ctx = factsFor(req, res);\n  if (!ctx) return;\n  const { who, space, perms } = ctx;", "const ctx = { who: moduleViewer(req), space: store.spaceById(req.params.id), perms: {} };\n  const { who, space, perms } = ctx;")],
     ['the read permission', (t) => t.replace("|| !moduleCan(manifest, perms, 'read')", '')],
     ['the module being on here', (t) => t.replace('moduleSpaceRefusal(entry, who, space) ||', '')],
-    ['the hidden fields', (t) => t.replace(/\n    if \(hiddenFor\(who, manifest, space\.id\)\.includes\(mn\.place\)\) continue;/, '')],
+    ['the hidden fields', (t) => t.replace(' || ctx.hide.includes(mn.place)', '')],
+    ['the hidden fields, from the space route', (t) => t.replace('hide: hiddenFor(who, manifest, space.id)', 'hide: []')],
+    ['the hidden stop places', (t) => t.replace(' || ctx.hide.includes(st.place)', '')],
     ['the place module\'s limit', (t) => t.replace('weatherCounter(res, pick.manifest.id, who.user.key)', 'weatherCounter(res, "other", who.user.key)')],
   ]) {
-    // Cut only in the space's own code: from weatherSpacePick on (the first match elsewhere must not stand in for it).
-    const from = src.indexOf('function weatherSpacePick(');
+    // Cut only in the weather code: from the weather section on (the first match elsewhere must not stand in for it).
+    const from = src.indexOf('// --- the weather on a day, from the server');
     const mutated = src.slice(0, from) + cut(src.slice(from));
     assert.notEqual(mutated, src, `${name}: the mutation changed the code`);
     assert.equal(intact(mutated), false, `${name}: taking it out is noticed`);
@@ -1221,6 +1224,38 @@ await live('two modules declare a place: the first in order that may be read and
   // A module that has no `space` and no days of its own answers noPlace, never the space's place.
   const own = ok(await call('GET', `/api/modules/travel/weather?scope=space&space=${S.other}&from=${plus(1)}&to=${plus(1)}`, { token: S.otto }), 'a module without space').json;
   assert.equal(own.days[plus(1)].state, 'noPlace');
+});
+
+await live('a place field hidden from a person: the module route gives them no place, as the space route gives none (issue 1162)', async () => {
+  const { zipFiles } = require('../server/module-build.js');
+  const manifest = { id: 'wxhide', name: 'wxhide', version: '1.0.0', scope: ['space'], surfaces: { canvas: { entry: 'page.html', width: 300, height: 300 } }, guards: { hidden: ['dest'] }, weather: { main: { key: 'trip:main', place: 'dest', from: 'from', to: 'to' } } };
+  const zip = zipFiles([['module.json', Buffer.from(JSON.stringify(manifest))], ['page.html', Buffer.from('<!doctype html><body></body>')]]);
+  const up = await fetch(`${base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', authorization: `Bearer ${S.admin}` }, body: zip });
+  assert.ok(up.status === 201 || up.status === 200, `wxhide installs: ${up.status}`);
+  ok(await call('PATCH', '/api/modules/wxhide', { token: S.admin, body: { enabled: true, allSpaces: true } }), 'wxhide turns on');
+  ok(await call('PATCH', '/api/roles/guest', { token: S.admin, body: { 'module.wxhide.view': true } }), 'guests may see it');
+  ok(await put('wxhide', S.trip, 'trip:main', { dest: 'Lisbon', from: plus(1), to: plus(2) }), 'its place');
+  const link = ok(await call('POST', `/api/spaces/${S.trip}/guest-link`, { token: S.admin, body: {} }), 'a guest link').json.space.guestToken;
+  const q = `?scope=space&space=${S.trip}&guest=${encodeURIComponent(link)}`;
+  const asked = (who, extra = '') => call('GET', `/api/modules/wxhide/weather${who.guest ? q : `?scope=space&space=${S.trip}`}${extra}`, who.guest ? {} : who);
+  // Someone it is not hidden from gets the days at the place.
+  wxSeen.length = 0;
+  const member = ok(await asked({ token: S.mia }), 'a member').json;
+  assert.deepEqual(Object.values(member.days).map((d) => d.state), ['forecast', 'forecast'], 'a member gets the days');
+  // A guest, the place hidden from them: no place, no weather asked, the answer of a trip with no place.
+  wxSeen.length = 0; geoSeen.length = 0;
+  const guest = ok(await asked({ guest: true }), 'a guest').json;
+  assert.deepEqual(Object.values(guest.days).map((d) => d.state), ['noPlace', 'noPlace'], 'a guest gets no weather for a hidden place');
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked for a place they may not see');
+  // The same answer as a trip with no place at all.
+  ok(await put('wxhide', S.trip, 'trip:main', { dest: '', from: plus(1), to: plus(2) }), 'no place');
+  assert.deepEqual(ok(await asked({ guest: true }), 'a guest, no place').json, guest, 'the same answer as when there is no place');
+  // Opened to guests by the owner, they get it.
+  ok(await put('wxhide', S.trip, 'trip:main', { dest: 'Lisbon', from: plus(1), to: plus(2) }), 'its place again');
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { guestsSeeHidden: true } }), 'guests may see hidden fields');
+  assert.deepEqual(Object.values(ok(await asked({ guest: true }), 'an opened guest').json.days).map((d) => d.state), ['forecast', 'forecast']);
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { guestsSeeHidden: false } }), 'closed again');
+  ok(await call('PATCH', '/api/modules/wxhide', { token: S.admin, body: { enabled: false } }), 'wxhide off');
 });
 
 await live('the space\'s weather is the agent\'s too: through the gate and read_weather without a module', async () => {
