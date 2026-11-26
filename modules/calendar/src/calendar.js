@@ -324,7 +324,7 @@
       const shown = isCompact() ? list : list.slice(0, 3);
       const ph = phaseFor(ymd(day), i === 0);
       html += `<div class="${cellClass(day, ph, today, sel, day.getMonth() !== cursor.getMonth())}"${ph.style} data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}>
-        <span class="sdk-cal-n">${day.getDate()}</span>${phaseNameHtml(ph)}<div class="sdk-cal-chips">${shown.map(chipHtml).join('')}</div>
+        <span class="sdk-cal-n">${day.getDate()}</span>${phaseNameHtml(ph)}${weatherSlot(ymd(day))}<div class="sdk-cal-chips">${shown.map(chipHtml).join('')}</div>
         ${shown.length < list.length ? `<span class="sdk-cal-more">+${list.length - shown.length} more</span>` : ''}</div>`;
     }
     return `<div class="sdk-cal-grid">${html}</div>`;
@@ -342,7 +342,7 @@
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(occ);
     }
-    return `<div class="list">${[...groups.values()].map((g) => `<div class="group"><h4>${esc(dayHeading(g[0].start < floor ? floor : g[0].start))}</h4><div class="sdk-cal-agenda">${g.map(({ x, start, end }) => (isMarker(x) ? markerItemHtml(x, start, agenda) : `
+    return `<div class="list">${[...groups.values()].map((g) => `<div class="group"><div class="group-head"><h4>${esc(dayHeading(g[0].start < floor ? floor : g[0].start))}</h4>${weatherSlot(ymd(g[0].start < floor ? floor : g[0].start))}</div><div class="sdk-cal-agenda">${g.map(({ x, start, end }) => (isMarker(x) ? markerItemHtml(x, start, agenda) : `
       <button type="button" class="sdk-row sdk-bar-kept${isExternal(x) ? ` is-ext ${externalClass(x)}` : ''}" data-open="${esc(x.key)}" data-at="${ymd(start)}" title="${esc(`${whenFull(x.ev, start, end)}${zoneFor(x) ? ` (${zoneNote(zoneFor(x))})` : ''}  ${x.ev.title}${x.ev.desc ? ' - ' + x.ev.desc.slice(0, 120) : ''}`)}"><span class="sdk-row-meta">${esc(whenText(x.ev, start, end, isCompact()))}</span>
         <span class="sdk-row-main"><span class="sdk-row-title">${agenda ? spaceIcon(x) : ''}${copyOf(x) ? copyIcon(copyOf(x)) : ''}${esc(x.ev.title)}${copyOf(x) ? `<span class="sdk-chip-tag">from ${esc(copyName(copyOf(x)))}</span>` : ''}${zoneFor(x) ? `<span class="sdk-chip-tag">${esc(zoneNote(zoneFor(x)))}</span>` : ''}${x.ev.repeat ? `<span class="sdk-chip-tag">${esc(REPEAT_NAMES[x.ev.repeat.every] || 'repeats')}</span>` : ''}${x.scope === 'environment' && inSpace ? `<span class="sdk-chip-tag">${esc(envName())}</span>` : ''}${!agenda && x.scope === 'spaces' && spaceInfo.get(x.spaceId) ? `<span class="sdk-chip-tag">${spaceIcon(x)} ${esc(spaceInfo.get(x.spaceId).name)}</span>` : ''}${isExternal(x) ? `<span class="sdk-chip-tag" data-tone="custom">${esc(externalName(x.calendar))}</span>` : ''}</span></span></button>`)).join('')}</div></div>`).join('')}${end ? `<p class="empty end">${esc(end)}</p>` : ''}</div>`;
   }
@@ -387,7 +387,7 @@
       const day = addDays(start, i);
       const list = byDay.get(ymd(day)) || [];
       const ph = phaseFor(ymd(day), i === 0);
-      html += `<div class="${cellClass(day, ph, today, sel, false)}"${ph.style} data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}><span class="sdk-cal-n">${esc(day.toLocaleDateString([], { weekday: 'short' }))} <b>${day.getDate()}</b>${phaseNameHtml(ph)}</span><div class="sdk-cal-chips">${list.map(chipHtml).join('')}</div></div>`;
+      html += `<div class="${cellClass(day, ph, today, sel, false)}"${ph.style} data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}><span class="sdk-cal-n">${esc(day.toLocaleDateString([], { weekday: 'short' }))} <b>${day.getDate()}</b>${phaseNameHtml(ph)}</span>${weatherSlot(ymd(day))}<div class="sdk-cal-chips">${list.map(chipHtml).join('')}</div></div>`;
     }
     return `<div class="sdk-cal-grid sdk-cal-week">${html}</div>`;
   }
@@ -416,7 +416,7 @@
     const k = ymd(start);
     const ph = phaseFor(k, true);
     // The phase bar and the all-day row are one block that stays at the top of the scroll (the day opens at its first hour).
-    let html = `<div class="daytop">${ph.label ? `<div class="phasehead ph"${ph.style}><small class="ph-name">${esc(ph.label)}</small></div>` : ''}<div class="sdk-cal-allday"><span class="sdk-cal-hr">All day</span><div class="sdk-cal-chips">${allDay.map(chipHtml).join('')}</div></div></div><div class="sdk-cal-hours">`;
+    let html = `<div class="daytop">${weatherSlot(k)}${ph.label ? `<div class="phasehead ph"${ph.style}><small class="ph-name">${esc(ph.label)}</small></div>` : ''}<div class="sdk-cal-allday"><span class="sdk-cal-hr">All day</span><div class="sdk-cal-chips">${allDay.map(chipHtml).join('')}</div></div></div><div class="sdk-cal-hours">`;
     const now = new Date();
     for (let h = 0; h < 24; h += 1) {
       const at = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h);
@@ -494,6 +494,33 @@
   const nothingPicked = () => Boolean(part) && !inSpace && hideOwn && ![...spaceInfo.keys()].some((id) => !hiddenSpaces.has(id)) && ![...externalCalendars.keys()].some((id) => !hiddenExternal.has(id));
   const pickOne = () => `Pick at least one in ${word('space', { many: true, cap: true })}.`;
 
+  // --- the weather on the days (plan-weather-users.md, step 4; calendar-lib-weather.js keeps the answer and says when to ask) ---
+  // Only in a space's Calendar, never the environment's: the Calendar's manifest declares `"weather": { "space": true }`, so each
+  // day has the space's place. A slot (.cal-wx[data-wx=day]) is in the markup of a week day, a month day, the day view and each
+  // agenda heading; host.ui.dayWeather draws a day into its slot, and only a day with a forecast or a past day draws anything
+  // (no service, no terms, no place, a picture map or a day out of range: the slot stays empty and takes no room).
+  const weatherOn = inSpace && Boolean(host.weather && typeof host.weather.days === 'function' && host.ui && typeof host.ui.dayWeather === 'function');
+  const weatherSlot = (day) => (weatherOn ? `<span class="cal-wx" data-wx="${day}"></span>` : '');
+  const weather = weatherOn ? calWeatherKeeper({ ask: (span) => host.weather.days(span), onAnswer: () => drawWeather() }) : null;
+  const weatherPieces = new WeakMap(); // a slot -> its host.ui.dayWeather
+  function drawWeather() {
+    if (!weatherOn) return;
+    for (const box of root.querySelectorAll('.cal-wx[data-wx]')) {
+      const o = calWeatherFor(weather.answer, box.dataset.wx);
+      const piece = weatherPieces.get(box);
+      if (piece) piece.set(o);
+      else if (o.day) weatherPieces.set(box, host.ui.dayWeather(box, o));
+    }
+  }
+  // After a draw: the days on screen are the slots in the page; ask for their first to last day (one ask, cut to 60 and to what a
+  // service can answer), unless the kept answer serves.
+  function wantWeather() {
+    if (!weatherOn) return;
+    drawWeather();
+    const days = [...root.querySelectorAll('.cal-wx[data-wx]')].map((b) => b.dataset.wx).sort();
+    if (days.length) weather.want(calWeatherSpan(days[0], days[days.length - 1], ymd(new Date())));
+  }
+
   function render() {
     // A calendar that was just closed (its elements gone) draws nothing: an icon or markers arriving late, say.
     if (!$('app')) return;
@@ -520,6 +547,7 @@
     } else {
       $('body').innerHTML = monthGrid();
     }
+    wantWeather();
     askExternal(false);
     askMarkers(false);
     syncStatus();
@@ -544,6 +572,7 @@
     const occs = inRange(start, to);
     // From the selected day on: "Nothing this day." for a day, "Nothing else this week." (the days before it are in the calendar).
     $('body').innerHTML = listHtml(occs, unit === 'day' ? 'Nothing this day.' : `Nothing else this ${unit}.`, start, `Nothing else this ${unit}.`);
+    wantWeather();
     askExternal(false);
     askMarkers(false);
     learnCopies();
@@ -1467,6 +1496,7 @@
   }
   $('body').addEventListener('click', (e) => {
     // A marker opens its object in its own module; it is never edited here.
+    if (e.target.closest('.cal-wx')) return; // a day's weather opens its own menu; it is not a press on the day
     const marker = e.target.closest('[data-marker]');
     if (marker) {
       openMarker(marker.dataset.marker, e);

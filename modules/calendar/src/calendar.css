@@ -100,3 +100,15 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .summary { display: flex; flex-direction: column; gap: var(--space-2); }
 .summary p { margin: 0; }
 .sum-when { font-weight: var(--weight-strong); }
+
+/* The weather on a day (host.ui.dayWeather draws the button into .cal-wx; the SDK owns its look). An empty slot takes no room. The
+   agenda's heading shares its row with it. In the month the cell holds the short form: the icon and the high. */
+.cal-wx { display: flex; min-width: 0; }
+.cal-wx:empty { display: none; }
+.cal-wx .sdk-day-weather { padding: 0 var(--space-1); min-height: 20px; }
+.sdk-cal-grid:not(.sdk-cal-week) .cal-wx .sdk-day-weather-low { display: none; }
+.sdk-cal-compact .sdk-cal-grid:not(.sdk-cal-week) .cal-wx { display: none; }
+.group-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.group-head h4 { min-width: 0; }
+.group-head .cal-wx { flex: none; margin-top: var(--space-1); text-transform: none; letter-spacing: normal; }
+.daytop > .cal-wx { justify-content: flex-start; margin-bottom: var(--space-1); }
