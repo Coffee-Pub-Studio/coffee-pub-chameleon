@@ -595,20 +595,20 @@ await test('MET Norway: the Weather module offers it, None is the default, the I
 });
 
 await test('the terms: accepted by a person once, for those terms only, kept on disk', () => {
-  const { WeatherTerms } = require('../server/weather-terms.js');
+  const { ServiceTerms } = require('../server/service-terms.js');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-terms-'));
   const a = { id: 'svc', name: 'Svc', credit: 'c', terms: 'https://example.test/terms' };
-  const t = new WeatherTerms(dir);
+  const t = new ServiceTerms(dir);
   assert.equal(t.accepted(a), false, 'nothing is accepted by itself');
   t.accept(a, 'admin', new Date('2026-11-25T10:00:00Z'));
   assert.equal(t.accepted(a), true);
-  assert.deepEqual(t.view([a]), [{ id: 'svc', name: 'Svc', credit: 'c', terms: 'https://example.test/terms', accepted: true, by: 'admin', at: '2026-11-25T10:00:00.000Z' }]);
-  assert.equal(new WeatherTerms(dir).accepted(a), true, 'read back from the file');
-  assert.equal(new WeatherTerms(dir).accepted({ ...a, terms: 'https://example.test/terms-v2' }), false, 'moved terms must be accepted again');
+  assert.deepEqual(t.view([{ kind: 'weather', adapter: a }]), [{ id: 'svc', kind: 'weather', name: 'Svc', credit: 'c', terms: 'https://example.test/terms', accepted: true, by: 'admin', at: '2026-11-25T10:00:00.000Z' }]);
+  assert.equal(new ServiceTerms(dir).accepted(a), true, 'read back from the file');
+  assert.equal(new ServiceTerms(dir).accepted({ ...a, terms: 'https://example.test/terms-v2' }), false, 'moved terms must be accepted again');
   assert.equal(t.withdraw(a), true);
-  assert.equal(new WeatherTerms(dir).accepted(a), false);
-  fs.writeFileSync(path.join(dir, 'weather-terms.json'), '{ not json');
-  assert.equal(new WeatherTerms(dir).accepted(a), false, 'a broken file accepts nothing');
+  assert.equal(new ServiceTerms(dir).accepted(a), false);
+  fs.writeFileSync(path.join(dir, 'service-terms.json'), '{ not json');
+  assert.equal(new ServiceTerms(dir).accepted(a), false, 'a broken file accepts nothing');
 });
 
 // Nothing in the module names a space, a person or an environment.
@@ -842,11 +842,11 @@ await live('the switch: the Weather module on, a service chosen, its terms accep
   ok(await setWeather({ service: 'standin' }), 'the stand-in is chosen');
   assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'chosen, not accepted').json, { configured: false });
   assert.equal(sent(), 0, 'nothing leaves the server before the terms are accepted');
-  assert.equal(fs.existsSync(path.join(dataDir, 'weather-terms.json')), false);
+  assert.equal(fs.existsSync(path.join(dataDir, 'service-terms.json')), false);
   // Who may accept: only the signed-in administrator, with the explicit flag. Never a member, an agent or a missing flag.
   const terms = (m, who, body) => call(m, '/api/weather/terms/standin', { token: who, body });
   const view = ok(await call('GET', '/api/weather/terms', { token: S.admin }), 'the admin reads the terms').json;
-  assert.deepEqual([view.mayAccept, view.services.map((x) => [x.id, x.accepted]), view.services.find((x) => x.id === 'met-norway').terms], [true, [['met-norway', false], ['standin', false]], 'https://api.met.no/doc/TermsOfService']);
+  assert.deepEqual([view.mayAccept, view.services.map((x) => [x.id, x.accepted]), view.services.find((x) => x.id === 'met-norway').terms], [true, [['met-norway', false], ['standin', false], ['github', false]], 'https://api.met.no/doc/TermsOfService']);
   assert.equal((await call('GET', '/api/weather/terms', { token: S.mia })).status, 403, 'a member does not read them');
   assert.equal((await terms('PUT', S.mia, { accept: true })).status, 403, 'a member cannot accept');
   assert.ok([401, 403].includes((await terms('PUT', S.agent, { accept: true })).status), 'an agent cannot accept');
@@ -855,13 +855,13 @@ await live('the switch: the Weather module on, a service chosen, its terms accep
   assert.equal((await terms('PUT', S.admin, { accept: 'yes' })).status, 400, 'only true accepts');
   assert.equal((await call('PUT', '/api/weather/terms/nowhere', { token: S.admin, body: { accept: true } })).status, 404, 'a service the server has not');
   assert.equal((await terms('DELETE', S.mia)).status, 403, 'a member cannot withdraw');
-  assert.equal(fs.existsSync(path.join(dataDir, 'weather-terms.json')), false, 'all of that accepted nothing');
+  assert.equal(fs.existsSync(path.join(dataDir, 'service-terms.json')), false, 'all of that accepted nothing');
   assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'still not accepted').json, { configured: false });
   const done = ok(await terms('PUT', S.admin, { accept: true }), 'the admin accepts').json;
   const mine = done.services.find((x) => x.id === 'standin');
   assert.deepEqual([mine.accepted, mine.by], [true, 'admin']);
   assert.ok(!Number.isNaN(Date.parse(mine.at)));
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'weather-terms.json'), 'utf8')).services.standin.by, 'admin');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'service-terms.json'), 'utf8')).services.standin.by, 'admin');
   assert.equal(ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(40)}&to=${plus(41)}`), 'accepted').json.configured, true, 'chosen and accepted: on (days out of range, so nothing is asked or kept)');
   // Off again by every switch, each time with nothing asked.
   wxSeen.length = 0; geoSeen.length = 0;

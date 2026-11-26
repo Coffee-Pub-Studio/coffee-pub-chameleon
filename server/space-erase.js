@@ -11,6 +11,7 @@
 //   attention.json, facts.json            what is asking for attention, what each module reported
 //   tags.json                             the space's tags (server/tags.js)
 //   access.json                           requests to enter it and the approvals for guests (server/access-requests.js)
+//   issues.json                           the space's issue pull, when it has one (server/issues.js)
 //   agent-records.json                    agents' asks in it and the undo records of their changes to it
 //                                         (server/agent-records.js)
 //   modules/<module>/trash/agent/<change>.json   what an agent's change there held for its Undo (server/module-holds.js)
@@ -52,6 +53,7 @@ function eraseSpace(env, id) {
     ['tags', () => env.tags.forgetSpace(id)],
     ['access requests', () => env.accessRequests.forgetSpace(id)],
     ["agents' asks and changes", () => env.agentRecords.forgetSpace(id)],
+    ['issue pull', () => env.issuePulls.forgetSpace(id)],
     ['activity', () => {
       const scope = `space:${id}`;
       let n = 0;

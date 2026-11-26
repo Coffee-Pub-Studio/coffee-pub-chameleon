@@ -61,6 +61,9 @@ function createDeletePath(d) {
   // throws: a 409 StoreError with `current` when `expected` is not the version stored, a bad key 400.
   function removeObject(ctx, key, { expected = null, tz = null, hold = null } = {}) {
     const id = ctx.manifest.id;
+    // A plan an issue pull fills is the pull's to change (plan-github-pull.md, decision 9).
+    const pulled = d.pulledRefusal(ctx, key);
+    if (pulled) return pulled;
     const copyRefused = d.takesCopies(ctx.manifest) ? d.copyRemoveRefusal(ctx, key) : null;
     if (copyRefused?.hidden) return { removed: { key, deleted: true, version: 0 }, had: null, children: [], held: null };
     if (copyRefused) return { status: copyRefused.status, error: copyRefused.error };
@@ -119,6 +122,9 @@ function createDeletePath(d) {
   // they may not change, a guard, a hidden field), or null. For a list that says whether a person may approve a delete.
   function removeRefusal(ctx, key) {
     const id = ctx.manifest.id;
+    // A plan an issue pull fills is the pull's to change (plan-github-pull.md, decision 9).
+    const pulled = d.pulledRefusal(ctx, key);
+    if (pulled) return pulled;
     const copyRefused = d.takesCopies(ctx.manifest) ? d.copyRemoveRefusal(ctx, key) : null;
     if (copyRefused) return { status: copyRefused.hidden ? 404 : copyRefused.status, error: copyRefused.hidden ? "That isn't there." : copyRefused.error };
     const had = d.moduleData.get(id, ctx.scopeKey, key);
