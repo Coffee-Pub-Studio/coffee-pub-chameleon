@@ -18,12 +18,12 @@ one is kept, and the run for the other logs `Label "<label>" is no longer on iss
 board were changed.` Any other label logs `Label "<label>" is not a priority label; nothing to do.`
 `tools/check-project-status.mjs` (in `npm run check`, 11 cases) checks the workflow without a network.
 
-The reverse, **Project priority from the board** (`.github/workflows/project-priority-sync.yml`), runs only when
-started: from the **Actions** tab (**Run workflow**), or with `POST repos/{owner}/{repo}/actions/workflows/project-priority-sync.yml/dispatches`
+The reverse, **Project priority from the board** (`.github/workflows/project-priority-sync.yml`), runs hourly (at minute 17) and on
+demand: from the **Actions** tab (**Run workflow**), or with `POST repos/{owner}/{repo}/actions/workflows/project-priority-sync.yml/dispatches`
 and `ref=main`. It sets each open issue's `priority:` label to match its column: Now, Next or Later sets that
 label, Inbox or no column clears it, and Done is left alone. It fails without changing any labels when the board's field is missing, isn't single-select, or has no Now, Next or Later option. It reports each change as a notice and in the run
 summary. After the labels it reports the board's order: Now, Next and Later top to bottom as dragged, and Inbox, unranked, if it holds anything, in the run summary ("Order on the board") and as one notice per column, such as `Now: #157, #165, #160, #161`. The managing session reads that order before planning work. If a board view has its own sort, the report follows the manual order, not that sort. `tools/check-project-sync.mjs` (in `npm run check`, 21 cases) checks it without a network. It uses the
-same setup.
+same setup. With no `PROJECT_TOKEN` secret (or no owner or number), an hourly or a manual run ends green with one notice and changes nothing.
 
 ### Board setup (once)
 
