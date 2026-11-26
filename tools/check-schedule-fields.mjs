@@ -397,6 +397,21 @@ try {
   await tab.close();
   tab = null;
 
+  // Update by id on a followed plan with writing off: the space's own fields go in, a title is not read, nothing reaches GitHub
+  B.must(await B.call('PUT', `/api/spaces/${SB}/issues-pull`, { write: false }), 'writing off');
+  tab = await open(serverB, B.jar, 1280, 'light', 'admin', SB, 'Board');
+  await tab.eval(`(() => { window.__file = null; HTMLInputElement.prototype.click = function () { if (this.type !== 'file' || !window.__file) return; const dt = new DataTransfer(); dt.items.add(new File([window.__file], 'update.json', { type: 'application/json' })); Object.defineProperty(this, 'files', { value: dt.files, configurable: true }); this.dispatchEvent(new Event('change')); }; return 1; })()`);
+  const titleOff = (await planB('gh-2')).title;
+  const asked = seen.length;
+  await sendFile(tab, JSON.stringify({ format: 'project-plan', version: 1, entries: [{ id: 'gh-2', fields: { area: 'server', phase: 'first' }, start: '2026-12-01', end: '2026-12-09' }, { id: 'gh-999', fields: { area: 'chat' } }] }), 'Import JSON: update by id');
+  ok(/Update 1 entry by id\?/.test(await dialogText(tab)), 'the confirmation on a followed plan');
+  await dialogDo(tab, 'Update by id');
+  const g2 = await planB('gh-2');
+  same([g2.fields, g2.start, g2.end, g2.title], [{ area: 'server', phase: 'first' }, '2026-12-01', '2026-12-09', titleOff], 'Update by id on a followed plan with writing off sets the own fields and days, not the title');
+  same(seen.length, asked, 'and asks nothing of GitHub');
+  await tab.close();
+  tab = null;
+
   // 390 dark, followed
   tab = await open(serverB, B.jar, 390, 'dark', 'admin', SB, 'Board');
   ok(await visible(tab, '#fields-edit'), 'Edit fields at 390 in a followed plan');

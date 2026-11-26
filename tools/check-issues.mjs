@@ -446,7 +446,7 @@ await test('the gate is read from the code, and each part of it matters', () => 
       /if \(others\.length\) return res\.status\(409\)/.test(put), // only into an empty plan
       /issuePullPlace\(req, res, 'own'\)/.test(now), // Pull now: the plan's edit
       /if \(!serviceTerms\.accepted\(adapter\)\)/.test(fnOf(text, 'async function pullIssues(')), // no pull without the terms
-      /const pulled = pulledRefusal\(ctx, key\);\n  if \(pulled\) return pulled;/.test(fnOf(text, 'function putModuleValue(')), // a person's write refused
+      /const pulled = pulledRefusal\(ctx, key, given\);\n  if \(pulled\) return pulled;/.test(fnOf(text, 'function putModuleValue(')), // a person's write refused
       (delText.match(/const pulled = d\.pulledRefusal\(ctx, key\);\n    if \(pulled\) return pulled;/g) || []).length === 2, // a person's delete refused
       (text.match(/const pulled = pulledRefusal\(ctx, null\);/g) || []).length === 2, // a Clear and its Undo refused
       /ctx\.who\.system === 'issues'/.test(refusal) && /if \(!rec \|\| !rec\.on\) return null;/.test(refusal), // only the pull, only while on
@@ -480,7 +480,7 @@ await test('the gate is read from the code, and each part of it matters', () => 
     ['the empty plan', inPull((t) => t.replace('if (others.length) return', 'if (false) return'))],
     ['the edit for Pull now', inPull((t) => t.replace("issues-pull/now', async (req, res) => {\n  const place = issuePullPlace(req, res, 'own')", "issues-pull/now', async (req, res) => {\n  const place = issuePullPlace(req, res, 'read')"))],
     ['the terms on a pull', inPull((t) => t.replace("if (!serviceTerms.accepted(adapter)) return issuePulls.set", 'if (false) return issuePulls.set'))],
-    ['the refusal of a write', (t) => t.replace('const pulled = pulledRefusal(ctx, key);\n  if (pulled) return pulled;', '')],
+    ['the refusal of a write', (t) => t.replace('const pulled = pulledRefusal(ctx, key, given);\n  if (pulled) return pulled;', '')],
     ['the refusal of a delete', null, (t) => t.replace('const pulled = d.pulledRefusal(ctx, key);\n    if (pulled) return pulled;', '')],
     ['the refusal of a Clear', (t) => t.replace('const pulled = pulledRefusal(ctx, null);', 'const pulled = null;')],
     ['the write-through for a space that writes', (t) => t.replace('if (pull && pull.on && pull.write) {\n      const out = await issueWriteThrough(', 'if (false) {\n      const out = await issueWriteThrough(')],
@@ -693,6 +693,31 @@ await live('while it is on, a person writes nothing of the plan or the board', a
   const p = await plan(S.bugs);
   assert.ok(!p['plan:hand'] && p['plan:gh-1'].value.title !== 'mine', 'nothing written');
   ok(await putKey(S.other, 'plan:hand', { kind: 'work', title: 'mine', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia), 'another space is not held');
+});
+
+await live('while it is on and writing is off, the space\'s own fields change and GitHub\'s do not', async () => {
+  const SAID = 'This comes from Test stand-in (not an issue service). Change it there.';
+  const before = (await plan(S.bugs))['plan:gh-1'];
+  assert.equal((await status(S.bugs)).write, false, 'writing is off');
+  const at = gh.seen.length;
+  const own = { ...before.value, start: '2026-12-01', end: '2026-12-09', rank: 'a1', owners: ['x'] };
+  const r = ok(await putKey(S.bugs, 'plan:gh-1', own, S.mia), 'a member changes only the own fields');
+  assert.deepEqual([r.json.item.value.start, r.json.item.value.end, r.json.item.value.title], ['2026-12-01', '2026-12-09', before.value.title]);
+  assert.equal(gh.seen.length, at, 'nothing was asked of the service');
+  const mixed = [
+    ['title', { ...own, title: 'mine' }], ['column', { ...own, column: 'now' }], ['done', { ...own, done: true, column: 'done' }],
+    ['tags', { ...own, tags: ['zzz'] }], ['source', { ...own, source: { url: 'x' } }],
+  ];
+  for (const [what, v] of mixed) {
+    const m = await putKey(S.bugs, 'plan:gh-1', v, S.mia);
+    assert.deepEqual([m.status, m.json && m.json.error], [403, SAID], `a mixed change (${what}) is refused`);
+  }
+  const n = await putKey(S.bugs, 'plan:gh-99', { kind: 'work', title: 'new', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia);
+  assert.equal(n.status, 403, 'work that is not stored is not made');
+  const hand = await putKey(S.bugs, 'plan:hand', { kind: 'work', title: 'mine', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia);
+  assert.equal(hand.status, 403, 'a key that is not pulled work is as before');
+  assert.equal((await plan(S.bugs))['plan:gh-1'].value.title, before.value.title);
+  assert.equal(gh.seen.length, at, 'still nothing asked of the service');
 });
 
 await live('Pull now: someone with edit, at most once in the gap', async () => {

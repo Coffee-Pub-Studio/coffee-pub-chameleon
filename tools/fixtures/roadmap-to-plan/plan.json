@@ -1,0 +1,7 @@
+{ "format": "project-plan", "version": 1, "entries": [
+  { "id": "gh-2", "kind": "work", "title": "#2 first-time experience" },
+  { "id": "gh-27", "kind": "work", "title": "#27 host console" },
+  { "id": "gh-29", "kind": "work", "title": "#29 canvas" },
+  { "id": "gh-31", "kind": "work", "title": "#31 no dates" },
+  { "id": "gh-50", "kind": "work", "title": "#50 not in the roadmap" }
+] }
