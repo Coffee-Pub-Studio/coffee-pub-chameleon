@@ -13461,7 +13461,7 @@ function weatherStopPlaces(ctx, days) {
   for (const row of withoutHiddenCopies(ctx.who, ctx.manifest, ctx.scopeKey, moduleData.list(ctx.manifest.id, ctx.scopeKey, st.prefix))) {
     const v = row.value;
     const ref = v && typeof v === 'object' ? v[st.place] : null;
-    if (!ref || typeof ref !== 'object' || !wanted.has(v[st.day])) continue;
+    if (!ref || typeof ref !== 'object' || !wanted.has(v[st.day]) || ctx.hide.includes(st.place)) continue;
     // A place of this space, or one of the environment's: never a pointer into another space.
     if (ref.scope === 'space' ? ref.space !== ctx.spaceId : ref.scope !== 'environment' && ref.scope !== undefined) continue;
     const time = st.time && typeof v[st.time] === 'string' && /^\d{2}:\d{2}$/.test(v[st.time]) ? v[st.time] : '';
@@ -13485,10 +13485,11 @@ function weatherStopPlaces(ctx, days) {
   }
   return out;
 }
-// The trip's main place as text, from the module's own stored value: '' when it has none.
+// The trip's main place as text, from the module's own stored value: '' when it has none, or when the place field is hidden
+// from this asker (ctx.hide, hiddenFor): the one rule for the module's route and the space's.
 function weatherMainText(ctx) {
   const mn = ctx.manifest.weather.main;
-  if (!mn || !mn.place) return '';
+  if (!mn || !mn.place || ctx.hide.includes(mn.place)) return '';
   const stored = moduleData.get(ctx.manifest.id, ctx.scopeKey, mn.key);
   const text = stored && stored.value && typeof stored.value === 'object' ? stored.value[mn.place] : '';
   return typeof text === 'string' ? text.replace(/\p{Cc}/gu, ' ').trim().slice(0, 80) : '';
@@ -13543,9 +13544,8 @@ function weatherSpacePick(who, perms, space) {
     const mn = manifest.weather && manifest.weather.main;
     if (!mn || !mn.place || !manifest.scope.includes('space') || refusedInLobby(manifest, space.id)) continue;
     if (moduleSpaceRefusal(entry, who, space) || !moduleCan(manifest, perms, 'read') || shutFromGuests(who, manifest, space.id)) continue;
-    if (hiddenFor(who, manifest, space.id).includes(mn.place)) continue;
     const scopeKey = `space:${space.id}`;
-    const text = weatherMainText({ manifest, scopeKey });
+    const text = weatherMainText({ manifest, scopeKey, hide: hiddenFor(who, manifest, space.id) });
     if (!text) continue;
     const stored = moduleData.get(manifest.id, scopeKey, mn.key);
     const v = stored && stored.value && typeof stored.value === 'object' ? stored.value : {};
