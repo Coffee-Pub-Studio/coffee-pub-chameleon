@@ -62,7 +62,48 @@ function control(def, draft = false) {
   if (def.type === 'url') return `${head}<input id="${id}" type="url" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="500" placeholder="https://"></label>`;
   if (def.type === 'number') return `${head}<input id="${id}" type="number" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" ${def.min !== undefined ? `min="${def.min}"` : ''} ${def.max !== undefined ? `max="${def.max}"` : ''} step="any"></label>`;
   if (def.type === 'color') return `${head}<input id="${id}" type="text" data-colour-field data-key="${escapeHtml(def.key)}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(def.value) ? def.value : '#000000')}"></label>`;
-  return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"></label>`;
+  // A repository the space follows (`follows: "issues"`): the box, and under it the pull's own status and On and Off, filled in by
+  // wireFollows once the card is drawn. It acts at once, as deleting a file does, also in the Set up panel; with no space yet the block is left out.
+  const follows = def.follows === 'issues' ? `<div class="follows-pull" data-follows="${escapeHtml(def.key)}"><div class="row"><span class="sdk-status" data-follows-state role="status" aria-live="polite">Looking...</span><button type="button" class="btn btn-small" data-follows-toggle hidden></button></div><p class="hint" data-follows-line hidden></p></div>` : '';
+  return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"${def.follows ? ' autocapitalize="off" spellcheck="false" placeholder="owner/name"' : ''}></label>${follows}`;
+}
+
+// The "Follows GitHub" block under a repository box (see control): reads the space's pull (GET /api/spaces/:id/issues-pull) and
+// turns it on with the repository typed in the box, or off (PUT). The server's own sentences are shown as they come: the terms
+// not accepted (and where to accept them), a plan that is not empty, a person who is not the owner.
+function wireFollows(box, space) {
+  const state = box.querySelector('[data-follows-state]');
+  const toggle = box.querySelector('[data-follows-toggle]');
+  const line = box.querySelector('[data-follows-line]');
+  const input = box.closest('.module-setting').querySelector('input[data-key]');
+  const route = `/api/spaces/${encodeURIComponent(space)}/issues-pull`;
+  const at = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); };
+  let on = false;
+  const say = (text, error = false) => { line.textContent = text; line.hidden = !text; line.classList.toggle('error', error); };
+  const draw = (v) => {
+    on = Boolean(v && v.on);
+    const name = (v && v.name) || 'GitHub';
+    state.textContent = on ? `Following ${v.repo}` : 'Not following';
+    state.dataset.tone = on ? (v.error ? 'warn' : 'ok') : 'neutral';
+    toggle.textContent = on ? 'Turn off' : 'Turn on';
+    toggle.classList.toggle('btn-danger', on);
+    toggle.hidden = false;
+    if (on && v.repo && input && !input.value) input.value = v.repo;
+    say(on ? (v.error || (v.last ? `Pulled from ${name} ${at(v.last)}.` : `Waiting for the first pull from ${name}.`)) : '', Boolean(on && v.error));
+  };
+  api('GET', route).then(draw).catch((err) => { state.textContent = 'Not following'; say(err.message, true); });
+  toggle.addEventListener('click', async () => {
+    const repo = (input ? input.value : '').trim();
+    if (!on && !repo) { say('Enter the repository as owner/name first.', true); return; }
+    if (on && !await confirmDialog({ title: 'Turn off the pull?', message: 'The work already pulled stays in the plan as your own, and can be changed here again.', action: 'Turn off', kind: 'destructive' })) return;
+    toggle.disabled = true;
+    try {
+      draw(await api('PUT', route, on ? { on: false } : { on: true, repo }));
+    } catch (err) {
+      say(err.message, true);
+    }
+    toggle.disabled = false;
+  });
 }
 
 // A `file` setting that takes an upload (module.json `upload`): choose a file to put it here, or Clear to take it away. Both
@@ -203,6 +244,7 @@ export async function renderModuleSettings(container, { scope, space = null, onl
   }
   colourFields(container); // the colour settings and the list rows' colours: the SDK's colour picker on each
   for (const box of container.querySelectorAll('[data-list-setting]')) wireList(box);
+  for (const box of container.querySelectorAll('[data-follows]')) { if (space) wireFollows(box, space); else box.remove(); }
   for (const card of container.querySelectorAll('.module-settings-card')) {
     refresh(card);
     card.addEventListener('change', () => refresh(card));

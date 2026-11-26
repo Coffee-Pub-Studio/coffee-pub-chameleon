@@ -2,7 +2,7 @@ import { loadBranding, api, wireOverlayBack, renderTopbar, renderPageBar, escape
 import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
-import { wireWeatherTerms } from '/weather-terms.js';
+import { wireServiceTerms } from '/service-terms.js';
 import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
@@ -3100,7 +3100,7 @@ async function init() {
     tplReady = true;
     await loadTemplate();
     if (!environment.hosted) await flightSchedule.load(); // a hosted server's is the host console's: no section here
-    weatherTerms = wireWeatherTerms('/api/weather/terms', environment.hosted ? 'hosted' : 'single'); // an owner sees the status; only a single install's administrator accepts
+    weatherTerms = wireServiceTerms('/api/weather/terms', environment.hosted ? 'hosted' : 'single'); // an owner sees the status; only a single install's administrator accepts
     await weatherTerms.load();
     if (firstHash && !TABS.includes(firstHash) && !ENV_PARTS.includes(firstHash)) selectTab(firstHash); // a section drawn just now
     setInterval(refreshLive, 5000);

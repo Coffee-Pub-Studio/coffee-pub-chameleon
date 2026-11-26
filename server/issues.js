@@ -39,7 +39,7 @@ const SPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 // The sentences a person reads after a failure. The page adds the time from `next`.
 const SAY = Object.freeze({
-  terms: (name) => `${name}'s terms are not accepted on this server.`,
+  terms: (name, modules) => `${name}'s terms are not accepted on this server. The administrator accepts them in Manage, ${modules}, Service terms.`, // `modules`: the template's word for them, from word()
   missing: 'No such repository, or it is private.',
   token: (name) => `${name} refused the token set on this server.`,
   wait: (name) => `${name} asked to wait.`,

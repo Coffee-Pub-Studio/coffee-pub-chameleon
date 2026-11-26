@@ -1,8 +1,8 @@
-// The Weather terms section (documentation/plans/plan-weather-part.md, step 2): each weather service this server has, its
+// The Service terms section (documentation/plans/plan-weather-part.md, step 2; plan-github-pull.md, step 3): each outside service (weather, GitHub) this server has, its
 // credit, a link to its terms, whether the administrator has accepted them, and Accept and Withdraw for the administrator.
 // A service's terms are accepted once for the whole server, so the same section is on the host console (hosted, route
 // /api/host/weather/terms) and on the admin page (a single install, /api/weather/terms). Each page holds the markup
-// (#weather-terms-section and the ids below) and calls wireWeatherTerms with its route. On a hosted server an owner sees the
+// (#weather-terms-section and the ids below) and calls wireServiceTerms with its route. On a hosted server an owner sees the
 // status on the admin page and a sentence that the host's administrator accepts, with no buttons. The server's own sentences
 // are shown as they come.
 import { api } from '/brand.js';
@@ -22,7 +22,7 @@ const el = (tag, cls, text) => {
 
 // `where`: 'single' (the admin page of a single install), 'hosted' (an owner's admin page on a hosted server) or 'host'
 // (the host console). Only the sentence for a person who cannot accept differs.
-export function wireWeatherTerms(route, where = 'single') {
+export function wireServiceTerms(route, where = 'single') {
   const $ = (id) => document.getElementById(id);
   const section = $('weather-terms-section');
   const list = $('weather-terms-list');
@@ -42,11 +42,11 @@ export function wireWeatherTerms(route, where = 'single') {
     const services = Array.isArray(answer && answer.services) ? answer.services : [];
     const may = Boolean(answer && answer.mayAccept);
     note.textContent = may ? '' : where === 'hosted'
-      ? "The host's administrator accepts a weather service's terms, on the host console."
-      : "The server's administrator accepts a weather service's terms.";
+      ? "The host's administrator accepts a service's terms, on the host console."
+      : "The server's administrator accepts a service's terms.";
     note.hidden = may;
     list.replaceChildren();
-    if (!services.length) list.append(el('li', 'sdk-hint', 'This server has no weather service.'));
+    if (!services.length) list.append(el('li', 'sdk-hint', 'This server has no outside service.'));
     for (const s of services) {
       const li = el('li', 'weather-terms-row');
       const head = el('div', 'weather-terms-head');
@@ -85,7 +85,7 @@ export function wireWeatherTerms(route, where = 'single') {
       const withdraw = el('button', 'btn btn-small btn-danger', 'Withdraw');
       withdraw.type = 'button';
       withdraw.addEventListener('click', async () => {
-        if (!await confirmDialog({ title: `Withdraw ${s.name}'s terms?`, message: `Weather stops being asked of ${s.name} for every ${where === 'host' ? 'environment' : 'space'} on this server until the terms are accepted again.`, action: 'Withdraw', kind: 'destructive' })) return;
+        if (!await confirmDialog({ title: `Withdraw ${s.name}'s terms?`, message: `Nothing is asked of ${s.name} for every ${where === 'host' ? 'environment' : 'space'} on this server until the terms are accepted again.`, action: 'Withdraw', kind: 'destructive' })) return;
         await run('DELETE', undefined, `Withdrew ${s.name}.`);
       });
       box.append(withdraw);

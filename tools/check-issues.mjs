@@ -269,7 +269,7 @@ await test('the gate is read from the code, and each part of it matters', () => 
   const inPull = (cut) => (t) => t.slice(0, from) + cut(t.slice(from));
   for (const [name, cut, delCut] of [
     ['the owner', inPull((t) => t.replace('if (!who.user || who.user.agent || !hasOwnerRights(who.user)) return', 'if (!who.user) return'))],
-    ['the terms on turning on', inPull((t) => t.replace('if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name) });\n  // A pulled', '// A pulled'))],
+    ['the terms on turning on', inPull((t) => t.replace('if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name, word(\'module\', { many: true, cap: true })) });\n  // A pulled', '// A pulled'))],
     ['the empty plan', inPull((t) => t.replace('if (others.length) return', 'if (false) return'))],
     ['the edit for Pull now', inPull((t) => t.replace("issuePullPlace(req, res, 'own')", "issuePullPlace(req, res, 'read')"))],
     ['the terms on a pull', inPull((t) => t.replace("if (!serviceTerms.accepted(adapter)) return issuePulls.set", 'if (false) return issuePulls.set'))],
@@ -393,7 +393,7 @@ await live('the gate: only an owner turns it on, the terms first, only into an e
   assert.equal((await call('PUT', P(S.bugs), { token: S.admin, body: { ...on, provider: 'nowhere' } })).status, 400);
   assert.equal((await call('PUT', '/api/spaces/nosuchspace/issues-pull', { token: S.admin, body: on })).status, 404);
   const terms = await call('PUT', P(S.bugs), { token: S.admin, body: on });
-  assert.deepEqual([terms.status, terms.json.error], [409, 'Test stand-in (not an issue service)\'s terms are not accepted on this server.']);
+  assert.deepEqual([terms.status, terms.json.error], [409, 'Test stand-in (not an issue service)\'s terms are not accepted on this server. The administrator accepts them in Manage, Modules, Service terms.']);
   assert.equal(gh.seen.length, 0, 'nothing asked before the terms are accepted');
   const view = ok(await call('GET', '/api/weather/terms', { token: S.admin }), 'the terms list').json;
   assert.deepEqual(view.services.map((s) => [s.id, s.kind]), [['met-norway', 'weather'], ['github', 'issues'], ['issues-standin', 'issues']]);

@@ -13886,7 +13886,7 @@ async function pullIssues(spaceId) {
   const now = Date.now();
   if (!adapter) return issuePulls.set(spaceId, { error: 'This server has no such service.', next: '' });
   const next = (ms) => isoAt(Date.now() + ms);
-  if (!serviceTerms.accepted(adapter)) return issuePulls.set(spaceId, { error: issuesLib.SAY.terms(adapter.name), next: next(adapter.pollMs) });
+  if (!serviceTerms.accepted(adapter)) return issuePulls.set(spaceId, { error: issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true })), next: next(adapter.pollMs) });
   const before = issuePullAt(store.spaceById(spaceId));
   if (before.error) return issuePulls.set(spaceId, { error: before.error, next: next(adapter.pollMs) });
   if (rec.restUntil && Date.parse(rec.restUntil) > now) return rec;
@@ -13982,7 +13982,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   if (!repo) return res.status(400).json({ error: 'Name the repository as owner/name.' });
   const at = issuePullAt(space);
   if (at.error) return res.status(409).json({ error: at.error });
-  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name) });
+  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true })) });
   // A pulled space owns its plan: anything there that is not this repository's own pulled work must go first. A pulled key whose
   // `source` was dropped (written while the pull was off, by a page that does not keep it) is still the pull's own.
   const others = moduleData.list(found.manifest.id, at.ctx.scopeKey, 'plan:').filter((e) => {
@@ -14022,7 +14022,7 @@ app.post('/api/spaces/:id/issues-pull/now', async (req, res) => {
   if (!rec || !rec.on) return res.status(409).json({ error: `No pull is on in this ${word('space')}.` });
   const adapter = issueAdapterOf(rec.provider);
   if (!adapter) return res.status(409).json({ error: 'This server has no such service.' });
-  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name) });
+  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true })) });
   const at = issuePullAt(space);
   if (at.error) return res.status(409).json({ error: at.error });
   const now = Date.now();

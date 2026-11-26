@@ -23,6 +23,13 @@ const test = (name, fn) => { fn(); n += 1; };
 const base = () => ({ id: 'thing', name: 'Thing', version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } } });
 const files = new Set(['page.html', 'canvas.html']);
 
+test('a text setting may follow an issue pull, only in a space', () => {
+  const m = cleanManifest({ ...base(), scope: ['environment', 'space'], surfaces: { page: { entry: 'page.html' }, canvas: { entry: 'canvas.html' } }, settings: [{ key: 'repo', label: 'Repo', type: 'text', scope: 'space', follows: 'issues' }] }, files);
+  assert.equal(m.settings[0].follows, 'issues');
+  assert.throws(() => cleanManifest({ ...base(), settings: [{ key: 'repo', label: 'Repo', type: 'text', scope: 'environment', follows: 'issues' }] }, files), /follows must be "issues"/);
+  assert.throws(() => cleanManifest({ ...base(), scope: ['environment', 'space'], surfaces: { page: { entry: 'page.html' }, canvas: { entry: 'canvas.html' } }, settings: [{ key: 'repo', label: 'Repo', type: 'text', scope: 'space', follows: 'x' }] }, files), /follows must be/);
+});
+
 test('a setting keeps a help paragraph longer than a one-line hint', () => {
   const long = 'A world PMTiles file to cut a region from with "Add a region", below. the host reads only the part it cuts, over https range requests, never the whole file. Protomaps publishes a daily build at https://maps.protomaps.com/builds; its address is dated and changes most days (for example https://build.protomaps.com/20260921.pmtiles), so check that page for todays, or point this at your own stable copy. Left empty, cutting a region is off.';
   assert.ok(long.length > 200 && long.length <= 600, 'the fixture itself must sit between the old and new ceilings');
