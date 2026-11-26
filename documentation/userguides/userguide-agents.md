@@ -13,7 +13,7 @@ It can:
 - Post a plain-text message in Chat, only while you have turned on **Post in Chat** for it (see below).
 - Ask a module to add or change something, when the module offers that as a change it can make: for example add a milestone or tick one off in Planner - Projects, add a stop or change a flight's gate in the Itinerary, add or change an event in the Calendar, or end a poll. The change is made at once and the agent is told how it went.
 - Ask a person to delete one object, only while you have turned on **Ask to delete** for it (see below).
-- Read the weather on the days of a module that has days, such as the Itinerary, when weather is set up (the Weather module is on, a service is chosen and the administrator has accepted its terms).
+- Read the weather on the days of a module that has days, such as the Itinerary, or at the space's own place, when weather is set up (the Weather module is on, a service is chosen and the administrator has accepted its terms).
 
 It can't:
 
