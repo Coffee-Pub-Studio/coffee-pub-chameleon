@@ -3036,7 +3036,9 @@
       if (item.href && !category) {
         b.href = item.href;
         b.target = item.target || '_blank';
-        b.rel = 'noopener';
+        // No referrer: the page sets no Referrer-Policy, so an outside site would be told the environment's address.
+        b.rel = 'noopener noreferrer';
+        b.referrerPolicy = 'no-referrer';
       } else {
         b.type = 'button';
       }
