@@ -19,6 +19,7 @@ Who can: anyone who may **See the plan** (members, guests and moderators by defa
 | **Opens on** | The view a space opens on, **Timeline**, **List** or **Board** | The template's start; you may change it |
 | **Board columns** | The columns the board starts with: **To do, Doing, Done** or **Inbox, Now, Next, Later, Done**. They stay until someone edits the columns; after that the board keeps its own | The template's start (Gaming: Inbox, Now, Next, Later, Done) |
 | **Tags** | The tags an entry may carry (the Gaming template seeds story threads) | The template's start; you may change it |
+| **Follows GitHub** | A public GitHub repository, as `owner/name`, whose issues this plan shows as work. See "Follow a GitHub repository" | Not set by a template |
 
 ## Add to the plan
 
@@ -91,6 +92,30 @@ The **Add a column** button above the columns asks for a name and adds the colum
 Who may: **Change the board's columns** is its own permission on the Roles tab, under **Module: Planner - Projects**. Moderators have it by default; members and guests do not; owners always may. Moving a card needs only **Add and change the plan**. A person without it sees the **Fold** choice only, no **Add a column** button, and a change forced through is refused with "Your role can't do that in this module."
 
 Each change to the columns shows an **Undo** for 30 seconds, which puts back the columns and any work that changed with them. A space still on its template's columns keeps them as they are until someone first changes them; that change makes the space's own board. If someone else changed the columns at the same moment, it says so and asks you to try again. **Export as JSON** carries the board, and **Import** brings it in (**Replace** always; **Add** only while the plan has no board of its own). A template author can rename the seven default column words (Inbox, Now, Next, Later, To do, Doing, Done) in the template's words for this module (see [Templates](userguide-templates.md)); a column someone has renamed keeps its own name.
+
+### Rows and filters
+
+**Rows.** Above the columns, **Rows** has three choices: **None**, **Milestone** and **Person** (the template's word for a milestone). With **Milestone** the board is drawn in rows, one for each milestone that has work shown, with the work that is under no milestone in a last row, "No milestone". With **Person** each row is one person, by the first person on the work, and the last row is "No one". Each row has a heading with a fold button, and the columns' headings stay at the top while the rows scroll. A card stays in its row: dropping it on another row moves nothing and says "Change the milestone in Edit." or "Change who is doing it in Edit."; to change the row, open the work and change it there. Moving a card to another column in its row works as before. The **Rows** choice is part of the board, so everyone sees it; it needs the same permission as changing the columns (**Change the board's columns**), and **Undo** puts the old choice back.
+
+**Filters.** The toolbar's **Filters** button has **Who**, the tags (the template's word), **Phase** and the milestone. Each choice shows how many pieces of work it has. Choices in one group add up (any person chosen), and the groups combine, so work must match every group. **Clear filters** puts them all back. The status line says, for example, "Showing 4 of 12" and the template's word for work while a filter is on, and an empty result says "Nothing matches." The filter is yours: it is kept in your browser for this space, and nobody else sees it. A new piece of work added with **+** while a filter is on starts with what the filter chose (its milestone, phase, tags and, when one person is chosen, that person); if the filter would then hide it, the bar says "Added. The filter hides it."
+
+## Follow a GitHub repository
+
+A space's plan can show a public GitHub repository's issues as work, so the plan matches what is on GitHub. It goes one way, from GitHub to the space: nothing here changes GitHub.
+
+**Who:** the environment's owner turns it on or off. The server's administrator accepts GitHub's terms once, first (see [Modules](userguide-modules.md), "The terms").
+
+1. The administrator opens **Manage**, then **Modules**, finds **Service terms**, reads GitHub's terms and chooses **Accept**.
+2. The owner opens the space's **Set up**, then the **Settings** tab, and finds **Follows GitHub** in Planner - Projects' section.
+3. Enter the repository as `owner/name` (such as `Drowbe/coffee-pub-chameleon`, not a web address) and choose **Turn on**. The space must have an empty plan, or one that holds only this repository's own pulled work: otherwise it says "Clear the plan first, or use a new space." (use **Clear** on the module's menu, or make a new space).
+4. Turning it on makes the board exactly **Inbox**, **Now**, **Next**, **Later** and **Done**, and pulls at once.
+5. To stop, choose **Turn off** and confirm. The work stays in the plan as your own and can be changed again.
+
+**What you see.** The status bar starts with "From GitHub, pulled 3 minutes ago, 12 open of 40" (or, after a failure, the reason and "Trying again at 14:20."), and **Pull now** for anyone who may change the plan; it waits a minute between pulls. The server also pulls by itself about every 10 minutes. Each issue is a piece of work with its number ("#157") and a link, and its menu has **Open on GitHub** (a new tab). A closed issue is in **Done**; an open one is in **Now**, **Next** or **Later** when it has the label `priority: now`, `priority: next` or `priority: later`, and otherwise in **Inbox**. A GitHub milestone is a milestone, and its other labels are tags (when there is room, 20) or are named in the work's notes. Its days are the day the issue was made and the day it closed.
+
+**It is read-only.** While it is on, nobody can add to, change, move or delete the plan or its board, or clear it: the page shows the work with no edit controls, and it says "This comes from GitHub. Change it there." The same sentence answers an agent that tries. To move work between columns, change its `priority:` label on GitHub (the repository can run a workflow that keeps the labels in step with a project board; that is the repository's setting, not Chameleon's).
+
+**Failures** show in the status bar: "GitHub's terms are not accepted on this server. The administrator accepts them in Manage, Modules, Service terms.", "No such repository, or it is private.", "GitHub refused the token set on this server.", "GitHub asked to wait." (it tries again after the time GitHub names), "GitHub did not answer." and "This plan holds at most 1000 entries; the rest are not pulled." The server's administrator can raise GitHub's limit with a token ([Settings reference](userguide-settings-reference.md), "Following a GitHub repository"). Only public repositories can be followed; nothing about you or the space goes to GitHub.
 
 ## Where else it shows
 

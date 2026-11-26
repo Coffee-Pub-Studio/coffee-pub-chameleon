@@ -77,7 +77,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
   registry.
 - [Environments architecture](architecture/architecture-environments.md) -- one host, many environments:
   the seam, the host console, the roles, the Names migration and templates (the format, the resolver, starter content, the phases' measure and the call settings).
-- [Weather architecture](architecture/architecture-weather.md) -- where the weather on a day comes from, the Weather module and its terms, what is kept and what leaves the server.
+- [Weather architecture](architecture/architecture-weather.md) -- where the weather on a day comes from, the Weather module and the shared terms of outside services, what is kept and what leaves the server.
 - [AI architecture](architecture/architecture-ai.md) -- how the AI is asked: the prompt registry, what is sent and what it may see, who may ask, refunds, records, the key and the address guard.
 - [The demo seeder and the checks](architecture/architecture-demo-site.md) -- filling a server with demo data (five demos, one for each template), adding one from the host console, a demo site that resets itself, the checks added since 0.4, the page-load checks, the roadmap sync and the testing rule.
 

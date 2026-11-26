@@ -10,7 +10,7 @@ Planner - Itinerary (module id `travel`; the Planner below for short, and the It
 2. Once enabled it is in every space whose template offers it (the Travel and Default templates do); there is no switch per space.
 3. On the Roles tab, under **Module: Planner - Itinerary**, choose who can **See the trip** and who can **Plan the trip**. By default everyone can see it, members and moderators can plan, and guests can see but not plan. **Clear the whole trip** decides who may use **Clear** on the Planner's menu (see "Clear the whole plan" below); it is on for moderators and off for members, and an owner always may.
 4. Optionally, under the Planner's settings (**Module Configuration** on its card), turn off **Suggest flights from earlier trips**. It is on by default: "Fill a flight from the same flight number saved before on this server. Flights saved here also help others; turn this off to keep them out." Off, the flight form has no **Look up a flight** row, and nothing saved here is kept for others. See "Look up a flight" below.
-5. Optionally, show the weather on each day. It is set up once for the environment, on the **Weather** module's tab (**Manage**, **Modules**, **Weather**), not in the Planner's settings: **Service** is **None** by default, so no weather is shown and nothing is sent out. Choose **MET Norway**, and ask the server's administrator to accept its terms once under **Weather terms** on the Modules page; until they do, nothing is asked of the service. **Temperatures** chooses Celsius or Fahrenheit. Chameleon never uses a paid service. See [Modules](userguide-modules.md), "Weather".
+5. Optionally, show the weather on each day. It is set up once for the environment, on the **Weather** module's tab (**Manage**, **Modules**, **Weather**), not in the Planner's settings: **Service** is **None** by default, so no weather is shown and nothing is sent out. Choose **MET Norway**, and ask the server's administrator to accept its terms once under **Service terms** on the Modules page; until they do, nothing is asked of the service. **Temperatures** chooses Celsius or Fahrenheit. Chameleon never uses a paid service. See [Modules](userguide-modules.md), "Weather".
 
 ## The plan
 
@@ -82,6 +82,17 @@ The same limit holds for a stay's check-out and a journey's arrival. When an obj
 - **Between days.** Not everything has a day yet. Anything can sit *between* two days instead of in one: an idea near the first day, a few more near the tenth, a poll between two days to decide where to go. Objects before the first day are the ideas with no place yet. Drop anything on the gap between two days (it opens up while you drag), choose a place under **Unscheduled** in the list of days ("Before the first day", "Between Oct 16 and Oct 17", "After the last day"), pick one in the form's **Where**, or add straight there with its **+**. **Move to unscheduled** in an object's menu takes it off its day. Between days an object keeps its order by hand and shows no time; on a day it goes by time.
 
 Objects with no time come first in a day, in the order you put them; objects with a time follow, by time. An object from another module takes the time that object has (a Calendar event's start), so it sorts among the timed ones. Between two timed objects a small line shows the gap, such as "45 min".
+
+## Check in and flight status
+
+A flight whose airline Chameleon knows has two links to the airline's own pages, **Check in** and **Flight status**. Nothing is looked up for you, and nothing about you or the trip is sent: the links open the airline's start page for each in a new tab, and the airline is not told which space or server you came from. Chameleon knows about 57 airlines, matched from the start of the flight number (WN 2483 is Southwest) or from the **Airline** name; a flight whose airline is not in the list has no links.
+
+1. Choose the **...** on a flight's card.
+2. Choose **Check in** or **Flight status**. They are always there, under a divider, for a flight whose airline is known.
+
+From 48 hours before the flight leaves, the same two links also show as a small row on the flight's card: **Check in** until it leaves, and **Flight status** until the day it lands is over (by your device's clock). Choosing one opens the airline's page; you still enter your name and booking reference there.
+
+These addresses were written by hand from each airline's site and have not yet all been opened and confirmed by a person; the airline may have moved a page. If a link lands on the wrong page, that is the airline's page moving, not your flight.
 
 ## Look up a flight
 

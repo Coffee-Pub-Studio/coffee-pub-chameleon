@@ -159,15 +159,17 @@ Some modules show the weather on their days, such as the Itinerary on each day o
 
 The module's own switch on its card turns weather on and off for the whole environment. A module that has days cannot hide weather on its own while it is on, and a space cannot turn it off by itself.
 
-**The terms.** A service's terms are a legal agreement, so a person accepts them, once for the whole server, and Chameleon never accepts for you and no agent can. Until they are accepted, nothing is asked of that service, whatever **Service** says. On **Manage**, **Modules**, below the modules list, the **Weather terms** section lists each service with its credit, a link to read its terms, and **Accepted by** the administrator's name and the date, or **Not accepted**.
+**Where it shows.** On each day of a trip in the Itinerary, on the days of a space's Calendar, and as one chip on the space's status strip (the day's icon, its high and the place's name; press it for the words, the high and low, the chance of rain and the credit). The place is the destination of the first module in the space that has one, such as the Itinerary's destination. A person who may not see that module sees no weather for the space, and the destination never leaves the server. See [Planner - Itinerary](userguide-planner.md), [Calendar](userguide-calendar.md) and [Spaces](userguide-spaces.md), "The status strip".
+
+**The terms.** A service's terms are a legal agreement, so a person accepts them, once for the whole server, and Chameleon never accepts for you and no agent can. Until they are accepted, nothing is asked of that service, whatever **Service** says. On **Manage**, **Modules**, below the modules list, the **Service terms** section lists each outside service the server can ask, with its credit, a link to read its terms, and **Accepted by** the administrator's name and the date, or **Not accepted**. The same list holds GitHub, for a space that follows a repository ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). Weather terms accepted before this section was renamed are not carried over: accept them once more.
 
 1. Sign in as the admin, the account that runs the server. On a server with several environments, the host's administrator signs in to the host console instead (below).
-2. Open **Manage**, then **Modules**, and find **Weather terms**.
-3. Follow the **Read MET Norway's terms** link and read them.
+2. Open **Manage**, then **Modules**, and find **Service terms**.
+3. Follow the **Read MET Norway's terms** link (or the service's own) and read them.
 4. Tick **I have read the terms and accept them for this server.** and choose **Accept**.
-5. To take it back, choose **Withdraw** and confirm. Weather stops at once.
+5. To take it back, choose **Withdraw** and confirm. The service stops being asked at once.
 
-On a server with several environments, the host's administrator does this on the host console, on the **Server** page, under **Weather terms**. An owner there sees the status and a line that the host's administrator accepts, with no buttons. If a service moves its terms, they have to be accepted again.
+On a server with several environments, the host's administrator does this on the host console, on the **Server** page, under **Service terms**. An owner there sees the status and a line that the host's administrator accepts, with no buttons. If a service moves its terms, they have to be accepted again.
 
 MET Norway's data is shown with its credit, and it gives forecasts only: a day that has passed shows no weather, and the chance of rain is not shown. What leaves the server is only a position rounded to two decimals and the days, under the product's name and address as MET Norway asks. [Weather architecture](../architecture/architecture-weather.md) has the rest. Chameleon has not been tried against the real service from a server with a route out.
 

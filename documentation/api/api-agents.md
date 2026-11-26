@@ -60,6 +60,7 @@ All of these are `GET` and `POST` routes that exist for modules, with the same a
 | `GET /api/objects/kinds` | None; the kinds of object the modules declare. |
 | `GET /api/objects/format/schema` | None; the JSON Schema of a typed object (`{ kind, title, details }`): every kind and the fields and types of its details. Read it before sending an `object` input. |
 | `GET /api/modules/:id/weather` | `scope=space&space=<id>` required, a space of the agent's; the module's own `read` permission (403 when the Agent column's view row for it is off). Answers as it does a member ([Weather](api-modules.md#weather)); `{ configured: false }` means weather is not set up. Counts as one read, and only an ask that reaches an outside service counts against the `weather` limit, on the agent's key. A space the agent is not in, or a closed one, is 404 as for every agent read. |
+| `GET /api/spaces/:id/weather` | `from` and `to` optional (both or neither); a space of the agent's. The weather of the space's own place, found as the agent ([Weather](api-modules.md#weather)): a place the agent may not read is `place: null`. Counts as one read, and only an ask that reaches an outside service counts against the `weather` limit. A space the agent is not in, or a closed one, is 404. |
 | `POST /api/objects/resolve` | Every pointer in `refs` (the first 50 are read) must be into one of its spaces. |
 | `GET /api/spaces/:id/actions` | Lists only the actions an agent may ask for (below). Needs the member role's `chatRead` (403 `your role cannot do that` without it). |
 
@@ -258,7 +259,7 @@ All arguments are strict: an argument the tool doesn't list is an error. `space`
 | `me` | none | `GET /api/agent/me` | read |
 | `read_context` | `space`, `module` | `GET /api/modules/:id/context?scope=space` | read |
 | `read_data` | `space`, `module`, `key?`, `prefix?` | `GET /api/modules/:id/data/:key` with `key`, else `GET /api/modules/:id/data` | read |
-| `read_weather` | `space`, `module`, `from?`, `to?` (a day, `YYYY-MM-DD`, at most 10 characters) | `GET /api/modules/:id/weather?scope=space` | read |
+| `read_weather` | `space`, `module?`, `from?`, `to?` (a day, `YYYY-MM-DD`, at most 10 characters) | `GET /api/modules/:id/weather?scope=space` with a `module`; `GET /api/spaces/:id/weather` without | read |
 | `search_objects` | `space`, `from`, `q?`, `kind?`, `has?` (`place` or `amount`) | `GET /api/objects/search` | read |
 | `object_links` | `ref`, `from`, `dir?` (`to`, the default, or `from`) | `GET /api/objects/links` | read |
 | `object_kinds` | `from` | `GET /api/objects/kinds` | read |
@@ -273,7 +274,7 @@ All arguments are strict: an argument the tool doesn't list is an error. `space`
 | `read_chat` | `space`, `before?` | `GET /api/spaces/:id/chat` | read |
 | `post_chat` | `space`, `text` | `POST /api/spaces/:id/chat` | write; needs **Post in Chat** |
 
-`read_weather` takes the module whose days they are (required) and names none itself: a module without days answers that it has no weather, and `{ configured: false }` means weather is off, not accepted or not chosen. Its errors are the route's own sentences. `ask_to_delete` is annotated destructive, since a person may delete what it names. A set-up agent is shown only its own tools (`me`, `list_templates`, `list_icons`, `list_people`, `make_space`, `change_space`, `ask_owner` and `ask_status`).
+`read_weather` takes the module whose days they are and names none itself; without a `module` it reads the space's own place and day (the strip's chip): a module without days answers that it has no weather, and `{ configured: false }` means weather is off, not accepted or not chosen. Its errors are the route's own sentences. `ask_to_delete` is annotated destructive, since a person may delete what it names. A set-up agent is shown only its own tools (`me`, `list_templates`, `list_icons`, `list_people`, `make_space`, `change_space`, `ask_owner` and `ask_status`).
 
 `tools/list` gives each tool's `name`, `title`, `description`, `inputSchema` and `annotations` (`readOnlyHint` true for the reads). Each wrapped route answers as in Part 1, with the same narrowing and refusals.
 

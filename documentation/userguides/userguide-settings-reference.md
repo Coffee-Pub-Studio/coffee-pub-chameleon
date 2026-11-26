@@ -122,6 +122,14 @@ Modules that come with Chameleon carry out an agent's requests in a process with
 
 Beside it in the file, a commented `security_opt` line names the seccomp profile `deploy/seccomp-action-runner.json` that lets a Docker container make that namespace. The image installs `util-linux-misc` for `unshare`. Do not mount `docker.sock` into the container.
 
+## Following a GitHub repository
+
+A space can follow a public GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). It works with no setting here. A token only raises GitHub's limit from 60 requests an hour to 5,000.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ISSUES_GITHUB_TOKEN` | unset | A GitHub personal access token that can read public repositories. The server sends it only to `api.github.com`, in the request's authorization header, and never writes it to a log, a page or a space. Leave it out unless GitHub's limit is reached. It is not in `docker-compose.yml`; add the line under `environment:`. |
+
 ## Other
 
 `SHARE_UNLOCKS_PER_MINUTE` (default `60`) caps how many share-link password checks an environment does a minute. It is
