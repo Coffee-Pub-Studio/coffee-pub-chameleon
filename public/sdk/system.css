@@ -4677,7 +4677,7 @@ html[data-dialog-open] { overflow: hidden; }
   max-width: var(--pk-chip);
   height: var(--pk-chip);
   margin: 0;
-  padding: 3px;
+  padding: 4px;
   border: 1px solid var(--edge-field);
   border-radius: var(--radius-small);
   background: var(--surface-field);
