@@ -238,6 +238,11 @@ test('both menus put the tip and the name on the row', () => {
   assert.ok(show.includes("if (item.tip) b.title = item.tip;\n      const spoken = menuItemName(item);\n      if (spoken) b.setAttribute('aria-label', spoken);"), 'host.menu.show honours `tip` and the name');
   assert.ok(sdkSrc.includes('regular?, hint?, tip?, ariaLabel?, disabled?'), 'the contract says so');
 });
+test('a menu row that is a link sends no referrer', () => {
+  const show = sdkSrc.slice(sdkSrc.indexOf('  function showMenu('), sdkSrc.indexOf('  const host = {\n'));
+  assert.ok(show.includes("b.rel = 'noopener noreferrer';"), 'rel is noopener noreferrer');
+  assert.ok(show.includes("b.referrerPolicy = 'no-referrer';"), 'referrerpolicy is no-referrer');
+});
 
 if (failures.length) {
   console.error(`check-host-menu: ${failures.length} failed`);
