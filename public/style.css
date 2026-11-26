@@ -7428,6 +7428,17 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   color: var(--text-muted);
 }
 
+/* The weather chip's menu: the service's credit, small and quiet under the day's words (space.js weatherMenuItems). */
+.status-fact-credit {
+  max-width: 260px;
+  margin: 0;
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--text-12);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 /* On a phone the strip is a slim line of the header under the top row (space.js placeSubnav; the space bar is the tab bar
    at the foot), full bleed, on the space bar's own colour with the row's rule on top. */
 @media (max-width: 640px) {
