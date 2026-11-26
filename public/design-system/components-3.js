@@ -66,7 +66,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
   const bdCol = (label, count, cards, o = {}) => '<section class="sdk-board-col' + (o.folded ? ' is-folded' : '') + (o.done ? ' is-done' : '') + (o.drop ? ' is-drop' : '') + '"><header class="sdk-board-head"><h3 class="sdk-board-title"><button type="button" class="sdk-board-fold" aria-expanded="' + (o.folded ? 'false' : 'true') + '"><span class="ic sdk-board-chevron" aria-hidden="true">' + fa('chevron-right') + '</span><span class="sdk-board-label">' + label + '</span>' + (o.done ? '<span class="sdk-board-done"><span class="ic" aria-hidden="true">' + fa('check') + '</span><span class="sdk-board-sr">Counts as done</span></span>' : '') + '<span class="sdk-board-count">' + count + '</span></button></h3>' + (o.folded ? '' : '<button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-board-add" aria-label="Add to ' + label + '"><span class="ic" aria-hidden="true">' + fa('plus') + '</span></button><button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-board-colmore" aria-haspopup="menu" aria-label="More: ' + label + '"><span class="ic" aria-hidden="true">' + fa('ellipsis-vertical') + '</span></button>') + '</header>' + (o.folded ? '' : '<ul class="sdk-board-list" role="list" aria-label="' + label + ', ' + count + '">' + cards + '</ul>') + '</section>';
   F.push({
     id: 'board', group: 'Content', name: 'Board',
-    desc: 'The shared board (<code>host.ui.board</code>): columns side by side, each a heading with its count, a "+" and a "...", and the module\'s cards. It knows nothing of the module\'s data and writes nothing; it reports a move. A card moves by drag (not on a phone), by its "..." menu, or by Alt with Left or Right; Tab crosses the board in one stop. A folded column is a narrow strip. A drag over a column shows as <code>.is-drop</code>. At 640 px and narrower the columns stack and done ones start folded.',
+    desc: 'The shared board (<code>host.ui.board</code>): columns side by side, each a heading with its count, a "+" and a "...", and the module\'s cards. It knows nothing of the module\'s data and writes nothing; it reports a move. A card moves by drag (not on a phone), by its "..." menu, or by Alt with Left or Right; Tab crosses the board in one stop. A folded column is a narrow strip. A drag over a column shows as <code>.is-drop</code>. At 640 px and narrower the columns stack and done ones start folded. With the <code>rows</code> option the headings are drawn once and held, each row has a full-width heading, and a card stays in its row (see the live board with rows).',
     variants: [
       { wide: true, n: 'Board .sdk-board', ctx: 'host', sel: '.sdk-board', html: '<div class="sdk-board" role="group" aria-label="Plan board"><div class="sdk-board-body">' + bdCol('Now', 2, bdCard('Write the brief') + bdCard('Book the venue')) + bdCol('Next', 1, bdCard('Plan the day')) + bdCol('Later', 0, '<li class="sdk-board-empty">Nothing here.</li>') + bdCol('Done', 1, bdCard('Send the invites'), { done: true }) + '</div></div>' },
       { wide: true, n: 'A folded column and a drop .is-drop', ctx: 'host', sel: '.sdk-board-col', html: '<div class="sdk-board"><div class="sdk-board-body">' + bdCol('Now', 1, bdCard('Write the brief'), { drop: true }) + bdCol('Next', 1, bdCard('Plan the day') ) + bdCol('Done', 3, '', { done: true, folded: true }) + '</div></div>' },
@@ -286,6 +286,27 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           onOpen: function () {},
           onAdd: function (id) { n += 1; data = data.concat([{ id: 'n' + n, column: id, title: 'New card ' + n, day: 'No date' }]); bd.set(data); },
           onMove: function (m) { data = data.map(function (x) { return x.id === m.id ? Object.assign({}, x, { column: m.column }) : x; }); bd.set(data); } });`,
+    },
+    {
+      id: 'live-board-rows', block: 'board', name: 'Live: board with rows', height: 620, title: 'Live board with rows',
+      desc: 'host.ui.board with the rows option, mounted by the real SDK: the column headings drawn once and held while the rows scroll, a full-width heading for each row with its count (fold it; the fold is kept), a cell\'s count only when its column is folded, and a card kept in its row. A move changes the column only: drag a card into another row\'s cell and nothing moves, and the spoken line says why (the module supplies its words). Up and Down walk the row headings and cards; Left and Right stay in the row. At 640 px and narrower each row is a foldable group of the columns.',
+      body: '<div class="dsf-live"><div id="bdr"></div></div>',
+      script: `
+        var cols = [{ id: 'inbox', label: 'Inbox' }, { id: 'now', label: 'Now' }, { id: 'next', label: 'Next' }, { id: 'done', label: 'Done', done: true }];
+        var rows = [{ id: 'launch', label: 'Launch' }, { id: 'venue', label: 'Venue' }, { id: 'food', label: 'Food' }];
+        var data = [
+          { id: 'a', column: 'inbox', row: 'launch', title: 'Write the brief' },
+          { id: 'b', column: 'now', row: 'launch', title: 'Plan the day' },
+          { id: 'c', column: 'next', row: 'venue', title: 'Book the venue and the caterer for the whole weekend' },
+          { id: 'd', column: 'done', row: 'launch', title: 'Pick a date' },
+          { id: 'e', column: 'now', row: 'venue', title: 'Visit the hall' },
+          { id: 'f', column: 'inbox', title: 'Buy a gift' }];
+        var bdr = host.ui.board(document.getElementById('bdr'), { columns: cols, cards: data, rows: rows, name: 'Plan board by milestone', foldKey: 'ds-board-rows',
+          labels: { noRow: 'No milestone', otherRow: 'Change the milestone in Edit.' },
+          card: function (k, el) { var t = document.createElement('div'); t.textContent = k.title; el.appendChild(t); },
+          menu: function () { return [{ label: 'Edit', icon: 'pen' }]; },
+          onAdd: function () {},
+          onMove: function (m) { data = data.map(function (x) { return x.id === m.id ? Object.assign({}, x, { column: m.column }) : x; }); bdr.set(data); } });`,
     },
     {
       id: 'live-weather', block: 'days', name: 'Live: a day\'s weather (host.ui.dayWeather)', height: 470, title: 'Live day weather',

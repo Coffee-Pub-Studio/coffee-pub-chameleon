@@ -5828,7 +5828,12 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
      .sdk-board-col        a column (.is-folded, .is-done, .is-drop while a card is dragged over it); .sdk-board-head its heading row
      .sdk-board-fold       the heading button (.sdk-board-label, .sdk-board-count, .sdk-board-done); .sdk-board-add the "+"; .sdk-board-colmore its "..."
      .sdk-board-list       a column's list; .sdk-board-item a card's line; .sdk-board-card the card (the tab stop); .sdk-board-empty the empty line
-     .sdk-board-live       the polite line a screen reader hears a move in (not drawn) */
+     .sdk-board-live       the polite line a screen reader hears a move in (not drawn)
+   With rows (the `rows` option) the body is .has-rows and scrolls itself (--board-max-height, 80vh by default): .sdk-board-grid holds the
+   column headings once (.sdk-board-heads, held at the top while the rows scroll; each a .sdk-board-colhead) and a .sdk-board-row for
+   each row: its full-width heading (.sdk-board-rowhead, its fold button .sdk-board-rowfold) and .sdk-board-cells, one .sdk-board-cell
+   for each column under its heading (.is-folded shows only its count, .is-drop where the card in hand may land). On a phone each
+   row is a group and its .sdk-board-rowbody holds the columns as above. */
 /* board:start */
 .sdk-board {
   position: relative;
@@ -5843,7 +5848,8 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
   overflow-x: auto;
 }
 
-.sdk-board-col {
+.sdk-board-col,
+.sdk-board-cell {
   flex: 1 1 220px;
   min-width: 220px;
   max-width: 340px;
@@ -5857,7 +5863,8 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
   background: var(--surface-panel);
   color: var(--text-primary);
 }
-.sdk-board-col.is-drop {
+.sdk-board-col.is-drop,
+.sdk-board-cell.is-drop {
   background: var(--fill-selected);
   outline: 2px solid var(--accent-fill);
   outline-offset: -2px;
@@ -5957,8 +5964,66 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
   text-align: center;
 }
 
+/* Rows. The one scroller is the body, so the headings can be held at its top and the columns line up under them (the same grid tracks). */
+.sdk-board-body.has-rows {
+  display: block;
+  overflow: auto;
+  max-height: var(--board-max-height, 80vh);
+}
+.sdk-board-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: var(--board-min, 0);
+}
+.sdk-board-heads {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: var(--board-cols);
+  align-items: start;
+  gap: var(--space-3);
+  padding-bottom: var(--space-1);
+  background: var(--surface-page);
+}
+.sdk-board-heads > .sdk-board-col { min-width: 0; max-width: none; }
+.sdk-board-row { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.sdk-board-rowhead { margin: 0; font-size: var(--text-14); font-weight: var(--weight-strong); }
+.sdk-board-rowfold {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--btn-h-small);
+  margin: 0;
+  padding: var(--space-0) var(--space-2);
+  border: 1px solid var(--edge-hairline);
+  border-radius: var(--radius-medium);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sdk-board-rowfold:hover { background: var(--fill-hover); }
+.sdk-board-rowfold:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.sdk-board-rowfold[aria-expanded="true"] .sdk-board-chevron { transform: rotate(90deg); }
+.sdk-board-cells {
+  display: grid;
+  grid-template-columns: var(--board-cols);
+  align-items: stretch;
+  gap: var(--space-3);
+}
+.sdk-board-cell { min-width: 0; max-width: none; min-height: var(--space-7); }
+.sdk-board-cell.is-folded { min-height: 0; }
+.sdk-board-cell.is-folded .sdk-board-count { margin: 0; }
+.sdk-board-grid > .sdk-board-empty { padding: var(--space-4) var(--space-2); }
+
 /* A folded column on a wide screen: a narrow strip, the name running down it. */
-.sdk-board-col.is-folded { flex: none; min-width: 0; width: 44px; align-items: center; padding: var(--space-1); }
+.sdk-board-col.is-folded,
+.sdk-board-cell.is-folded { flex: none; min-width: 0; width: 44px; align-items: center; padding: var(--space-1); }
 .sdk-board-col.is-folded .sdk-board-title { flex: none; }
 .sdk-board-col.is-folded .sdk-board-fold { flex-direction: column; width: auto; min-height: 0; padding: var(--space-2) var(--space-1); }
 .sdk-board-col.is-folded .sdk-board-label { writing-mode: vertical-rl; }
@@ -5980,6 +6045,10 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 /* A phone or a touch screen: the columns stack, nothing drags, and every target is 44px. */
 @media (max-width: 640px), (pointer: coarse) {
   .sdk-board-body { flex-direction: column; align-items: stretch; overflow-x: visible; }
+  .sdk-board-body.has-rows { overflow: visible; max-height: none; }
+  .sdk-board-grid { min-width: 0; }
+  .sdk-board-rowbody { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+  .sdk-board-rowfold { min-height: 44px; }
   .sdk-board-col,
   .sdk-board-col.is-folded { flex: none; width: auto; min-width: 0; max-width: none; align-items: stretch; padding: var(--space-2); }
   .sdk-board-col.is-folded .sdk-board-fold { flex-direction: row; width: 100%; padding: var(--space-0) var(--space-1); }
