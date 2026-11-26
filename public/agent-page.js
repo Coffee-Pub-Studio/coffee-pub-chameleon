@@ -67,7 +67,7 @@ const READS = {
   '/api/modules/:id/data': (_w, name) => (name ? `Read ${name} data` : 'Read data'),
   '/api/modules/:id/data/:key': (_w, name) => (name ? `Read ${name} data` : 'Read data'),
   '/api/modules/:id/weather': (_w, name) => (name ? `Read ${name} weather` : 'Read the weather'),
-  '/api/spaces/:id/weather': () => 'Read the space\'s weather',
+  '/api/spaces/:id/weather': (w) => `Read the ${w('space')}'s weather`,
   '/api/objects/search': (w) => `Searched ${w('object', { many: true })}`,
   '/api/objects/links': (w) => `Read what ${w('object', { a: true })} links to`,
   '/api/objects/kinds': (w) => `Read the kinds of ${w('object')}`,
@@ -259,7 +259,7 @@ export const connectedText = (lastUsedAt, now = Date.now()) => {
   return ago ? `Connected, ${ago}` : 'Not connected yet';
 };
 
-export const FIRST_QUESTION = 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?';
+export const firstQuestion = (spacesWord) => `Use the chameleon tools. Which ${spacesWord} can you see, and what is in the to-do list?`;
 export const setupFirstQuestion = (spaceWord) => `Use the chameleon tools. Which templates can you use to make ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}?`;
 export const CLAUDE_DOCS = 'https://code.claude.com/docs';
 
@@ -292,7 +292,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   const setSpaces = (names) => {
     const text = !Array.isArray(names) ? '' // not known yet: says nothing
       : setup && !names.length ? `It has not made ${a} ${spaceWord} yet.`
-      : !names.length ? `Not in any ${spaceWord} yet. Add it under ${a} ${spaceWord}'s Set up, then Members.`
+      : !names.length ? `Not in any ${spaceWord} yet. Add it under ${a} ${spaceWord}'s Set up, then ${word('member', { many: true, cap: true })}.`
       : names.length === 1 ? `In 1 ${spaceWords(1)}: ${names[0]}` : `In ${names.length} ${spaceWords(names.length)}`;
     for (const w of wheres) w.textContent = text;
   };
@@ -307,7 +307,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
     where.setAttribute('role', 'status');
     where.dataset.agentSpaces = '';
     wheres.push(where);
-    add(ol, `Add this agent to ${a} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then Members, switch on "${agentLabel}", and Save.`), where);
+    add(ol, `Add this agent to ${a} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then ${word('member', { many: true, cap: true })}, switch on "${agentLabel}", and Save.`), where);
   };
   const withNote = () => (note ? [make('p', 'hint', note)] : []);
   const headerValue = `Bearer ${token}`;
@@ -378,7 +378,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   for (const r of ROUTES) { const o = make('option', '', r.label); o.value = r.id; select.append(o); }
   pick.append(select);
   const first = make('div', 'agent-first');
-  first.append(make('h4', 'agent-connect-sub', 'What to say to the agent first'), copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : FIRST_QUESTION));
+  first.append(make('h4', 'agent-connect-sub', 'What to say to the agent first'), copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : firstQuestion(spaceWords(2))));
   const show = (id) => {
     const r = views[id] ? id : 'signin';
     select.value = r;
@@ -395,7 +395,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   for (const line of tries) next.append(make('li', '', line));
   el.append(
     make('h3', 'agent-connect-title', 'Connect an app'),
-    make('p', 'hint', setup ? setupIntro : 'Let an app read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
+    make('p', 'hint', setup ? setupIntro : `Let an app read and help in the ${spaceWords(2)} this agent is in: the plan, the to-dos and the chat.`),
     make('p', 'hint', 'Put a token only in your own terminal or the app\'s form, never in a chat.'),
     pick, live,
     signin, code, form, script,
@@ -403,7 +403,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
     make('h4', 'agent-connect-sub', 'What to try next'),
     next,
     ...(setup ? [rolesHint('What it may do is set on ', ', in the Set-up agent column.')] : [
-      make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
+      make('p', 'hint', `A change waits until a person who can change that ${word('module')} has it open.`),
       rolesHint('To let the agent write in Chat, tick Send chat messages for agents on ', '.'),
     ]),
   );

@@ -219,7 +219,7 @@ function reviewExtract(read, ctx) {
     if (why) {
       dropped += 1;
       reasons.push(`${named} was left out: ${why}.`);
-      problems.push(`Object ${at}: ${why}.`);
+      problems.push(`${cap(words.object)} ${at}: ${why}.`);
       return;
     }
     const years = resolveYears(given, text, trip, today);
@@ -227,12 +227,12 @@ function reviewExtract(read, ctx) {
     if (!cleaned) {
       dropped += 1;
       reasons.push(`${named} was left out: nothing in it could be read.`);
-      problems.push(`Object ${at}: it has neither "content" nor any "details" field in the shape asked for.`);
+      problems.push(`${cap(words.object)} ${at}: it has neither "content" nor any "details" field in the shape asked for.`);
       return;
     }
     const rowNotes = [...years.notes];
     for (const k of lostFields(years.raw, cleaned)) {
-      problems.push(`Object ${at}: "${k}" is not in the shape asked for.`);
+      problems.push(`${cap(words.object)} ${at}: "${k}" is not in the shape asked for.`);
       rowNotes.push(`${cap(fieldWord(k))} could not be read, so it is left blank.`);
     }
     checkAgainstText(cleaned, squashed, rowNotes);

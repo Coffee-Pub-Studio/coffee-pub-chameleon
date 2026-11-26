@@ -3815,7 +3815,7 @@ function openShapeSheet(layout = null, { workspace = null, start = null } = {}) 
   const errorEl = dlg.querySelector('#layout-shape-error');
   dlg.querySelector('#layout-shape-title').textContent = title;
   dlg.querySelector('#layout-shape-lead').textContent = personal
-    ? 'Yours alone. Saving puts each module into its area; drag them by their title bars afterwards as you like.'
+    ? `Yours alone. Saving puts each ${word('module')} into its area; drag them by their title bars afterwards as you like.`
     : `Everyone in this ${word('space')} can open it. Each person can still change it for themselves.`;
   // The Workspace is the space's: it keeps its name.
   if (personal && !own) dlg.querySelector('.layout-field').hidden = true;
@@ -3987,7 +3987,7 @@ async function confirmLayoutChange(record, start, startRecord) {
   if (!lines.closes.length && !lines.moves.length) return true;
   return confirmDialog({
     title: 'Place this layout?',
-    message: start.moved ? 'Your modules leave where you moved them and go into the areas.' : 'Your modules go into the areas of this layout.',
+    message: start.moved ? `Your ${word('module', { many: true })} leave where you moved them and go into the areas.` : `Your ${word('module', { many: true })} go into the areas of this layout.`,
     list: [...lines.closes, ...lines.moves, ...lines.opens],
     action: 'Place it',
     kind: lines.closes.length ? 'destructive' : 'plain',

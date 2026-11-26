@@ -175,7 +175,7 @@
       const cur = ours ? ctx.read(`event:${ref.id}`) : null;
       if (!cur) throw new Error("That event isn't on the calendar.");
       const seen = (ctx.refs || {})[ctx.util.objectKey(ref)];
-      if (seen && seen.copy) throw new Error(`That is a copy; change it in ${(seen.original && seen.original.name) || 'the module it comes from'}.`);
+      if (seen && seen.copy) throw new Error(`That is a copy; change it in ${(seen.original && seen.original.name) || `the ${ctx.util.word('module')} it comes from`}.`);
       const fields = ['title', 'date', 'time', 'endTime', 'endDate', 'allDay', 'repeat', 'remind', 'remindAt', 'notes'];
       const cleared = (f) => input[f] === '';
       if ((calGiven(input.remind) || cleared('remind')) && calGiven(input.remindAt)) throw new Error(CAL_REMIND_BOTH);

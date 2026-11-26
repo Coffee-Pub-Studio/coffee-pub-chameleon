@@ -252,7 +252,7 @@
     updatePlan(input, ctx) {
       const plan = actPlan(ctx);
       const item = actEntry(plan, input.entry, ctx);
-      if (item.kind === 'link') throw new Error('That entry shows something kept in another module; change it there.');
+      if (item.kind === 'link') throw new Error(`That entry shows something kept in another ${ctx.util.word('module')}; change it there.`);
       if (item.kind === 'block' || item.kind === 'lane') throw new Error('That is a marker on the plan; a person changes it in the Itinerary.');
       let patch = {};
       let lines = '';
@@ -281,7 +281,7 @@
         const at = actWithPlace({ kind, address: patch.address !== undefined ? patch.address : item.address }, input.placeRef, ctx);
         Object.assign(patch, { placeRef: at.placeRef, place: at.place, ...(at.address ? { address: at.address } : {}) });
       }
-      if (!Object.keys(patch).length) throw new Error('Say what to change: a title, a day, a time, the notes, the cost, a place, or an object with its details. Send "" to clear the time, minutes, cost or notes.');
+      if (!Object.keys(patch).length) throw new Error('Say what to change: a title, a day, a time, the notes, the cost, a place, or an "object" with its details. Send "" to clear the time, minutes, cost or notes.');
       // The editor's checks for what it would save.
       const nextKind = patch.kind || item.kind;
       const returns = legsOf([...plan.items.values()], item.id);

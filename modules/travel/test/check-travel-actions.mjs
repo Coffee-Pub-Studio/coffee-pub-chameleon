@@ -149,7 +149,7 @@ await test('updatePlan: flat fields, a place, and the editor\'s sentences', asyn
   assert.deepEqual([written(moved, 'plan:s1').date, written(moved, 'plan:s1').time, written(moved, 'plan:s1').place], ['2026-10-02', '18:00', 'Castelo de S. Jorge']);
   await refuses('updatePlan', { entry: entry('zz'), title: 'x' }, w, "That object isn't on the itinerary any more.");
   await refuses('updatePlan', { entry: entry('l1'), title: 'x' }, w, 'That entry shows something kept in another module; change it there.');
-  await refuses('updatePlan', { entry: entry('f1') }, w, 'Say what to change: a title, a day, a time, the notes, the cost, a place, or an object with its details. Send "" to clear the time, minutes, cost or notes.');
+  await refuses('updatePlan', { entry: entry('f1') }, w, 'Say what to change: a title, a day, a time, the notes, the cost, a place, or an "object" with its details. Send "" to clear the time, minutes, cost or notes.');
   await refuses('updatePlan', { entry: entry('h1'), minutes: 30 }, w, 'A stay has no length, so leave out minutes and the end time.');
   await refuses('updatePlan', { entry: entry('h1'), date: '2026-10-03' }, w, 'Check out is on or before check in.');
   await refuses('updatePlan', { entry: entry('f1'), placeRef: PLACE }, w, 'Only a stop can be at a place. Leave the place out for a journey, a stay or a note.');

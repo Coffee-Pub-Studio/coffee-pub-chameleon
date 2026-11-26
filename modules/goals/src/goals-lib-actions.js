@@ -148,7 +148,7 @@ const GoalsActions = (() => {
       const plan = planOf(ctx);
       const e = ownEntry(input.entry, plan, ctx);
       const fields = ['title', 'why', 'date', 'owners', 'text', 'goal'];
-      if (!fields.some((f) => given(input[f]))) throw new Error('Say what to change: the title, why, the date, the owners, the text or the goal it is under. Send "" to clear why, the date, the owners or the text.');
+      if (!fields.some((f) => given(input[f]))) throw new Error(`Say what to change: the title, why, the date, the ${label('owner', { many: true })}, the text or the goal it is under. Send "" to clear why, the date, the ${label('owner', { many: true })} or the text.`);
       const A = (k) => cap(label(k, { a: true }));
       if (given(input.why) && e.kind !== 'goal') throw new Error(`Only ${label('goal', { a: true })} has a why.`);
       if (given(input.owners) && e.kind !== 'goal') throw new Error(`Only ${label('goal', { a: true })} has ${label('owner', { many: true })}.`);

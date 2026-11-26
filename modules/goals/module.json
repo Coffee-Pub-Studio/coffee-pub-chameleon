@@ -1,7 +1,7 @@
 {
   "id": "goals",
   "name": "Planner - Goals",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "icon": "bullseye",
   "color": "green",
   "description": "Plan goals together: each goal with its steps and how far along it is, dates optional.",

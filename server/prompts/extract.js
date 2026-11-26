@@ -22,7 +22,7 @@ const MAX_EXTRACT = 20;
 // The four short examples, one per kind when that kind is listed: every value realistic but fake. The train's ticket gave no
 // year, so its dates are written with 0000, as the rules say.
 const EXAMPLES = [
-  ['flight', 'A flight booked with its return (two objects; the price for both is on the first)', [
+  ['flight', 'A flight booked with its return (two {objects}; the price for both is on the first)', [
     { icon: 'plane', kind: 'flight', title: 'TP 1350 Lisbon to London', date: '2027-03-14', details: { airline: 'TAP Air Portugal', number: 'TP 1350', from: { code: 'LIS', name: 'Lisbon' }, to: { code: 'LHR', name: 'London Heathrow' }, departs: '2027-03-14T07:05', arrives: '2027-03-14T09:50', seat: '14C', class: 'Economy', reference: 'QX7RTB', cost: 412.8, currency: 'EUR', travellers: ['Ana Silva', 'Joao Silva'] } },
     { icon: 'plane', kind: 'flight', title: 'TP 1351 London to Lisbon', date: '2027-03-21', details: { airline: 'TAP Air Portugal', number: 'TP 1351', from: { code: 'LHR', name: 'London Heathrow' }, to: { code: 'LIS', name: 'Lisbon' }, departs: '2027-03-21T10:40', arrives: '2027-03-21T13:25', reference: 'QX7RTB', travellers: ['Ana Silva', 'Joao Silva'] } },
   ]],
@@ -37,10 +37,10 @@ const EXAMPLES = [
   ]],
 ];
 
-function examplesPart(listed) {
+function examplesPart(listed, w) {
   const shown = EXAMPLES.filter(([kind]) => listed.includes(kind));
   if (!shown.length) return [];
-  return ['Examples (made up; never copy their values):', ...shown.map(([, label, objects]) => `- ${label}: ${JSON.stringify(objects)}`)];
+  return ['Examples (made up; never copy their values):', ...shown.map(([, label, objects]) => `- ${label.replace('{objects}', w.objects)}: ${JSON.stringify(objects)}`)];
 }
 
 const template = {
@@ -68,11 +68,11 @@ const template = {
       `The icon is one of: ${ICONS.join(', ')}.`,
       `"unread" lists, in short plain sentences, anything that looks like a booking but could not be read; it is empty when there is none. When the text holds no booking at all, "objects" is empty.`,
       '',
-      ...examplesPart(listed),
+      ...examplesPart(listed, w),
       '',
       structured
         ? 'Answer in the JSON shape you are given.'
-        : 'Answer with one JSON object and nothing else, with no fence around it: {"objects":[...],"unread":[...]}, each object written as in the examples, with every field it has.',
+        : `Answer with one JSON object and nothing else, with no fence around it: {"objects":[...],"unread":[...]}, each ${w.object} written as in the examples, with every field it has.`,
     ];
     return lines.join('\n');
   },
