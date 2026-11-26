@@ -141,6 +141,8 @@ const deleteActionFor = (manifest, kind) => (manifest?.actions?.provides || []).
 // The module rows an agent column may tick for one manifest: those that guard something an agent can reach. Its data's
 // read and write guards (access.read, access.write; never personWrite, since an agent reads and asks only in a space), and
 // a permission named by the `takes` of an action an agent may ask for. Never a library's "See every file" (see_all).
+const { MODULE_ID } = require('./issues');
+const WRITE_OUT = 'write_out';
 function agentModuleKeys(manifest) {
   if (!manifest || typeof manifest !== 'object') return [];
   const own = new Set();
@@ -153,6 +155,9 @@ function agentModuleKeys(manifest) {
     for (const e of def.takes || []) if (e && typeof e.permission === 'string' && e.permission) own.add(e.permission);
   }
   if (manifest.library) own.delete('see_all');
+  // "Change it on GitHub": an agent's setColumn, setDone and updateEntry on pulled work go to the service as a person's do, so the
+  // row is the agent's to be given too, off until an owner ticks it (plan-github-two-way.md, sections 10 and 11).
+  if (manifest.id === MODULE_ID) own.add(WRITE_OUT);
   const declared = new Set((manifest.permissions || []).map((p) => p.key));
   return [...own].filter((k) => declared.has(k)).map((k) => `module.${manifest.id}.${k}`);
 }
