@@ -59,6 +59,11 @@ const SAY = Object.freeze({
   appBroken: 'The GitHub app on this server is not working. The administrator checks its settings.',
   appGone: (repo) => `The GitHub app is no longer installed on ${repo}. Install it again and press Connect to GitHub, or stop following.`,
   appPaused: (repo) => `The GitHub app is paused for ${repo} on GitHub.`,
+  linkOwnerOnly: (owner) => `Only ${owner} can connect a repository to GitHub.`,
+  linkEnded: 'This link has run out. Go back and press Connect to GitHub again.',
+  linkFailed: 'GitHub did not finish connecting. Go back and press Connect to GitHub again.',
+  linkDenied: 'GitHub was not given access. Go back and press Connect to GitHub again.',
+  notInList: 'That repository is not in your list. Press Connect to GitHub again.',
   moved: (name) => `${name} says this repository has moved. Try again.`,
   noWriteOut: (name) => `Only someone allowed to change ${name} can change this.`,
   writeSilent: (name) => `${name} did not answer. Nothing was changed; try again.`,
@@ -183,7 +188,10 @@ function getter(adapter, { fetchImpl = fetch } = {}) {
   async function send(method, href, headers, body) {
     let current;
     try { current = new URL(href); } catch { throw new IssuesError('not an address', 'blocked'); }
-    if (!allowed(current)) throw new IssuesError('not the service\'s address', 'blocked');
+    // The adapter's web origin (github.com) is asked for one thing only: the sign-in's code exchange, a POST.
+    const exchange = Boolean(adapter.webOrigin) && method === 'POST' && current.origin === adapter.webOrigin && current.pathname === '/login/oauth/access_token' && !current.search;
+    if (!exchange && !allowed(current)) throw new IssuesError('not the service\'s address', 'blocked');
+    if (exchange && (!(adapter.allowHttp ? /^https?:$/.test(current.protocol) : current.protocol === 'https:') || current.username || current.password)) throw new IssuesError('not the service\'s address', 'blocked');
     const write = method !== 'GET';
     const signal = AbortSignal.timeout(FETCH_MS);
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {

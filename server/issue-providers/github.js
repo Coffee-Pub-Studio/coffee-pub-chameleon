@@ -34,6 +34,7 @@
 const { userAgent } = require('../product-name');
 
 const ORIGIN = 'https://api.github.com';
+const WEB_ORIGIN = 'https://github.com';
 const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const PER_PAGE = 100;
 
@@ -137,12 +138,13 @@ const issuePath = (origin, repo, number) => `${origin}/repos/${repo}/issues/${Nu
 const labelOk = (n) => typeof n === 'string' && n.length >= 1 && n.length <= 50 && !/[\u0000-\u001f\u007f]/.test(n);
 
 // An adapter for GitHub's REST shape at `origin` (the stand-in reuses it with its own).
-function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullEveryMs, writeGapMs = 1000 }) {
+function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHttp = false, pollMs, fullEveryMs, writeGapMs = 1000 }) {
   return {
     id,
     name,
     terms,
     origin,
+    webOrigin, // where a person signs in and installs (github.com); the core may POST only the code exchange there (server/issues.js, getter)
     allowHttp,
     needsToken: false,
     pollMs,
@@ -228,7 +230,6 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
       const body = { repository_ids: [Number(repositoryId)], permissions: { issues: permissions.issues === 'write' ? 'write' : 'read', metadata: 'read' } };
       const got = await ask('POST', `${origin}/app/installations/${Number(installation)}/access_tokens`, writeHeaders(jwt), body);
       const out = answerOf(got, false);
-      out.suspended = got.status === 403 && /suspend/i.test(out.message);
       if (got.status === 201 || got.status === 200) {
         const j = got.json && typeof got.json === 'object' ? got.json : {};
         const repo = Array.isArray(j.repositories) && j.repositories[0] && typeof j.repositories[0] === 'object' ? j.repositories[0] : null;
@@ -237,6 +238,73 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
         else { out.token = j.token; out.expiresAt = expires; out.repositoryId = Number(repo.id); out.repo = text(repo.full_name, 140); }
       }
       return out;
+    },
+    // One installation as the app sees it (the JWT as the bearer): whether it is suspended. GitHub's own signal is `suspended_at`
+    // (docs.github.com, "REST API endpoints for GitHub App installations", read 2026-11-26); a mint's 403 message is not one.
+    async installationInfo({ jwt, installation }, ask) {
+      const got = await ask('GET', `${origin}/app/installations/${Number(installation)}`, writeHeaders(jwt));
+      const out = answerOf(got, false);
+      if (got.status === 200) {
+        const j = got.json && typeof got.json === 'object' ? got.json : {};
+        if (!('suspended_at' in j)) out.bad = true;
+        out.suspended = typeof j.suspended_at === 'string' && Boolean(j.suspended_at);
+      }
+      return out;
+    },
+
+    // The sign-in while linking (plan-github-app.md, section 2). Web application flow, re-read 2026-11-26 ("Generating a user access
+    // token for a GitHub App"): the code is exchanged at {webOrigin}/login/oauth/access_token with the client id and secret, the
+    // redirect address and the PKCE verifier; the answer is 200 with `access_token`, or 200 with `error` (a refusal). Never logged.
+    async exchangeCode({ clientId, clientSecret, code, redirectUri, verifier }, ask) {
+      const headers = { Accept: 'application/json', 'User-Agent': userAgent() };
+      const got = await ask('POST', `${webOrigin}/login/oauth/access_token`, headers, { client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri, code_verifier: verifier });
+      const out = answerOf(got, false);
+      const j = got.json && typeof got.json === 'object' ? got.json : {};
+      if (got.status === 200) {
+        if (typeof j.access_token === 'string' && j.access_token) out.userToken = j.access_token; else out.bad = true;
+      }
+      return out;
+    },
+    // The installations the signed-in person has explicit access to (GET /user/installations, 100 a page): ids and whether suspended.
+    async userInstallations({ userToken, page = 1 }, ask) {
+      const got = await ask('GET', `${origin}/user/installations?per_page=${PER_PAGE}&page=${Number(page)}`, writeHeaders(userToken));
+      const out = answerOf(got, false);
+      if (got.status === 200) {
+        const j = got.json && typeof got.json === 'object' ? got.json : {};
+        if (!Array.isArray(j.installations)) out.bad = true;
+        else {
+          out.installations = j.installations.filter((i) => i && Number.isSafeInteger(i.id) && i.id > 0).map((i) => ({ id: i.id, suspended: Boolean(i.suspended_at) }));
+          out.total = Number.isInteger(j.total_count) ? j.total_count : out.installations.length;
+        }
+      }
+      return out;
+    },
+    // The repositories one installation reaches for this person (GET /user/installations/{id}/repositories). `permissions` is the
+    // repository's `{ admin, maintain, push, triage, pull }` for the person; they may write issues with push or triage or more.
+    async userRepositories({ userToken, installation, page = 1 }, ask) {
+      const got = await ask('GET', `${origin}/user/installations/${Number(installation)}/repositories?per_page=${PER_PAGE}&page=${Number(page)}`, writeHeaders(userToken));
+      const out = answerOf(got, false);
+      if (got.status === 200) {
+        const j = got.json && typeof got.json === 'object' ? got.json : {};
+        if (!Array.isArray(j.repositories)) out.bad = true;
+        else {
+          out.repositories = j.repositories.map((r) => {
+            if (!r || !Number.isSafeInteger(r.id) || r.id < 1) return null;
+            const repo = text(r.full_name, 140);
+            if (!repo || !REPO.test(repo) || /\/\.{1,2}$/.test(repo)) return null;
+            const p = r.permissions && typeof r.permissions === 'object' ? r.permissions : {};
+            return { id: r.id, repo, private: r.private === true, canWrite: p.push === true || p.triage === true || p.maintain === true || p.admin === true, created: stamp(r.created_at) };
+          }).filter(Boolean);
+          out.total = Number.isInteger(j.total_count) ? j.total_count : out.repositories.length;
+        }
+      }
+      return out;
+    },
+    // Revokes the person's user token (DELETE /applications/{client_id}/token, Basic auth with the client id and secret, the token in
+    // the body). 204 when done.
+    async revokeUserToken({ clientId, clientSecret, userToken }, ask) {
+      const headers = { Accept: 'application/vnd.github+json', 'User-Agent': userAgent(), 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}` };
+      return answerOf(await ask('DELETE', `${origin}/applications/${encodeURIComponent(clientId)}/token`, headers, { access_token: userToken }), false);
     },
     // A new issue: its title and its labels, an empty body. Answers the record.
     async create({ repo, title, labels, token = '' }, ask) {

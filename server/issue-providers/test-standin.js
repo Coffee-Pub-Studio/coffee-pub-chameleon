@@ -17,6 +17,7 @@ module.exports = {
     id: 'issues-standin',
     name: 'Test stand-in (not an issue service)',
     origin,
+    webOrigin: origin, // the check's fake serves the sign-in too
     terms: 'https://example.test/issues-standin-terms',
     allowHttp: true,
     pollMs: ms('ISSUES_TEST_POLL_MS', 10 * 60 * 1000),

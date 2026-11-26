@@ -46,6 +46,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { linkFake, linkThrough, followFrom, doneOf } from './lib/github-link-fake.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -58,8 +59,17 @@ const CLIENT_ID = 'Iv1.checkissuesclient';
 const CLIENT_SECRET = 'checkissuesclientsecret0123456789abcdef0123';
 // The fake's installations: the repository each one reaches, by id.
 const INSTALLS = { 7: { id: 777, name: 'Drowbe/coffee-pub-chameleon' }, 8: { id: 888, name: 'other/repo' }, 9: { id: 999, name: 'other/repo' }, 10: { id: 1010, name: 'other/repo' } };
-const LINK = { installation: 7, repositoryId: 777, writeOk: true };
 const REPO = 'Drowbe/coffee-pub-chameleon';
+// The sign-in half of the fake (tools/lib/github-link-fake.mjs) and what the signed-in GitHub account reaches: the person may write to
+// repositories 777 and 999 (push) and only read 888 and 1010 (pull).
+const links = linkFake({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
+const repoOf = (id, full_name, push, created) => ({ id, full_name, private: false, permissions: { admin: false, maintain: false, push, triage: false, pull: true }, created_at: created });
+links.state.person.installations = [
+  { id: 7, repositories: [repoOf(777, REPO, true, '2026-01-01T00:00:00Z')] },
+  { id: 8, repositories: [repoOf(888, 'other/repo', false, '2026-02-01T00:00:00Z')] },
+  { id: 9, repositories: [repoOf(999, 'other/repo', true, '2026-03-01T00:00:00Z')] },
+  { id: 10, repositories: [repoOf(1010, 'other/repo', false, '2026-04-01T00:00:00Z')] },
+];
 
 let n = 0;
 const test = async (name, fn) => {
@@ -115,13 +125,21 @@ function fakeGitHub() {
     const nowS = Date.now() / 1000;
     if (!jwt || !jwt.good || jwt.head.alg !== 'RS256' || !(jwt.claims.exp > nowS) || jwt.claims.exp - jwt.claims.iat > 600) return json(res, 401, { message: 'A JSON web token could not be decoded' });
     if (req.method === 'GET' && u.pathname === '/app') return json(res, 200, { id: 1, slug: 'chameleon-check', name: 'Chameleon Check', owner: { login: 'someone' } });
+    const info = /^\/app\/installations\/(\d+)$/.exec(u.pathname);
+    if (info && req.method === 'GET') {
+      const mode = (state.installs[info[1]] || {}).mode;
+      return INSTALLS[info[1]] && mode !== 'gone' ? json(res, 200, { id: Number(info[1]), suspended_at: mode === 'suspended' ? '2026-11-20T00:00:00Z' : null }) : json(res, 404, { message: 'Not Found' });
+    }
     const m = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(u.pathname);
     if (m && req.method === 'POST') {
       if (state.mintOnce) { const f = state.mintOnce; state.mintOnce = null; return f(req, res); }
       const inst = INSTALLS[m[1]];
       const mode = (state.installs[m[1]] || {}).mode;
       if (!inst || mode === 'gone') return json(res, 404, { message: 'Not Found' });
-      if (mode === 'suspended') return json(res, 403, { message: 'This installation has been suspended' });
+      // GitHub's own signal is `suspended_at` on the installation (GET /app/installations/{id}), not the mint's words: a suspended
+      // installation here answers a mint with words that do not say so, and 'forbidden' answers words that do, with no suspension.
+      if (mode === 'suspended') return json(res, 403, { message: 'Resource not accessible by integration' });
+      if (mode === 'forbidden') return json(res, 403, { message: 'This installation has been suspended' });
       if (!body || !Array.isArray(body.repository_ids) || !body.repository_ids.includes(inst.id)) return json(res, 422, { message: 'Validation Failed: the repository is not in the installation' });
       state.mints.push(body);
       const at = state.mintTtlMs;
@@ -205,6 +223,7 @@ function fakeGitHub() {
     send();
   };
   const server = http.createServer((req, res) => {
+    if (links.handle(req, res)) return;
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => handle(req, res, Buffer.concat(chunks).toString('utf8')));
@@ -360,6 +379,14 @@ await test('the ask: every page, a 304, the token only in Authorization, refusal
   gh.state.once = (req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"message":"not a list"}'); };
   assert.match((await I.askIssues(STANDIN, { repo: REPO })).error, /could not be read/);
   await assert.rejects(I.getter(GITHUB)('http://127.0.0.1:1/x', {}), /not the service's address/, 'GitHub\'s adapter asks only api.github.com');
+  // github.com is asked for one thing: the sign-in's code exchange, a POST with no query, and never a GET or another path.
+  const asked = [];
+  const web = I.getter({ origin: 'https://api.example.test', webOrigin: 'https://web.example.test', allowHttp: false }, { fetchImpl: async (href) => { asked.push(href); return new Response('{}', { status: 200 }); } }).ask;
+  assert.equal((await web('POST', 'https://web.example.test/login/oauth/access_token', {}, {})).status, 200, 'the exchange');
+  for (const [m, u] of [['GET', 'https://web.example.test/login/oauth/access_token'], ['POST', 'https://web.example.test/login/oauth/access_token?x=1'], ['POST', 'https://web.example.test/other'], ['POST', 'http://web.example.test/login/oauth/access_token'], ['POST', 'https://other.example.test/login/oauth/access_token'], ['DELETE', 'https://web.example.test/applications/x/token']]) {
+    await assert.rejects(web(m, u, {}, {}), /not the service's address/, `${m} ${u}`);
+  }
+  assert.deepEqual(asked, ['https://web.example.test/login/oauth/access_token'], 'only the exchange was sent');
 });
 
 // --- the GitHub app: credentials, the JWT, installation tokens (documentation/plans/plan-github-app.md, step 1) -----------------
@@ -492,7 +519,10 @@ await test('trouble with a mint: not installed, repository out of it, paused, ke
   assert.deepEqual([g.ok, g.kind], [false, 'gone'], '422: the repository is not in the installation');
   gh.state.installs[7].mode = 'suspended';
   g = await APP.token(STANDIN, MINT);
-  assert.deepEqual([g.ok, g.kind], [false, 'paused'], '403 naming the suspension');
+  assert.deepEqual([g.ok, g.kind], [false, 'paused'], '403 and the installation\'s own suspended_at');
+  gh.state.installs[7].mode = 'forbidden';
+  g = await APP.token(STANDIN, MINT);
+  assert.deepEqual([g.ok, g.kind], [false, 'silent'], 'a 403 whose words say suspended, but the installation is not: not paused');
   gh.state.installs[7].mode = 'ok';
   gh.state.mintOnce = (req, res) => { res.writeHead(403, { 'content-type': 'application/json', 'retry-after': '90' }); res.end('{"message":"You have exceeded a secondary rate limit"}'); };
   const t = Date.now();
@@ -740,7 +770,7 @@ const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
   env: {
     PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret',
     ADMIN_PASSWORD: 'testpass1234', AGENT_TOKENS: 'true', LIVEKIT_API_URL: `http://127.0.0.1:${lk.address().port}`,
-    ISSUES_TEST_STANDIN: ORIGIN, ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET: CLIENT_SECRET, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n'), ISSUES_TEST_GAP_MS: '1000', ISSUES_TEST_FULL_MS: String(FULL_MS), ISSUES_TEST_POLL_MS: String(3600 * 1000), ISSUES_TEST_TICK_MS: '300',
+    ISSUES_TEST_STANDIN: ORIGIN, ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET: CLIENT_SECRET, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n'), ISSUES_TEST_GAP_MS: '1000', ISSUES_TEST_FULL_MS: String(FULL_MS), ISSUES_TEST_POLL_MS: String(3600 * 1000), ISSUES_TEST_TICK_MS: '300', ISSUES_TEST_LINK_MS: '5000',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -773,7 +803,15 @@ const call = async (method, urlPath, { body, token } = {}) => {
 };
 const ok = (r, what, status = 200) => { assert.equal(r.status, status, `${what}: ${r.status} ${r.text.slice(0, 300)}`); return r; };
 const S = {};
-const FOLLOW = { on: true, repo: REPO, provider: 'issues-standin', testLink: LINK }; // the test seam: step 1 has no link flow yet
+// Links a space through the real routes (the owner presses Connect, GitHub's fake signs in, the list is read, the repository picked) and
+// answers the PUT's answer. `extra` goes in the PUT (write: true).
+const asCall = (token) => (method, urlPath, body) => call(method, urlPath, { token, body });
+const linked = async (space, repositoryId, extra = {}, who = S.admin) => {
+  const via = asCall(who);
+  const t = await linkThrough({ call: via, space });
+  assert.equal(t.list && t.list.status, 200, `the link's list: ${t.start.status} ${t.backText || ''} ${t.list ? t.list.text : ''}`);
+  return followFrom({ call: via, space, link: t.link, repositoryId, extra });
+};
 const P = (space) => `/api/spaces/${space}/issues-pull`;
 const plan = async (space) => Object.fromEntries((ok(await call('GET', `/api/modules/schedule/data?scope=space&space=${space}`, { token: S.admin }), 'the plan').json.items).map((e) => [e.key, e]));
 const status = async (space) => ok(await call('GET', P(space), { token: S.admin }), 'the status').json;
@@ -856,7 +894,7 @@ await live('the gate: only an owner turns it on, the terms first, only into an e
 
 let first;
 await live('on: the board fixed to five columns, every issue once, by the pull', async () => {
-  const r = ok(await call('PUT', P(S.bugs), { token: S.admin, body: FOLLOW }), 'the owner turns it on');
+  const r = ok(await linked(S.bugs, 777), 'the owner links and follows it');
   assert.deepEqual([r.json.on, r.json.repo, r.json.provider], [true, REPO, 'issues-standin']);
   const s = await until('the first pull', async () => { const v = await status(S.bugs); return v.last ? v : null; });
   assert.deepEqual(s.counts, { total: 5, open: 4, done: 1, written: 5, removed: 0 });
@@ -998,7 +1036,7 @@ await live('off: the work stays and is editable again', async () => {
   ok(await putKey(S.bugs, 'plan:gh-1', { kind: 'work', title: 'mine now', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia), 'a member edits it');
   assert.equal((await call('POST', `${P(S.bugs)}/now`, { token: S.admin, body: {} })).status, 409, 'no pull while off');
   // On again, with a hand-changed pulled entry of this repository: allowed (it is the pull's own) and overwritten by the next pull.
-  ok(await call('PUT', P(S.bugs), { token: S.admin, body: FOLLOW }), 'on again');
+  ok(await linked(S.bugs, 777), 'on again');
   await until('the full pull after turning on', async () => (await plan(S.bugs))['plan:gh-1'].value.title === 'Server: open, no priority');
   assert.equal((await plan(S.bugs))['plan:gh-1'].by, 'system:issues', 'the hand change is overwritten');
   assert.equal((await call('PUT', P(S.bugs), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin' } })).status, 409, 'another repository needs an empty plan');
@@ -1036,11 +1074,11 @@ await live('writing: only an owner turns it on, and only for a space linked thro
   assert.equal((await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', write: true } })).status, 409, 'turning both on at once');
   assert.equal((await status(S.other)).write, false);
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
-  const readOnly = ok(await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', testLink: { installation: 8, repositoryId: 888, writeOk: false } } }), 'linked by someone who could only read');
+  const readOnly = ok(await linked(S.other, 888), 'linked by someone who could only read');
   assert.deepEqual([readOnly.json.via, readOnly.json.writeOk, readOnly.json.canWrite, readOnly.json.write], ['app', false, false, false]);
   const may = await call('PUT', P(S.other), { token: S.admin, body: { write: true } });
   assert.deepEqual([may.status, may.json.error], [403, 'The GitHub app may not change this repository.']);
-  assert.equal((await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', write: true, testLink: { installation: 8, repositoryId: 888, writeOk: false } } })).status, 403, 'nor with both at once');
+  assert.equal((await linked(S.other, 888, { write: true })).status, 403, 'nor with both at once');
   assert.equal((await status(S.other)).write, false);
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
   const dropped = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.other];
@@ -1491,9 +1529,9 @@ await live('the app is gone, paused or renamed: the sentence, reads without a to
   const GONE = 'The GitHub app is no longer installed on other/repo. Install it again and press Connect to GitHub, or stop following.';
   const PAUSED = 'The GitHub app is paused for other/repo on GitHub.';
   const from = gh.seen.length;
-  const follow = (extra = {}) => call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', testLink: { installation: 9, repositoryId: 999, writeOk: true }, ...extra } });
+  const follow = (repositoryId, extra = {}) => linked(S.other, repositoryId, extra);
   gh.state.installs[9].mode = 'gone';
-  ok(await follow({ write: true }), 'linked');
+  ok(await follow(999, { write: true }), 'linked');
   let s = await until('the first pull', async () => { const v = await status(S.other); return v.appError && v.last ? v : null; });
   assert.deepEqual([s.via, s.appError, s.error, s.write], ['app', GONE, '', true], 'the trouble is on the record; the public repository still reads');
   const read = gh.seen.slice(from).filter((x) => x.url.startsWith('/repos/other/repo'));
@@ -1516,7 +1554,7 @@ await live('the app is gone, paused or renamed: the sentence, reads without a to
   assert.ok(!JSON.stringify(s).includes(TOKEN) && s.via === 'app' && !('installation' in s) && !('repositoryId' in s), 'the status carries no token and no id');
   // A repository GitHub now names differently is followed from the mint.
   gh.state.installs[10].rename = 'other/renamed';
-  ok(await follow({ testLink: { installation: 10, repositoryId: 1010, writeOk: false } }), 'linked again, through another installation');
+  ok(await follow(1010), 'linked again, through another installation');
   await until('the pull', async () => (await status(S.other)).repo === 'other/renamed');
   s = await status(S.other);
   assert.deepEqual([s.repo, s.appError, s.error], ['other/renamed', '', ''], 'a repository GitHub names differently is followed from the mint');
@@ -1565,14 +1603,287 @@ await live('what GitHub was sent holds only what the plan allows, and no one\'s 
   assert.deepEqual(gh.state.created, [], 'no label was made on GitHub');
 });
 
+// --- live: the link flow (documentation/plans/plan-github-app.md, step 2) ---------------------------------------------------------
+const linkUrls = []; // every address an answer may carry a state in: the authorize address and the install address
+const backPages = []; // the plain pages the return answered, scanned with the answers
+const linkSecrets = []; // completion secrets of links not kept in doneOf: in the redirect to the returning browser, and in no answer, log or file
+await live('the link: Connect, GitHub\'s sign-in with PKCE, the list with the person\'s own right, the revoke, then Follow', async () => {
+  const one = (r, q) => new URL(r).searchParams.get(q);
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'nothing followed in the space');
+  await until('the plan cleared (the renamed repository\'s work goes)', async () => (await call('DELETE', `/api/modules/schedule/data?scope=space&space=${S.other}`, { token: S.admin })).status === 200, 15000);
+  const before = links.state.requests.length;
+  const t = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t.authorizeUrl);
+  assert.equal(t.start.status, 200);
+  assert.deepEqual(Object.keys(t.start.json), ['url'], 'Connect answers the address only');
+  const u = new URL(t.authorizeUrl);
+  assert.equal(u.origin + u.pathname, `${ORIGIN}/login/oauth/authorize`);
+  assert.deepEqual([one(t.authorizeUrl, 'client_id'), one(t.authorizeUrl, 'code_challenge_method'), one(t.authorizeUrl, 'redirect_uri')], [CLIENT_ID, 'S256', `${base}/api/issues-link/back`], 'the client id, S256 and the link address');
+  assert.match(one(t.authorizeUrl, 'state'), /^[\w-]{43}$/, 'a fresh state');
+  assert.match(one(t.authorizeUrl, 'code_challenge'), /^[\w-]{43}$/, 'an S256 challenge');
+  assert.ok(![...u.searchParams.keys()].some((k) => /space|user|person|environment/i.test(k)) && !t.authorizeUrl.includes(S.other), 'nothing of the space or the person goes to GitHub');
+  assert.equal(t.back.status, 302, `GitHub's return: ${t.backText}`);
+  assert.equal(t.to.pathname + t.to.search.replace(/link=[\w-]+/, 'link=X').replace(/done=[\w-]{43}$/, 'done=D'), `/?space=${S.other}&link=X&done=D`, 'back to the space, with the link');
+  assert.equal(t.back.headers.get('referrer-policy'), 'no-referrer');
+  // The exchange carried the verifier (matching the challenge), the secret and the redirect address; the token was revoked.
+  const ex = links.state.exchanges.at(-1);
+  assert.deepEqual([ex.clientId, ex.secretOk, ex.verifierOk, ex.redirectUri], [CLIENT_ID, true, true, `${base}/api/issues-link/back`], 'the exchange: secret, verifier, address');
+  const made = links.state.requests.slice(before).map((r) => `${r.method} ${r.path}`);
+  assert.deepEqual(made.slice(0, 2), ['GET /login/oauth/authorize', 'POST /login/oauth/access_token']);
+  assert.equal(made.at(-1), `DELETE /applications/${CLIENT_ID}/token`, 'the user token is revoked last, before the person is sent back');
+  assert.equal(links.state.revoked.length, links.state.issuedTokens.length, 'every user token ever made was revoked');
+  assert.equal(links.state.revoked.at(-1), links.state.issuedTokens.at(-1));
+  assert.ok(links.state.requests.slice(before).filter((r) => r.path.startsWith('/user/')).length > 0);
+  // The list: newest first, each with the person's own right, nothing of their account.
+  assert.equal(t.list.status, 200, t.list.text);
+  const list = t.list.json;
+  assert.deepEqual(Object.keys(list).sort(), ['installUrl', 'more', 'repositories']);
+  assert.deepEqual(list.repositories, [
+    { repositoryId: 1010, repo: 'other/repo', private: false, installation: 10, canWrite: false },
+    { repositoryId: 999, repo: 'other/repo', private: false, installation: 9, canWrite: true },
+    { repositoryId: 888, repo: 'other/repo', private: false, installation: 8, canWrite: false },
+    { repositoryId: 777, repo: REPO, private: false, installation: 7, canWrite: true },
+  ], 'newest first, with canWrite from the person\'s permissions');
+  assert.equal(list.more, false);
+  assert.match(list.installUrl, new RegExp(`^${ORIGIN.replace(/[.]/g, '\\.')}/apps/chameleon-check/installations/new\\?state=[\\w-]{43}$`), 'the install address, from the app\'s slug');
+  linkUrls.push(list.installUrl);
+  // The record is made by Follow, from the list; the page's own words about the installation or the right are never read.
+  const bad = await followFrom({ call: asCall(S.admin), space: S.other, link: t.link, repositoryId: 4242 });
+  assert.deepEqual([bad.status, bad.json.error], [400, 'That repository is not in your list. Press Connect to GitHub again.'], 'a repository not in the list');
+  const forged = await followFrom({ call: asCall(S.admin), space: S.other, link: t.link, repositoryId: 888, extra: { installation: 7, writeOk: true, repo: REPO, write: false } });
+  assert.deepEqual([forged.status, forged.json.repo || forged.json.error, forged.json.via, forged.json.writeOk, forged.json.canWrite], [200, 'other/repo', 'app', false, false], 'a read-only person: writeOk false, whatever the page sends');
+  const rec = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.other];
+  assert.deepEqual([rec.installation, rec.repositoryId, rec.writeOk, rec.via, typeof rec.linkBy, Boolean(rec.linkAt)], [8, 888, false, 'app', 'string', true], 'the record comes from the list');
+  const no = await call('PUT', P(S.other), { token: S.admin, body: { write: true } });
+  assert.deepEqual([no.status, no.json.error], [403, 'The GitHub app may not change this repository.'], 'no write without the person\'s own right');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: S.admin })).status, 404, 'a link is used up once it has been followed');
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
+  // A person with write access: the switch may go on.
+  const w = await linked(S.other, 999, { write: true });
+  assert.deepEqual([w.status, w.json.writeOk, w.json.canWrite, w.json.write], [200, true, true, true], 'write allowed only because the person may write');
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
+});
+
+await live('the link: a state works once and for a short time; an unknown one and a replay are refused with a sentence', async () => {
+  const ENDED = 'This link has run out. Go back and press Connect to GitHub again.';
+  const t = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t.authorizeUrl);
+  assert.equal(t.back.status, 302);
+  const again = await fetch(t.backUrl, { redirect: 'manual' });
+  const text = await again.text();
+  backPages.push(text);
+  assert.equal(again.status, 400, 'the same return twice');
+  assert.ok(text.includes(ENDED) && !text.includes(one(t.backUrl, 'code')) && !text.includes(one(t.backUrl, 'state')), 'a plain page with the sentence, never the query');
+  assert.equal((await fetch(`${base}/api/issues-link/back?code=abc&state=${'x'.repeat(43)}`, { redirect: 'manual' })).status, 400, 'an unknown state');
+  assert.equal((await fetch(`${base}/api/issues-link/back?code=abc`, { redirect: 'manual' })).status, 400, 'no state');
+  assert.equal((await fetch(`${base}/api/issues-link/back`, { redirect: 'manual' })).status, 400, 'nothing at all');
+  function one(href, q) { return new URL(href).searchParams.get(q); }
+  // Ended: the link's time runs out (5 seconds in this check), before the return and after it.
+  const late = await call('POST', `/api/spaces/${S.other}/issues-link`, { token: S.admin, body: { provider: 'issues-standin' } });
+  linkUrls.push(late.json.url);
+  const gone = await fetch(late.json.url, { redirect: 'manual' });
+  await sleep(5600);
+  const expired = await fetch(gone.headers.get('location'), { redirect: 'manual' });
+  backPages.push(await expired.text());
+  assert.equal(expired.status, 400, 'a return after the link ended');
+  const kept = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(kept.authorizeUrl);
+  assert.equal(kept.list.status, 200);
+  await sleep(5600);
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${kept.link}&done=${kept.done}`, { token: S.admin })).status, 404, 'the list ends too');
+  const stale = await followFrom({ call: asCall(S.admin), space: S.other, link: kept.link, repositoryId: 777 });
+  assert.deepEqual([stale.status, stale.json.error], [404, ENDED], 'and cannot be followed from');
+  assert.equal((await status(S.other)).on, false, 'nothing was followed');
+});
+
+await live('the link: only the owner who started it, in that space, reads or follows from it; a member and an agent are refused', async () => {
+  const OWNER = /^Only an owner can connect a repository to GitHub\.$/;
+  const t = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t.authorizeUrl);
+  assert.equal(t.list.status, 200);
+  for (const [who, name] of [[S.mia, 'a member'], [S.agent, 'an agent']]) {
+    const start = await call('POST', `/api/spaces/${S.other}/issues-link`, { token: who, body: { provider: 'issues-standin' } });
+    assert.equal(start.status, 403, `${name} cannot start`);
+    if (name === 'a member') assert.match(start.json.error, OWNER);
+    assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: who })).status, 403, `${name} cannot read a list`);
+    assert.equal((await followFrom({ call: asCall(who), space: S.other, link: t.link, repositoryId: 777 })).status, 403, `${name} cannot follow`);
+  }
+  assert.equal((await call('POST', `/api/spaces/${S.other}/issues-link`, { body: { provider: 'issues-standin' } })).status, 401, 'nobody signed in');
+  assert.equal((await call('POST', `/api/spaces/${S.other}/issues-link?guest=${encodeURIComponent(S.guest)}`, { body: { provider: 'issues-standin' } })).status, 403, 'a guest');
+  assert.equal((await call('GET', `/api/spaces/${S.bugs}/issues-link?link=${t.link}&done=${t.done}`, { token: S.admin })).status, 404, 'the same link in another space');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link`, { token: S.admin })).status, 404, 'no link named');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=nonsense&done=x`, { token: S.admin })).status, 404);
+  // Another owner of the environment is another person: the link is not theirs.
+  const second = await call('POST', '/api/users', { token: S.admin, body: { login: 'olive', displayName: 'Olive', role: 'owner', password: 'ownerpass1234' } });
+  ok(second, 'a second owner', 201);
+  const olive = ok(await call('POST', '/api/login', { body: { login: 'olive', password: 'ownerpass1234' } }), 'olive signs in').json.token;
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: olive })).status, 404, 'another owner reads nothing of it');
+  assert.equal((await followFrom({ call: asCall(olive), space: S.other, link: t.link, repositoryId: 777 })).status, 404, 'nor follows from it');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: S.admin })).status, 200, 'still the starter\'s');
+});
+
+await live('the link: the completion secret binds list and follow to the browser GitHub sent back; without it, wrong or used, both are refused alike', async () => {
+  const ENDED = 'This link has run out. Go back and press Connect to GitHub again.';
+  const t = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t.authorizeUrl);
+  assert.match(t.done, /^[\w-]{43}$/, 'a 256-bit secret, in the redirect');
+  assert.equal(t.list.status, 200, 'with it, the list');
+  const L = (extra) => call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}${extra}`, { token: S.admin });
+  for (const [what, extra] of [['none', ''], ['an empty one', '&done='], ['a wrong one', `&done=${'A'.repeat(43)}`], ['the link id in its place', `&done=${t.link}`], ['the state in its place', `&done=${new URL(t.authorizeUrl).searchParams.get('state')}`]]) {
+    const r = await L(extra);
+    assert.deepEqual([r.status, r.json.error], [404, ENDED], `the list with ${what}`);
+  }
+  for (const [what, done] of [['none', null], ['a wrong one', 'B'.repeat(43)], ['a number', 7], ['an object', { x: 1 }]]) {
+    const r = await followFrom({ call: asCall(S.admin), space: S.other, link: t.link, done, repositoryId: 777 });
+    assert.deepEqual([r.status, r.json.error], [404, ENDED], `the follow with ${what}: the same sentence, no hint which part failed`);
+  }
+  assert.equal((await status(S.other)).on, false, 'nothing was followed');
+  // The attack: the owner sends their authorize address to someone else; that person's browser is sent back, and holds the secret.
+  // The owner, who started the link, has none: they cannot list or follow, whatever they guess.
+  const start = await call('POST', `/api/spaces/${S.other}/issues-link`, { token: S.admin, body: { provider: 'issues-standin' } });
+  linkUrls.push(start.json.url);
+  const victim = await fetch(start.json.url, { redirect: 'manual' });
+  const returned = await fetch(victim.headers.get('location'), { redirect: 'manual' });
+  assert.equal(returned.status, 302);
+  const theirs = new URL(returned.headers.get('location'), base);
+  const stolen = { link: theirs.searchParams.get('link'), done: theirs.searchParams.get('done') };
+  assert.ok(stolen.done, 'the secret went to the browser that came back');
+  const starterSees = await call('GET', `/api/spaces/${S.other}/issues-link?link=${stolen.link}`, { token: S.admin });
+  assert.deepEqual([starterSees.status, starterSees.json.error], [404, ENDED], 'the starter never got the secret: no list');
+  const starterFollows = await followFrom({ call: asCall(S.admin), space: S.other, link: stolen.link, done: null, repositoryId: 777 });
+  assert.equal(starterFollows.status, 404, 'and no follow');
+  assert.equal((await status(S.other)).on, false);
+  // Whoever holds the secret still has to be the owner who started it, in that space and environment.
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${stolen.link}&done=${stolen.done}`, { token: S.mia })).status, 403, 'a member with the secret');
+  assert.equal((await call('GET', `/api/spaces/${S.bugs}/issues-link?link=${stolen.link}&done=${stolen.done}`, { token: S.admin })).status, 404, 'the same secret in another space');
+  // Spent when the follow succeeds (a second link of the same owner for the space replaced the first, so this one is made now).
+  const t2 = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t2.authorizeUrl);
+  linkSecrets.push(t.done, stolen.done);
+  ok(await followFrom({ call: asCall(S.admin), space: S.other, link: t2.link, repositoryId: 999 }), 'with the secret, the follow');
+  const used = await followFrom({ call: asCall(S.admin), space: S.other, link: t2.link, repositoryId: 999 });
+  assert.deepEqual([used.status, used.json.error], [404, ENDED], 'used once');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t2.link}&done=${t2.done}`, { token: S.admin })).status, 404, 'and the list too');
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
+});
+
+await live('the link: a forged installation_id on the setup address changes nothing; only the person\'s own list counts', async () => {
+  const mine = links.state.person.installations;
+  links.state.person.installations = mine.filter((i) => i.id === 8); // this person reaches installation 8 only
+  const before = links.state.requests.length;
+  try {
+    const t = await linkThrough({ call: asCall(S.admin), space: S.other });
+    linkUrls.push(t.authorizeUrl, t.list.json.installUrl);
+    assert.deepEqual(t.list.json.repositories.map((r) => r.repositoryId), [888], 'only what this person reaches');
+    // GitHub's setup address, with the install state and an installation_id of someone else's (7): it sends the person to sign in
+    // again, and never reads the id.
+    const setup = new URL(`${base}/api/issues-link/back`);
+    setup.searchParams.set('state', new URL(t.list.json.installUrl).searchParams.get('state'));
+    setup.searchParams.set('installation_id', '7');
+    setup.searchParams.set('setup_action', 'install');
+    const r = await fetch(setup, { redirect: 'manual' });
+    assert.equal(r.status, 302);
+    assert.equal(new URL(r.headers.get('location')).origin + new URL(r.headers.get('location')).pathname, `${ORIGIN}/login/oauth/authorize`, 'on to the sign-in, not to a link');
+    linkUrls.push(r.headers.get('location'));
+    assert.ok(!r.headers.get('location').includes('installation'), 'the id goes nowhere');
+    // The install state works once.
+    const twice = await fetch(setup, { redirect: 'manual' });
+    backPages.push(await twice.text());
+    assert.equal(twice.status, 400, 'the setup address twice');
+    // An id with no state, and with a state of the wrong kind (the sign-in's own state is not an install state): refused.
+    assert.equal((await fetch(`${base}/api/issues-link/back?installation_id=7&setup_action=install`, { redirect: 'manual' })).status, 400, 'a forged id alone');
+    assert.equal((await fetch(`${base}/api/issues-link/back?installation_id=7&state=${new URL(t.authorizeUrl).searchParams.get('state')}`, { redirect: 'manual' })).status, 400, 'the sign-in state is not an install state');
+    // GitHub sends the person back to the sign-in's address; the list is the same: the installation 7 is not there, whatever was asked.
+    const auth = await fetch(r.headers.get('location'), { redirect: 'manual' });
+    const back = await fetch(auth.headers.get('location'), { redirect: 'manual' });
+    assert.equal(back.status, 302);
+    const link = new URL(back.headers.get('location'), base).searchParams.get('link');
+    const done = new URL(back.headers.get('location'), base).searchParams.get('done');
+    doneOf.set(link, done);
+    assert.equal(link, t.link, 'the same link, a fresh list');
+    const list = ok(await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}&done=${done}`, { token: S.admin }), 'the list again').json;
+    linkUrls.push(list.installUrl);
+    assert.deepEqual(list.repositories.map((x) => x.repositoryId), [888]);
+    const forged = await followFrom({ call: asCall(S.admin), space: S.other, link, repositoryId: 777, extra: { installation: 7 } });
+    assert.deepEqual([forged.status, forged.json.error], [400, 'That repository is not in your list. Press Connect to GitHub again.'], 'a repository of someone else\'s installation cannot be followed');
+    assert.equal((await status(S.other)).on, false);
+    assert.ok(links.state.requests.slice(before).every((q) => !/\/installations\/7\b/.test(q.path)), 'nothing was ever asked about installation 7 for this person');
+    // The person installs the app on another repository and comes back: the list grows by what they reach now.
+    links.state.person.installations = mine.filter((i) => [8, 9].includes(i.id));
+    const setup2 = new URL(`${base}/api/issues-link/back`);
+    setup2.searchParams.set('state', new URL(list.installUrl).searchParams.get('state'));
+    setup2.searchParams.set('installation_id', '9');
+    const r2 = await fetch(setup2, { redirect: 'manual' });
+    const a2 = await fetch(r2.headers.get('location'), { redirect: 'manual' });
+    const b2 = await fetch(a2.headers.get('location'), { redirect: 'manual' });
+    assert.equal(b2.status, 302);
+    const done2 = new URL(b2.headers.get('location'), base).searchParams.get('done');
+    assert.notEqual(done2, done, 'a new sign-in, a new completion secret');
+    doneOf.set(link, done2);
+    assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}&done=${done}`, { token: S.admin })).status, 404, 'the earlier secret is dead');
+    const list2 = ok(await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}&done=${done2}`, { token: S.admin }), 'the list after installing').json;
+    linkUrls.push(list2.installUrl);
+    assert.deepEqual(list2.repositories.map((x) => x.repositoryId), [999, 888], 'the new repository is in the list');
+  } finally { links.state.person.installations = mine; }
+});
+
+await live('the link: GitHub refused, or failed after the sign-in: a sentence, the link gone, the user token still revoked', async () => {
+  const DENIED = 'GitHub was not given access. Go back and press Connect to GitHub again.';
+  const FAILED = 'GitHub did not finish connecting. Go back and press Connect to GitHub again.';
+  links.state.deny = true;
+  let t;
+  try { t = await linkThrough({ call: asCall(S.admin), space: S.other }); } finally { links.state.deny = false; }
+  linkUrls.push(t.authorizeUrl);
+  backPages.push(t.backText);
+  assert.equal(t.back.status, 400);
+  assert.ok(t.backText.includes(DENIED), 'the person said no on GitHub');
+  const made = links.state.issuedTokens.length;
+  links.state.breakLists = true;
+  try { t = await linkThrough({ call: asCall(S.admin), space: S.other }); } finally { links.state.breakLists = false; }
+  linkUrls.push(t.authorizeUrl);
+  backPages.push(t.backText);
+  assert.equal(t.back.status, 502);
+  assert.ok(t.backText.includes(FAILED), 'GitHub failed after the sign-in');
+  assert.equal(links.state.issuedTokens.length, made + 1);
+  assert.equal(links.state.revoked.length, links.state.issuedTokens.length, 'revoked although the lists failed');
+  assert.equal(links.state.tokens.get(links.state.issuedTokens.at(-1)).revoked, true);
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=x&done=y`, { token: S.admin })).status, 404);
+  // The user token, once revoked, reaches nothing: the fake would answer 401 to a later use.
+  const used = await fetch(`${ORIGIN}/user/installations`, { headers: { authorization: `Bearer ${links.state.issuedTokens.at(-1)}` } });
+  assert.equal(used.status, 401, 'a revoked user token is dead');
+});
+
+await live('the link: refused at the start when the server has no working app, or the terms are not accepted', async () => {
+  const sourceOf = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  assert.ok(/const PRODUCT_HOST_PATHS = \[[^\]]*'\/api\/issues-link\/back'/.test(sourceOf), 'on a host with environments the return is on the product host');
+  const was = await call('GET', '/api/weather/terms', { token: S.admin });
+  assert.deepEqual([was.json.githubApp.state, was.json.githubApp.name, was.json.githubApp.slug], ['working', 'Chameleon Check', 'chameleon-check'], 'Service terms answers the app\'s state');
+  assert.equal(was.json.githubApp.callback, `${base}/api/issues-link/back`, 'and the address to register, for the administrator');
+  const mia = await call('GET', '/api/weather/terms', { token: S.mia });
+  assert.equal(mia.status === 200 ? mia.json.githubApp.callback : '', '', 'never for anyone else');
+  assert.ok(!JSON.stringify(was.json).includes(CLIENT_SECRET));
+  const un = await call('DELETE', '/api/weather/terms/issues-standin', { token: S.admin });
+  ok(un, 'the terms withdrawn');
+  const refused = await call('POST', `/api/spaces/${S.other}/issues-link`, { token: S.admin, body: { provider: 'issues-standin' } });
+  assert.deepEqual([refused.status, /not accepted on this server/.test(refused.json.error)], [409, true], 'terms first');
+  ok(await call('PUT', '/api/weather/terms/issues-standin', { token: S.admin, body: { accept: true } }), 'accepted again');
+  assert.equal((await call('POST', `/api/spaces/${S.other}/issues-link`, { token: S.admin, body: { provider: 'nowhere' } })).status, 400, 'no such service');
+});
+
 await live('no secret is in an answer, the data, the record, the log or a request but the one that carries it', async () => {
   const jwts = [...gh.jwts];
   await stop();
   const pemBody = PEM.split('\n').filter((l) => l && !l.startsWith('-----'));
-  const secrets = { 'the installation token': TOKEN, 'the client secret': CLIENT_SECRET, 'the key': pemBody[1], 'the key\'s first line': pemBody[0], ...Object.fromEntries(jwts.map((j, i) => [`a JWT (${i})`, j])) };
+  const secrets = { 'the installation token': TOKEN, 'the client secret': CLIENT_SECRET, 'the key': pemBody[1], 'the key\'s first line': pemBody[0], ...Object.fromEntries(jwts.map((j, i) => [`a JWT (${i})`, j])), ...links.secrets() };
+  // The states: only the two addresses made for GitHub carry one (the authorize and install addresses); no other answer, page, log or file.
+  const stateOf = (href) => new URL(href).searchParams.get('state');
+  [...doneOf.values(), ...linkSecrets].forEach((v, i) => { secrets[`a completion secret (${i})`] = v; });
+  for (const href of linkUrls) secrets[`a state (${stateOf(href)})`] = stateOf(href);
+  const bare = (a) => linkUrls.reduce((t, href) => t.split(href).join(''), a);
+  answers.push(...backPages);
   assert.ok(jwts.length > 0 && pemBody.length > 10);
   for (const [what, v] of Object.entries(secrets)) {
-    assert.ok(answers.every((a) => !a.includes(v)), `${what}: not in an answer`);
+    assert.ok(answers.every((a) => !bare(a).includes(v)), `${what}: not in an answer`);
     assert.ok(!serverOut.includes(v), `${what}: not in the log`);
   }
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
