@@ -15,22 +15,12 @@ const fs = require('fs');
 const path = require('path');
 
 const FILE_NAME = 'service-terms.json';
-// The file's name before the record was shared (it held only weather services). On the first start that finds it and no
-// service-terms.json, it is renamed, once, so terms an administrator already accepted still count (plan-github-pull.md, the
-// rename of weather-terms.json). Nothing reads it after that.
-const RENAMED_FROM = 'weather-terms.json';
 const ID = /^[a-z][a-z0-9-]{0,23}$/;
 
 class ServiceTerms {
   constructor(dataDir) {
     this.file = path.join(dataDir, FILE_NAME);
     this.services = null;
-    const before = path.join(dataDir, RENAMED_FROM);
-    try {
-      if (!fs.existsSync(this.file) && fs.existsSync(before)) fs.renameSync(before, this.file);
-    } catch (err) {
-      console.error(`could not rename ${RENAMED_FROM} to ${FILE_NAME}; its terms must be accepted again:`, err.message);
-    }
   }
 
   all() {
@@ -86,4 +76,4 @@ class ServiceTerms {
   }
 }
 
-module.exports = { ServiceTerms, FILE_NAME, RENAMED_FROM };
+module.exports = { ServiceTerms, FILE_NAME };

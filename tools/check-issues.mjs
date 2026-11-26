@@ -9,7 +9,7 @@
  * variable; the mapping (closed is done, the `priority: now|next|later` labels are columns, anything else open is the inbox, the
  * title cut at 120, tags from the other labels, the link as the notes, no owners, the board's five columns); the rest after a
  * refusal (retry-after, the limit's reset, else 30 minutes); the ask (pages, a 304, the token only in Authorization, 2 MB,
- * a redirect elsewhere refused); the shared terms record (weather-terms.json renamed once, the terms it held still counting).
+ * a redirect elsewhere refused); the shared terms record (one file for every service, which starts empty).
  *
  * Then live, against a real server with ISSUES_TEST_STANDIN and a token: who may turn it on (only an owner: a member, a guest,
  * an agent and nobody are refused), the terms first, only into an empty plan, the board fixed to inbox, now, next, later and
@@ -226,22 +226,18 @@ await test('the ask: every page, a 304, the token only in Authorization, refusal
 });
 
 // --- the shared terms record -------------------------------------------------------------------------------------------------
-await test('the terms: one record for every service; weather-terms.json renamed once, its terms still counting', () => {
+await test('the terms: one record for every service, which starts empty', () => {
   const { ServiceTerms } = require('../server/service-terms.js');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issues-terms-'));
   const met = { id: 'met-norway', name: 'MET', terms: 'https://api.met.no/doc/TermsOfService' };
-  fs.writeFileSync(path.join(dir, 'weather-terms.json'), JSON.stringify({ services: { 'met-norway': { terms: met.terms, by: 'admin', at: '2026-11-25T10:00:00.000Z' } } }));
   const t = new ServiceTerms(dir);
-  assert.equal(fs.existsSync(path.join(dir, 'weather-terms.json')), false, 'renamed');
-  assert.equal(t.accepted(met), true, 'what was accepted for weather still counts');
+  assert.equal(t.accepted(met), false, 'nothing is accepted by itself');
   assert.equal(t.accepted(GITHUB), false);
+  t.accept(met, 'admin');
   t.accept(GITHUB, 'admin');
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'service-terms.json'), 'utf8')).services).sort(), ['github', 'met-norway']);
   assert.deepEqual(t.view([{ kind: 'issues', adapter: GITHUB }]).map((v) => [v.id, v.kind, v.accepted, v.terms]), [['github', 'issues', true, GITHUB.terms]]);
-  // A second start finds service-terms.json and leaves an old file alone (nothing reads it).
-  fs.writeFileSync(path.join(dir, 'weather-terms.json'), '{}');
-  assert.equal(new ServiceTerms(dir).accepted(GITHUB), true);
-  assert.equal(fs.existsSync(path.join(dir, 'weather-terms.json')), true);
+  assert.equal(new ServiceTerms(dir).accepted(GITHUB), true, 'read back from the file');
 });
 
 // The gate by mutation: the live part below passes only because the code asks these questions; take any one out of the source
