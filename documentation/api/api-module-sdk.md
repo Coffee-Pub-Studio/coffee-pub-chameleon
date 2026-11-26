@@ -422,7 +422,16 @@ const v = await host.issues.status();   // { on, provider, name, repo, last, nex
 const w = await host.issues.pullNow();  // the same after a pull, for someone with the plan's edit
 ```
 
-`last` and `next` are ISO times or `''`, `error` is one sentence or `''`, and `counts` is `{ total, open, done, written, removed }` or `null` before the first pull. `pullNow` throws with the server's status and sentence: 429 when a pull ran in the last minute or the service asked to wait, 409 when no pull is on or the service's terms are not accepted, 502 when the service failed. There is no call to turn a pull on or off: that is the owner's, in the module's settings (a text setting that `follows` the pull, see [api-modules](api-modules.md), "Settings").
+`last` and `next` are ISO times or `''`, `error` is one sentence or `''`, and `counts` is `{ total, open, done, written, removed }` or `null` before the first pull. `pullNow` throws with the server's status and sentence: 429 when a pull ran in the last minute or the service asked to wait, 409 when no pull is on or the service's terms are not accepted, 502 when the service failed. There is no call to turn a pull on or off: that is the owner's, in the module's settings (a text setting that `follows` the pull, see [api-modules](api-modules.md), "The setting that follows a pull"); `host.setup` opens that panel.
+
+### Set up (`host.setup`)
+
+```js
+const can = await host.setup.can();   // true for the environment's owner or the admin, inside a space; false anywhere else and for a guest
+await host.setup.open('modules');      // opens the space's Set up panel on that tab; throws 400 "This works inside a space." elsewhere
+```
+
+`can()` says whether this person may set the space up as an owner, so a module can offer the way only to someone who can take it; it never throws. `open(tab?)` does what the space's **Set up** does and opens the panel on the tab named (`modules` is the module settings tab). The panel's own rules decide what the person may do there. A module that offers a setting's step in its own empty state uses these (Planner - Projects offers **Follow a GitHub repository** this way). The host sends the `setup` event, `host.on('setup', ({ open }) => ...)` with `open: false`, when Set up closes, so a module whose state a setting changes at once can read it again. Only inside a space.
 
 ### Flight lookup
 

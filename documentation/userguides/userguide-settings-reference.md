@@ -124,7 +124,7 @@ Beside it in the file, a commented `security_opt` line names the seccomp profile
 
 ## Following a GitHub repository
 
-A space can follow a public GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). It works with no setting here. A token only raises GitHub's limit from 60 requests an hour to 5,000.
+A space can follow a public GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). It works with no setting here: the owner enters the repository (as `owner/name` or its address) and chooses **Follow this repository** in the space's **Set up**, and the plan must be empty first. A token only raises GitHub's limit from 60 requests an hour to 5,000.
 
 | Setting | Default | What it does |
 |---|---|---|
