@@ -188,7 +188,7 @@ function writtenRoutes() {
 const GATE_LIST = new Set([
   'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
   // A day's weather (plan-itinerary-weather.md, step 5); tools/check-weather.mjs checks it.
-  'GET /api/modules/:id/weather',
+  'GET /api/modules/:id/weather', 'GET /api/spaces/:id/weather',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'GET /api/objects/format/schema', 'POST /api/objects/resolve',
   'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
   // Asking a person to delete one object, and its own ask's state (plan-agent-edit-delete.md, step 6);

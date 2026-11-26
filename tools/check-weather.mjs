@@ -623,12 +623,19 @@ await test('the declaration: only where a day is; the service and units are not 
   const good = { stops: { prefix: 'plan:', day: 'date', time: 'time', order: 'order', place: 'placeRef' }, main: { key: 'trip:main', place: 'destination', from: 'start', to: 'end' } };
   const scope = ['environment', 'space'];
   assert.equal(cleanWeather(undefined, scope), null, 'none by default');
-  assert.deepEqual(cleanWeather(good, scope), good);
-  assert.deepEqual(cleanWeather({ main: { key: 'trip:main' } }, scope), { stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
+  assert.deepEqual(cleanWeather(good, scope), { ...good, space: false });
+  assert.deepEqual(cleanWeather({ main: { key: 'trip:main' } }, scope), { stops: null, main: { key: 'trip:main', place: '', from: '', to: '' }, space: false });
+  // `space: true`: "my days use the space's place" (plan-weather-users.md); alone it is enough, and it is only ever true.
+  assert.deepEqual(cleanWeather({ space: true }, scope), { stops: null, main: null, space: true });
+  assert.deepEqual(cleanWeather({ ...good, space: true }, scope), { ...good, space: true });
   const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
   bad({ ...good, provider: 'p' }, /the Weather module's settings/);
   bad({ ...good, units: 'u' }, /the Weather module's settings/);
-  bad({ ...good, stops: undefined, main: undefined }, /`stops` or `main`/);
+  bad({ ...good, stops: undefined, main: undefined }, /`stops`, `main` or `space`/);
+  bad({ space: false }, /`space` must be true/);
+  bad({ space: 'yes' }, /`space` must be true/);
+  bad({ space: true, provider: 'p' }, /the Weather module's settings/);
+  bad({ space: true }, /"space" scope/, ['environment']);
   bad({ ...good, stops: { prefix: 'plan:', day: 'date' } }, /stops `place` must be a field name/);
   bad({ ...good, stops: { ...good.stops, day: '__proto__' } }, /field name/);
   bad({ ...good, main: { key: '../x' } }, /main needs a `key`/);
@@ -647,6 +654,67 @@ await test('the declaration: only where a day is; the service and units are not 
   assert.deepEqual(clean.settings.find((d) => d.key === 'service').options.map((o) => o.value), ['none', 'met-norway', 'standin']);
 });
 
+// --- the space's day: pure (server/weather-space.js, plan-weather-users.md) --------------------------------------------------
+await test('the space\'s day: today in the main phase, its first day before, none after; the module\'s own dates; today without dates', () => {
+  const { weatherSpaceDay } = require('../server/weather-space.js');
+  const bands = [{ main: false, dated: true, start: '2026-11-01', end: '2026-11-30' }, { main: true, dated: true, start: '2026-12-10', end: '2026-12-20' }];
+  assert.equal(weatherSpaceDay(bands, null, '2026-12-14'), '2026-12-14', 'during the main phase: today');
+  assert.equal(weatherSpaceDay(bands, null, '2026-12-10'), '2026-12-10', 'its first day');
+  assert.equal(weatherSpaceDay(bands, null, '2026-12-20'), '2026-12-20', 'its last day');
+  assert.equal(weatherSpaceDay(bands, null, '2026-12-01'), '2026-12-10', 'before it: its first day, not an earlier phase\'s');
+  assert.equal(weatherSpaceDay(bands, null, '2026-12-21'), null, 'after it: none');
+  assert.equal(weatherSpaceDay([{ main: true, dated: true, start: '2026-12-10' }], null, '2026-12-10'), '2026-12-10', 'a one-day phase has no end');
+  assert.equal(weatherSpaceDay([{ main: true, dated: true, start: '2026-12-10' }], null, '2026-12-11'), null);
+  // The phases win over the module's own dates; a main phase with no dates is not one.
+  assert.equal(weatherSpaceDay(bands, { from: '2026-01-01', to: '2026-01-02' }, '2026-12-14'), '2026-12-14');
+  assert.equal(weatherSpaceDay([{ main: true, dated: false, start: '', end: '' }], { from: '2026-12-10', to: '2026-12-20' }, '2026-12-01'), '2026-12-10', 'undated phases: the module\'s dates');
+  // No phases: the module's own first and last day by the same rule.
+  const own = { from: '2026-12-10', to: '2026-12-20' };
+  for (const none of [[], null, undefined]) {
+    assert.equal(weatherSpaceDay(none, own, '2026-12-01'), '2026-12-10', 'before');
+    assert.equal(weatherSpaceDay(none, own, '2026-12-15'), '2026-12-15', 'during');
+    assert.equal(weatherSpaceDay(none, own, '2026-12-21'), null, 'after');
+  }
+  assert.equal(weatherSpaceDay([], { from: '2026-12-10', to: '' }, '2026-12-10'), '2026-12-10', 'a first day alone is one day');
+  assert.equal(weatherSpaceDay([], { from: '2026-12-10', to: '' }, '2026-12-11'), null);
+  assert.equal(weatherSpaceDay([], { from: '2026-12-10', to: '2026-12-05' }, '2026-12-11'), null, 'a last day before the first is the first day alone');
+  // No dates at all: today.
+  for (const none of [null, {}, { from: '', to: '' }, { from: 'soon', to: 'later' }, { from: '', to: '2026-12-20' }]) assert.equal(weatherSpaceDay([], none, '2026-12-14'), '2026-12-14', JSON.stringify(none));
+});
+
+// The gate by mutation: the check above passes only because the code asks these four questions; take any one out of the
+// source and the same reading of it must fail, so a refactor that drops one is caught (a live server for each is not needed).
+await test('the space route\'s gate is read from the code, and each part of it matters', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  const fnOf = (text, head) => { const a = text.indexOf(head); assert.ok(a >= 0, `${head} is in the server`); return text.slice(a, text.indexOf('\n}\n', a) + 3); };
+  const intact = (text) => {
+    const pick = fnOf(text, 'function weatherSpacePick(');
+    const route = fnOf(text, "app.get('/api/spaces/:id/weather'").replace(/\n\}\);?$/, '');
+    return [
+      /factsFor\(req, res\)/.test(route), // signed in, not a guest, in the space
+      /weatherSpacePick\(who, perms, space\)/.test(route), // the place, as this asker
+      /moduleSpaceRefusal\(entry, who, space\)/.test(pick), // the module on here, the asker in the space
+      /!moduleCan\(manifest, perms, 'read'\)/.test(pick), // allowed to read the module the place comes from
+      /hiddenFor\(who, manifest, space\.id\)\.includes\(mn\.place\)/.test(pick), // a field hidden from them is not their place
+      /overLimit\(moduleId, by, 'weather'\)/.test(fnOf(text, 'function weatherCounter(')) && /weatherCounter\(res, pick\.manifest\.id, who\.user\.key\)/.test(route), // counted on the place's module
+    ].every(Boolean);
+  };
+  assert.equal(intact(src), true, 'the gate is as the plan says');
+  for (const [name, cut] of [
+    ['the facts gate', (t) => t.replace("const ctx = factsFor(req, res);\n  if (!ctx) return;\n  const { who, space, perms } = ctx;", "const ctx = { who: moduleViewer(req), space: store.spaceById(req.params.id), perms: {} };\n  const { who, space, perms } = ctx;")],
+    ['the read permission', (t) => t.replace("|| !moduleCan(manifest, perms, 'read')", '')],
+    ['the module being on here', (t) => t.replace('moduleSpaceRefusal(entry, who, space) ||', '')],
+    ['the hidden fields', (t) => t.replace(/\n    if \(hiddenFor\(who, manifest, space\.id\)\.includes\(mn\.place\)\) continue;/, '')],
+    ['the place module\'s limit', (t) => t.replace('weatherCounter(res, pick.manifest.id, who.user.key)', 'weatherCounter(res, "other", who.user.key)')],
+  ]) {
+    // Cut only in the space's own code: from weatherSpacePick on (the first match elsewhere must not stand in for it).
+    const from = src.indexOf('function weatherSpacePick(');
+    const mutated = src.slice(0, from) + cut(src.slice(from));
+    assert.notEqual(mutated, src, `${name}: the mutation changed the code`);
+    assert.equal(intact(mutated), false, `${name}: taking it out is noticed`);
+  }
+});
+
 // --- the route, on a real server ------------------------------------------------------------------------------------------
 // Stand-ins: the weather service (answers every day asked, by the clock), the place search (Photon-shaped) and LiveKit.
 const wxSeen = [];
@@ -661,7 +729,7 @@ const geoSeen = [];
 const geo = http.createServer((req, res) => {
   geoSeen.push({ url: req.url, headers: req.headers });
   const q = new URL(req.url, 'http://x').searchParams.get('q') || '';
-  const features = /lisbon/i.test(q) ? [{ geometry: { type: 'Point', coordinates: [-9.139337, 38.722252] }, properties: { name: 'Lisbon', country: 'Portugal', osm_type: 'R', osm_id: 5400890 } }] : [];
+  const features = /faro/i.test(q) ? [{ geometry: { type: 'Point', coordinates: [-7.930445, 37.019355] }, properties: { name: 'Faro', country: 'Portugal', osm_type: 'R', osm_id: 5400891 } }] : /lisbon/i.test(q) ? [{ geometry: { type: 'Point', coordinates: [-9.139337, 38.722252] }, properties: { name: 'Lisbon', country: 'Portugal', osm_type: 'R', osm_id: 5400890 } }] : [];
   json({ features })(req, res);
 });
 const lk = http.createServer((req, res) => { req.resume(); req.on('end', () => json({ participants: [] })(req, res)); });
@@ -1004,6 +1072,189 @@ await live('an agent reads the weather through the gate, and through read_weathe
   assert.ok(!(await mcp('read_weather', { module: 'travel', space: S.trip })).raw.includes(SECRET), 'read_weather answers the address');
 });
 
+// The space's own weather (plan-weather-users.md, step 1): GET /api/spaces/:id/weather, the place the first declaring module's
+// `weather.main` gives, and the module route's `space` fallback.
+const spaceW = (space, who, q = '') => call('GET', `/api/spaces/${space}/weather${q}`, who);
+const TRIP = () => ({ title: 'Our Portugal trip', destination: 'Lisbon', start: plus(1), end: plus(3), notes: 'Private words', currency: 'EUR', by: '', v: 2 });
+
+await live('the space\'s weather: the place, the day, what goes out', async () => {
+  // A space whose place nothing has kept yet (Faro), so that what goes out is seen.
+  const miaKey = ok(await call('GET', '/api/me', { token: S.mia }), 'mia').json.user.key;
+  S.faro = ok(await call('POST', '/api/spaces', { token: S.admin, body: { name: 'Algarve', members: [miaKey] } }), 'the Algarve space').json.space.id;
+  ok(await call('PATCH', `/api/spaces/${S.faro}`, { token: S.admin, body: { members: [miaKey], entry: 'guests' } }), 'it takes mia');
+  ok(await call('PATCH', '/api/modules/travel', { token: S.admin, body: { enabled: true, allSpaces: true } }), 'the Itinerary is on everywhere');
+  ok(await put('travel', S.faro, 'trip:main', { ...TRIP(), destination: 'Faro, a very long name of a town in the south' }), 'a trip to Faro');
+  wxSeen.length = 0; geoSeen.length = 0;
+  const r = ok(await spaceW(S.faro, { token: S.mia }), 'the space\'s weather');
+  // No phases: the trip's own dates, and today is before them: its first day. The name is cut to 24 characters.
+  assert.deepEqual(r.json, { configured: true, credit: '', units: 'c', place: { module: 'travel', name: 'Faro, a very long name o' }, day: plus(1), days: { [plus(1)]: { state: 'forecast', code: 'rain', words: 'Rain', high: 12, low: 5, rain: 40 } } });
+  assert.equal(r.json.place.name.length, 24);
+  assert.deepEqual(wxSeen.map(params), [{ lat: '37.02', lon: '-7.93', from: plus(1), to: plus(1) }], 'a rounded position and the day, nothing else');
+  assert.deepEqual(geoSeen.map(params), [{ q: 'Faro, a very long name of a town in the south', limit: '10' }], 'the text alone goes to the place search');
+  for (const x of [...wxSeen, ...geoSeen]) {
+    assert.equal(x.headers.cookie, undefined);
+    assert.equal(x.headers.authorization, undefined);
+  }
+  for (const x of wxSeen) assert.ok(!/Faro|Algarve|mia|Private/i.test(decodeURIComponent(x.url)) && !decodeURIComponent(x.url).includes(S.faro), 'no name, person or space in the ask');
+  assert.ok(!r.text.includes(SECRET), 'the service\'s address is not answered');
+  // The place of S.trip (Lisbon), as kept.
+  assert.equal(ok(await spaceW(S.trip, { token: S.mia }), 'the trip\'s place').json.place.name, 'Lisbon');
+  // Kept: asked again, nothing sent.
+  wxSeen.length = 0; geoSeen.length = 0;
+  assert.deepEqual(ok(await spaceW(S.faro, { token: S.mia }), 'again').json, r.json);
+  assert.equal(geoSeen.length, 0, 'the place is remembered');
+  assert.equal(wxSeen.length, 0, 'nothing is asked twice');
+  // Days given: both, the server picks nothing, no `day`.
+  const g = ok(await spaceW(S.trip, { token: S.mia }, `?from=${plus(2)}&to=${plus(3)}`), 'days given').json;
+  assert.deepEqual(Object.keys(g.days), [plus(2), plus(3)]);
+  assert.equal(g.day, undefined);
+  assert.deepEqual(g.place, { module: 'travel', name: 'Lisbon' });
+  const far = ok(await spaceW(S.trip, { token: S.mia }, `?from=${plus(40)}&to=${plus(41)}`), 'far').json;
+  assert.deepEqual(far.days, { [plus(40)]: { state: 'outOfRange' }, [plus(41)]: { state: 'outOfRange' } });
+  for (const [q, re] of [[`?from=${plus(1)}`, /both the first and the last day/], [`?to=${plus(1)}`, /both the first and the last day/], [`?from=${plus(0)}&to=${plus(60)}`, /at most 60 days/], [`?from=${plus(3)}&to=${plus(1)}`, /must not be after/], ['?from=2026-02-30&to=2026-03-01', /YYYY-MM-DD/], [`?from=${plus(1)}&to=tomorrow`, /YYYY-MM-DD/]]) {
+    const bad = await spaceW(S.trip, { token: S.mia }, q);
+    assert.equal(bad.status, 400, q);
+    assert.match(bad.json.error, re, q);
+  }
+  assert.equal(Object.keys(ok(await spaceW(S.trip, { token: S.mia }, `?from=${plus(0)}&to=${plus(59)}`), '60 days').json.days).length, 60);
+});
+
+await live('the space\'s day by the trip\'s dates, live: during, after, none', async () => {
+  const day = async () => ok(await spaceW(S.trip, { token: S.mia }), 'the space\'s weather').json;
+  ok(await put('travel', S.trip, 'trip:main', { ...TRIP(), start: plus(-5), end: plus(2) }), 'a trip under way');
+  let r = await day();
+  assert.equal(r.day, plus(0), 'during: today');
+  assert.deepEqual(Object.keys(r.days), [plus(0)]);
+  ok(await put('travel', S.trip, 'trip:main', { ...TRIP(), start: plus(-9), end: plus(-3) }), 'a trip that is over');
+  wxSeen.length = 0;
+  r = await day();
+  assert.deepEqual([r.configured, r.place, r.day, r.days], [true, { module: 'travel', name: 'Lisbon' }, undefined, {}], 'after: no day, the place still');
+  assert.equal(wxSeen.length, 0);
+  ok(await put('travel', S.trip, 'trip:main', { ...TRIP(), start: '', end: '' }), 'a trip with no dates');
+  r = await day();
+  assert.equal(r.day, plus(0), 'no dates: today');
+  ok(await put('travel', S.trip, 'trip:main', TRIP()), 'the trip again');
+  assert.equal((await day()).day, plus(1));
+});
+
+await live('the space\'s weather: who may ask, and who gets a place', async () => {
+  wxSeen.length = 0; geoSeen.length = 0;
+  assert.equal((await spaceW(S.trip, {})).status, 401, 'nobody');
+  const notIn = await spaceW(S.trip, { token: S.otto });
+  assert.equal(notIn.status, 403, 'a person who is not in the space');
+  assert.match(notIn.json.error, /not in that space/);
+  assert.equal(notIn.json.place, undefined);
+  assert.equal((await spaceW('nothing', { token: S.mia })).status, 404, 'no such space');
+  const link = ok(await call('POST', `/api/spaces/${S.trip}/guest-link`, { token: S.admin, body: {} }), 'a guest link').json.space.guestToken;
+  const guest = await spaceW(S.trip, {}, `?guest=${encodeURIComponent(link)}`);
+  assert.equal(guest.status, 403, 'a guest');
+  assert.equal(guest.json.place, undefined);
+  // Members who may not read the Itinerary here get no place: the destination does not leak, and nothing is asked.
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.travel.view': false } }), 'members may no longer see the trip');
+  const blind = ok(await spaceW(S.trip, { token: S.mia }), 'a member who may not read the module');
+  assert.deepEqual(blind.json, { configured: true, credit: '', units: 'c', place: null, days: {} });
+  assert.ok(!/Lisbon/.test(blind.text), 'the destination is not in the answer');
+  assert.equal(wxSeen.length + geoSeen.length, 0);
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.travel.view': true } }), 'members may again');
+  assert.equal(ok(await spaceW(S.trip, { token: S.mia }), 'a member who may').json.place.name, 'Lisbon');
+  // A closed space: refused like the facts route's.
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: true } }), 'the space is closed');
+  assert.equal((await spaceW(S.trip, { token: S.mia })).status, 403);
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: false } }), 'the space is open again');
+});
+
+await live('the space\'s weather: off, no terms, no place, a text not found', async () => {
+  wxSeen.length = 0; geoSeen.length = 0;
+  const off = { configured: false };
+  ok(await setWeather({ service: 'none' }), 'no service');
+  assert.deepEqual(ok(await spaceW(S.trip, { token: S.mia }), 'none chosen').json, off);
+  ok(await setWeather({ service: 'standin' }), 'the stand-in');
+  ok(await call('DELETE', '/api/weather/terms/standin', { token: S.admin }), 'the admin withdraws');
+  assert.deepEqual(ok(await spaceW(S.trip, { token: S.mia }), 'no terms').json, off);
+  ok(await call('PUT', '/api/weather/terms/standin', { token: S.admin, body: { accept: true } }), 'accepted again');
+  ok(await call('PATCH', '/api/modules/weather', { token: S.admin, body: { enabled: false } }), 'the Weather module off');
+  assert.deepEqual(ok(await spaceW(S.trip, { token: S.mia }), 'the module off').json, off);
+  ok(await call('PATCH', '/api/modules/weather', { token: S.admin, body: { enabled: true } }), 'on again');
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked while it is off');
+  // No module declares a place in this space: no place, and nothing is asked.
+  const bare = ok(await call('POST', '/api/spaces', { token: S.admin, body: { name: 'Bare', members: [] } }), 'a space with no trip').json.space.id;
+  const bareWho = { token: S.admin };
+  assert.deepEqual(ok(await spaceW(bare, bareWho), 'no place').json, { configured: true, credit: '', units: 'c', place: null, days: {} });
+  // A text the place search does not find (S.other: Atlantis): no place.
+  const lost = ok(await spaceW(S.other, { token: S.otto }), 'a place not found').json;
+  assert.deepEqual(lost, { configured: true, credit: '', units: 'c', place: null, days: {} });
+  assert.equal(wxSeen.length, 0, 'the weather service is not asked for it');
+});
+
+await live('two modules declare a place: the first in order that may be read and has a text; and the module route\'s `space`', async () => {
+  const { zipFiles } = require('../server/module-build.js');
+  const page = Buffer.from('<!doctype html><body></body>');
+  const make = (id, weather) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['space'], surfaces: { canvas: { entry: 'page.html', width: 300, height: 300 } }, weather }))], ['page.html', page]]);
+  const upload = async (id, weather) => {
+    const res = await fetch(`${base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', authorization: `Bearer ${S.admin}` }, body: make(id, weather) });
+    assert.ok(res.status === 201 || res.status === 200, `${id} installs: ${res.status} ${(await res.text()).slice(0, 200)}`);
+    ok(await call('PATCH', `/api/modules/${id}`, { token: S.admin, body: { enabled: true, allSpaces: true } }), `${id} turns on`);
+  };
+  await upload('wxalt', { main: { key: 'trip:main', place: 'dest', from: 'from', to: 'to' } });
+  await upload('wxspace', { space: true });
+  // Both have a text: the first in order (the Itinerary, installed first) is the place.
+  ok(await put('wxalt', S.trip, 'trip:main', { dest: 'Lisbon', from: plus(5), to: plus(6) }), 'the second module\'s place');
+  assert.equal(ok(await spaceW(S.trip, { token: S.mia }), 'the first').json.place.module, 'travel');
+  // The first has no text here: the second.
+  ok(await put('travel', S.trip, 'trip:main', { ...TRIP(), destination: '' }), 'the Itinerary without a destination');
+  const second = ok(await spaceW(S.trip, { token: S.mia }), 'the second').json;
+  assert.deepEqual([second.place, second.day, Object.keys(second.days)], [{ module: 'wxalt', name: 'Lisbon' }, plus(5), [plus(5)]], 'the second module\'s place and its first day');
+  ok(await put('travel', S.trip, 'trip:main', TRIP()), 'the Itinerary again');
+  // A module that says `space: true` takes the space's place for its days, which default to the place module's own.
+  wxSeen.length = 0;
+  const viaModule = ok(await call('GET', `/api/modules/wxspace/weather?scope=space&space=${S.trip}`, { token: S.mia }), 'a module with only `space`').json;
+  assert.deepEqual(Object.keys(viaModule.days), [plus(1), plus(2), plus(3)], 'the place module\'s first to last day');
+  assert.ok(Object.values(viaModule.days).every((d) => d.state === 'forecast'));
+  assert.ok(wxSeen.every((x) => params(x).lat === '38.72'), 'at the space\'s place');
+  // As the asker: a member who may not read the Itinerary here does not get its place; the next module's (wxalt's) serves.
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.travel.view': false } }), 'members may no longer see the trip');
+  const blind = ok(await call('GET', `/api/modules/wxspace/weather?scope=space&space=${S.trip}&from=${plus(1)}&to=${plus(2)}`, { token: S.mia }), 'blind').json;
+  assert.deepEqual(Object.values(blind.days).map((d) => d.state), ['forecast', 'forecast'], 'the days are those asked, at the next readable place');
+  assert.equal(ok(await spaceW(S.trip, { token: S.mia }), 'the space\'s own').json.place.module, 'wxalt');
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.travel.view': true } }), 'members may again');
+  ok(await call('PATCH', '/api/modules/wxalt', { token: S.admin, body: { enabled: false } }), 'the second place module off');
+  // A module that has no `space` and no days of its own answers noPlace, never the space's place.
+  const own = ok(await call('GET', `/api/modules/travel/weather?scope=space&space=${S.other}&from=${plus(1)}&to=${plus(1)}`, { token: S.otto }), 'a module without space').json;
+  assert.equal(own.days[plus(1)].state, 'noPlace');
+});
+
+await live('the space\'s weather is the agent\'s too: through the gate and read_weather without a module', async () => {
+  wxSeen.length = 0; geoSeen.length = 0;
+  const person = ok(await spaceW(S.trip, { token: S.mia }), 'a member\'s answer').json;
+  const before = await readsToday();
+  const linesBefore = agentLines().length;
+  const direct = ok(await spaceW(S.trip, { token: S.agent }), 'the agent reads the route').json;
+  assert.deepEqual(direct, person, 'the agent gets what a member gets');
+  assert.equal(await readsToday(), before + 2, 'the read (and the me that read it) each count once');
+  const line = agentLines().slice(linesBefore).find((l) => l.route === '/api/spaces/:id/weather');
+  assert.ok(line, 'the read is in the owner\'s log as the route');
+  assert.deepEqual([line.method, line.space, line.kind, line.status], ['GET', S.trip, 'read', 200]);
+  assert.ok(!JSON.stringify(line).includes('Lisbon'), 'the log holds no place');
+  const b2 = await readsToday();
+  const t = await mcp('read_weather', { space: S.trip });
+  assert.equal(t.isError, false, t.text);
+  assert.deepEqual(t.json, person, 'read_weather without a module answers the space\'s weather');
+  assert.equal(await readsToday(), b2 + 2, 'one read');
+  const ranged = await mcp('read_weather', { space: S.trip, from: plus(2), to: plus(3) });
+  assert.deepEqual(Object.keys(ranged.json.days), [plus(2), plus(3)]);
+  assert.equal((await mcp('read_weather', { space: S.trip, from: plus(2) })).isError, true, 'one day alone is refused');
+  // With a module, as before.
+  assert.deepEqual(Object.keys((await mcp('read_weather', { module: 'travel', space: S.trip })).json.days), [plus(1), plus(2), plus(3)]);
+  // A space it is not in; the unticked view row of the place's module gives no place.
+  const notIn = await spaceW(S.other, { token: S.agent });
+  assert.equal(notIn.status, 404);
+  assert.deepEqual(notIn.json, { error: 'no such space' });
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.travel.view': false } }), 'the agent may no longer see the trip');
+  assert.equal(ok(await spaceW(S.trip, { token: S.agent }), 'an agent without the view row').json.place, null);
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.travel.view': true } }), 'the agent may again');
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'what is kept is answered');
+});
+
 await live('the service\'s address is never answered, and never written in the open', async () => {
   const routes = [
     ['GET', `/api/modules/travel/weather?scope=space&space=${S.trip}`], ['GET', '/api/modules'], ['GET', '/api/modules/travel/settings/values?scope=environment'],
@@ -1057,6 +1308,15 @@ await live('a failing service: 502 with nothing kept, the kept days otherwise; t
   const told = await weatherOf(S.trip, { token: nora }, `&from=${plus(9)}&to=${plus(9)}`);
   assert.match(told.json.error, /is busy\. Wait \d+ seconds?/);
   assert.equal((await weatherOf(S.trip, { token: nora }, `&from=${plus(1)}&to=${plus(3)}`)).status, 200, 'what is kept is still answered');
+  // The space's weather counts against the same limit, the place module's: nora is over it, so an ask of the service is refused...
+  ok(await call('PATCH', `/api/spaces/${S.faro}`, { token: S.admin, body: { members: [...ok(await call('GET', `/api/spaces/${S.faro}`, { token: S.admin }), 'the Algarve space').json.space.members, me.user ? me.user.key : me.key] } }), 'nora joins the Algarve space');
+  wxSeen.length = 0;
+  const over = await spaceW(S.faro, { token: nora }, `?from=${plus(5)}&to=${plus(5)}`);
+  assert.equal(over.status, 429, 'the space route shares the place module\'s limit');
+  assert.match(over.json.error, /is busy\. Wait \d+ seconds?/);
+  assert.equal(wxSeen.length, 0, 'and the service is not asked');
+  // ...and what is kept is still answered.
+  assert.equal((await spaceW(S.faro, { token: nora }, '')).status, 200, 'what is kept is answered over the limit');
   wxFails = false;
 });
 
