@@ -26,6 +26,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { launch, Tab, startServer, stopServer, freePort, findBrowser, sleep } from './shots.mjs';
 import { stopBrowser } from './browser-launch.mjs';
+import { linkFake, linkThrough, followFrom } from './lib/github-link-fake.mjs';
 
 const say = (...a) => console.log('check-schedule-fields:', ...a);
 let n = 0;
@@ -42,7 +43,10 @@ const PASSWORD = 'testpass1234';
 const REPO = 'o/r';
 // The app's credentials for world B, made fresh on each run (never written to the repository); the stand-in answers the app's two calls.
 const PEM = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
-const LINK = { installation: 5, repositoryId: 55, writeOk: true };
+const LINK = { installation: 5, repositoryId: 55 };
+// The sign-in half of the fake, so world B links through the real routes (tools/lib/github-link-fake.mjs): the person may write to it.
+const links = linkFake({ clientId: 'Iv1.fields', clientSecret: 'fieldssecret0123456789' });
+links.state.person.installations = [{ id: LINK.installation, repositories: [{ id: LINK.repositoryId, full_name: REPO, private: false, permissions: { push: true, pull: true }, created_at: '2026-01-01T00:00:00Z' }] }];
 
 // ---- a small stand-in for GitHub: a list of issues, every request kept ----
 const seen = [];
@@ -52,6 +56,7 @@ const issues = [
   { number: 3, title: 'Nothing like an area', state: 'closed', labels: [], created_at: '2026-01-06T00:00:00Z', closed_at: '2026-01-07T00:00:00Z', updated_at: '2026-01-07T00:00:00Z' },
 ].map((i) => ({ closed_at: null, milestone: null, body: 'private', user: { login: 'someone' }, assignees: [], html_url: `https://github.com/${REPO}/issues/${i.number}`, ...i }));
 const fake = http.createServer((req, res) => {
+  if (links.handle(req, res)) return;
   req.resume();
   res.writeHead(200, { 'content-type': 'application/json' });
   if (req.url === '/app') return res.end(JSON.stringify({ slug: 'fields-check', name: 'Fields check' }));
@@ -349,7 +354,10 @@ try {
   B.must(await B.call('PATCH', '/api/modules/schedule', { enabled: true, allSpaces: true }), 'enable');
   const SB = B.must(await B.call('POST', '/api/spaces', { name: 'Bug Squash', starter: false }), 'space').space.id;
   B.must(await B.call('PUT', '/api/weather/terms/issues-standin', { accept: true }), 'terms');
-  B.must(await B.call('PUT', `/api/spaces/${SB}/issues-pull`, { on: true, repo: REPO, provider: 'issues-standin', testLink: LINK }), 'follow');
+  const via = (method, url, body) => B.call(method, url, body);
+  const linkedB = await linkThrough({ call: via, space: SB });
+  B.must(linkedB.list, 'the link\'s list');
+  B.must(await followFrom({ call: via, space: SB, link: linkedB.link, repositoryId: LINK.repositoryId }), 'follow');
   const gotPulled = async () => { for (let i = 0; i < 60; i += 1) { const l = (await B.call('GET', `/api/modules/schedule/data?scope=space&space=${SB}`)).json.items.filter((x) => x.key.startsWith('plan:gh-')); if (l.length >= 3) return true; await B.call('POST', `/api/spaces/${SB}/issues-pull/now`, {}); await sleep(700); } return false; };
   ok(await gotPulled(), 'the three issues are pulled');
   B.must(await B.call('PUT', `/api/spaces/${SB}/issues-pull`, { write: true }), 'writing on');

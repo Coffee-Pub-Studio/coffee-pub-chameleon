@@ -3599,18 +3599,18 @@ function productAddress(req, res) {
 }
 hostRouter.get('/api/product/address', productAddress);
 // The services' terms host routes (accepted once for the host; see 'who accepts a service's terms', below) belong here, before the catch-all.
-hostRouter.get('/api/host/weather/terms', requireHostAdmin, (_req, res) => res.json(serviceTermsView(true)));
+hostRouter.get('/api/host/weather/terms', requireHostAdmin, async (req, res) => { await issueAppWarm(); res.json(serviceTermsView(true, req)); });
 hostRouter.put('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
   const adapter = serviceTermsPut(req, res);
   if (!adapter) return;
   serviceTerms.accept(adapter, currentHostAdmin(req).login || currentHostAdmin(req).displayName);
-  res.json(serviceTermsView(true));
+  res.json(serviceTermsView(true, req));
 });
 hostRouter.delete('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
   const adapter = serviceAdapter(req.params.service);
   if (!adapter) return res.status(404).json({ error: NO_SUCH_SERVICE });
   serviceTerms.withdraw(adapter);
-  res.json(serviceTermsView(true));
+  res.json(serviceTermsView(true, req));
 });
 hostRouter.use((_req, res) => res.status(404).json({ error: 'not found' }));
 
@@ -3650,7 +3650,7 @@ app.get('/design-system/module-sources.js', (req, res) => {
   }
 });
 const designSystemStatic = publicStatic({ index: false }); // static files only, a miss is a plain 404 here
-const PRODUCT_HOST_PATHS = ['/start.css', '/start.js', '/theme-head.js', '/style.css', '/theme.css', '/img/site/icon', '/favicon.ico', '/api/product', '/api/product/environment', '/api/product/address', '/api/product/signup'];
+const PRODUCT_HOST_PATHS = ['/start.css', '/start.js', '/theme-head.js', '/style.css', '/theme.css', '/img/site/icon', '/favicon.ico', '/api/product', '/api/product/environment', '/api/product/address', '/api/product/signup', '/api/issues-link/back'];
 if (BASE_DOMAIN) {
   app.use((req, res, next) => {
     const host = (req.hostname || '').toLowerCase();
@@ -13850,21 +13850,26 @@ const isServerAdmin = (req) => { const u = currentUser(req); return Boolean(u &&
 const WEATHER_TERMS_HOSTED = 'On a hosted server the host\'s administrator accepts a service\'s terms, on the host console.';
 const WEATHER_TERMS_ADMIN = 'Only the server\'s administrator can accept a service\'s terms.';
 const NO_SUCH_SERVICE = 'This server has no such service.';
-const serviceTermsView = (mayAccept) => ({ services: serviceTerms.view(serviceAdapters()), mayAccept });
+// The GitHub app's state for the Service terms section (plan-github-app.md, section 15): { state: off | broken | unchecked | working,
+// name, slug, callback }. `callback` (the address to enter on GitHub as the callback and the setup URL) only for the one who may set up.
+// (The last registered one: GitHub's, or under the check the stand-in, which is registered after it and is the only one the check may ask.)
+const issueAppAdapter = () => issueProviders.list().filter((a) => typeof a.mintToken === 'function').at(-1) || null;
+const issueAppWarm = async () => { const a = issueAppAdapter(); if (a && !issueApp.refusal()) await issueApp.ensureApp(a, Date.now()).catch(() => null); };
+const serviceTermsView = (mayAccept, req) => ({ services: serviceTerms.view(serviceAdapters()), mayAccept, githubApp: { ...issueApp.status(issueAppAdapter()), callback: mayAccept && req ? issueLinkAddress(req) : '' } });
 function serviceTermsPut(req, res) {
   const adapter = serviceAdapter(req.params.service);
   if (!adapter) { res.status(404).json({ error: NO_SUCH_SERVICE }); return null; }
   if (!req.body || req.body.accept !== true) { res.status(400).json({ error: `Send { "accept": true } to accept ${adapter.name}'s terms${adapter.terms ? ` (${adapter.terms})` : ''}.` }); return null; }
   return adapter;
 }
-app.get('/api/weather/terms', requireOwner, (req, res) => res.json(serviceTermsView(!hostRegistry && isServerAdmin(req))));
+app.get('/api/weather/terms', requireOwner, async (req, res) => { await issueAppWarm(); res.json(serviceTermsView(!hostRegistry && isServerAdmin(req), req)); });
 app.put('/api/weather/terms/:service', requireOwner, (req, res) => {
   if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
   if (!isServerAdmin(req)) return res.status(403).json({ error: WEATHER_TERMS_ADMIN });
   const adapter = serviceTermsPut(req, res);
   if (!adapter) return;
   serviceTerms.accept(adapter, currentUser(req).login || currentUser(req).displayName);
-  res.json(serviceTermsView(true));
+  res.json(serviceTermsView(true, req));
 });
 app.delete('/api/weather/terms/:service', requireOwner, (req, res) => {
   if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
@@ -13872,7 +13877,7 @@ app.delete('/api/weather/terms/:service', requireOwner, (req, res) => {
   const adapter = serviceAdapter(req.params.service);
   if (!adapter) return res.status(404).json({ error: NO_SUCH_SERVICE });
   serviceTerms.withdraw(adapter);
-  res.json(serviceTermsView(true));
+  res.json(serviceTermsView(true, req));
 });
 // --- the issue pull (documentation/plans/plan-github-pull.md, step 1) -------------------------------------------------------
 // A repository's issues pulled into one space's Planner - Projects, one way (server/issues.js; the services in
@@ -14365,7 +14370,17 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
     issuePulls.set(space.id, { on: false, write: false, writeBy: '', writeAt: '', next: '', via: 'public', installation: 0, repositoryId: 0, writeOk: false, linkBy: '', linkAt: '', appError: '' });
     return res.json(issuePullView(space.id));
   }
-  const repo = issuesLib.cleanRepo(adapter, body.repo);
+  // A repository picked from a link's list (plan-github-app.md, section 6): the installation, the repository and the person's own
+  // right on GitHub come from the list the person's own sign-in made, never from the page.
+  let picked = null;
+  if (body.link !== undefined || body.repositoryId !== undefined) {
+    const made = issueApp.linkFor(typeof body.link === 'string' ? body.link : '', { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key });
+    if (!made || made.provider !== adapter.id) return res.status(404).json({ error: issuesLib.SAY.linkEnded });
+    const pick = made.list.repositories.find((r) => r.repositoryId === body.repositoryId);
+    if (!pick || !adapter.validRepo(pick.repo)) return res.status(400).json({ error: issuesLib.SAY.notInList });
+    picked = { id: made.id, pick };
+  }
+  const repo = picked ? picked.pick.repo : issuesLib.cleanRepo(adapter, body.repo);
   if (!repo) return res.status(400).json({ error: 'Name the repository as owner/name, or paste its address.' });
   const at = issuePullAt(space);
   if (at.error) return res.status(409).json({ error: at.error });
@@ -14380,12 +14395,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   if (others.length) return res.status(409).json({ error: `Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new ${word('space')}.` });
   const now = Date.now();
   const moved = !had || had.repo !== repo || had.provider !== adapter.id;
-  // TEST SEAM (tools/check-issues.mjs): the link flow is step 2 of plan-github-app.md, so until it exists a check links a space by
-  // sending `testLink` { installation, repositoryId, writeOk }. Honoured only for the test stand-in, which is registered only when
-  // ISSUES_TEST_STANDIN is set; the real service has no such way.
-  const t = adapter.id === 'issues-standin' && body.testLink && typeof body.testLink === 'object' ? body.testLink : null;
-  const link = t && Number.isSafeInteger(t.installation) && t.installation > 0 && Number.isSafeInteger(t.repositoryId) && t.repositoryId > 0
-    ? { via: 'app', installation: t.installation, repositoryId: t.repositoryId, writeOk: t.writeOk === true, linkBy: who.user.key, linkAt: isoAt(now) } : null;
+  const link = picked ? { via: 'app', installation: picked.pick.installation, repositoryId: picked.pick.repositoryId, writeOk: picked.pick.canWrite === true, linkBy: who.user.key, linkAt: isoAt(now) } : null;
   const writing = body.write === undefined ? Boolean(had && !moved && had.write) : body.write;
   if (writing) {
     const refused = writeCheck(link || (moved ? { via: 'public' } : had));
@@ -14410,8 +14420,81 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   } catch (err) {
     console.warn(`The issue pull could not set the board's columns setting: ${err.message}`);
   }
+  if (picked) issueApp.drop(picked.id);
   pullIssuesQueued(currentEnvironment(), space.id);
   res.json(issuePullView(space.id));
+});
+
+// --- the link flow (documentation/plans/plan-github-app.md, sections 2 and 6) ------------------------------------------------
+// The address GitHub sends the person back to, registered on the app as its callback and setup URL: the server's own address, and on
+// a host with environments the product host's (one address for every environment, since an app has at most 10 and they match exactly).
+function issueLinkAddress(req) {
+  const scheme = auth.isSecure(req) ? 'https' : 'http';
+  if (!PRODUCT_HOST) return `${baseUrl(req)}/api/issues-link/back`;
+  return `${scheme}://${PRODUCT_HOST}${PRODUCT_HOST.includes(':') ? '' : requestPort(req)}/api/issues-link/back`;
+}
+// A plain page for a person GitHub sent back to a link that cannot go on: one of our own sentences and a way back. Never the query.
+function issueLinkPage(res, status, sentence, href) {
+  res.status(status).set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', ...NOT_FRAMED })
+    .send(`<!doctype html><meta charset="utf-8"><title>GitHub</title><body style="font:16px system-ui,sans-serif;margin:2em;text-align:center"><p>${sentence}</p><p><a href="${href}">Back</a></p>`);
+}
+const issueLinkOwner = (who) => Boolean(who.user && !who.user.agent && hasOwnerRights(who.user));
+
+// An owner starts linking a repository ({ provider? }, GitHub when none): answers { url }, the GitHub address to send the person to.
+// 403 for anyone but an owner and for an agent, 409 when the server has no working app, GitHub's terms are not accepted or Planner -
+// Projects is not on. Nothing of the person or the space goes to GitHub.
+app.post('/api/spaces/:id/issues-link', (req, res) => {
+  const place = issuePullPlace(req, res, 'read');
+  if (!place) return;
+  const { who, space } = place;
+  if (!issueLinkOwner(who)) return res.status(403).json({ error: issuesLib.SAY.linkOwnerOnly(word('owner', { a: true })) });
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const adapter = issueAdapterOf(body.provider === undefined ? 'github' : body.provider);
+  if (!adapter || typeof adapter.exchangeCode !== 'function') return res.status(400).json({ error: 'This server has no such service.' });
+  const why = issueApp.refusal();
+  if (why) return res.status(409).json({ error: why });
+  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true })) });
+  const at = issuePullAt(space);
+  if (at.error) return res.status(409).json({ error: at.error });
+  const made = issueApp.begin(adapter, { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key, redirectUri: issueLinkAddress(req) });
+  res.json({ url: made.url });
+});
+
+// GitHub sends the person back here, with no session (on the product host of a host with environments): with `code` and `state` after
+// the sign-in, or with `state` and an `installation_id` after an install (the setup address). The environment, space and person are
+// the link's own, never read from the address; the `installation_id` is never read at all (GitHub warns it can be forged).
+app.get('/api/issues-link/back', async (req, res) => {
+  const str = (v) => (typeof v === 'string' && v.length <= 300 ? v : '');
+  const state = str(req.query.state);
+  const slugAddress = (slug) => (BASE_DOMAIN && slug ? `${auth.isSecure(req) ? 'https' : 'http'}://${slug}.${BASE_DOMAIN}${requestPort(req)}` : '');
+  const signIn = req.query.code !== undefined || req.query.error !== undefined;
+  if (!signIn) {
+    const url = issueApp.refusal() ? null : issueApp.restart(issueAdapterOf, state);
+    return url ? res.set('Referrer-Policy', 'no-referrer').redirect(302, url) : issueLinkPage(res, 400, issuesLib.SAY.linkEnded, '/');
+  }
+  const link = issueApp.claim(state);
+  if (!link) return issueLinkPage(res, 400, issuesLib.SAY.linkEnded, '/');
+  const home = `${slugAddress(link.slug)}/`;
+  const adapter = issueAdapterOf(link.provider);
+  if (str(req.query.error) || !str(req.query.code) || !adapter) { issueApp.drop(link.id); return issueLinkPage(res, 400, issuesLib.SAY.linkDenied, home); }
+  const done = await issueApp.complete(adapter, link, str(req.query.code));
+  if (!done.ok) { issueApp.drop(link.id); return issueLinkPage(res, 502, done.error, home); }
+  res.set('Referrer-Policy', 'no-referrer').redirect(302, `${slugAddress(link.slug)}/?space=${encodeURIComponent(link.spaceId)}&link=${encodeURIComponent(link.id)}`);
+});
+
+// The person who started the link reads what it found ({ link }): the repositories they can reach through the app, each with their
+// own right on GitHub (`canWrite`), and the address to install the app on one that is not there. 404 once it has run out or when it
+// is another person's, space's or environment's; 403 for anyone but an owner and for an agent.
+app.get('/api/spaces/:id/issues-link', async (req, res) => {
+  const place = issuePullPlace(req, res, 'read');
+  if (!place) return;
+  const { who, space } = place;
+  if (!issueLinkOwner(who)) return res.status(403).json({ error: issuesLib.SAY.linkOwnerOnly(word('owner', { a: true })) });
+  const link = issueApp.linkFor(typeof req.query.link === 'string' ? req.query.link : '', { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key });
+  if (!link) return res.status(404).json({ error: issuesLib.SAY.linkEnded });
+  const adapter = issueAdapterOf(link.provider);
+  if (adapter) await issueApp.ensureApp(adapter, Date.now()).catch(() => null);
+  res.json({ repositories: link.list.repositories, more: link.list.more, installUrl: adapter ? issueApp.installUrl(adapter, link) : '' });
 });
 
 // Someone with Projects' `edit` and `writeOut` opens a new issue from a column ({ title, column }): the service makes it (an empty
