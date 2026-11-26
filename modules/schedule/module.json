@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -329,7 +329,7 @@
       "follows": "issues",
       "maxLength": 100,
       "default": "",
-      "help": "A public repository on GitHub, as owner/name, whose issues this plan shows as work, one way. Anything already in the plan must be cleared first, and pulled work can be changed only on GitHub. An {owner} turns it on and off, once the administrator has accepted GitHub's terms under Service terms in Manage, {Modules}."
+      "help": "A public repository on GitHub, as owner/name or the address of the repository, whose issues this plan shows as work, one way. Anything already in the plan must be cleared first, and pulled work can be changed only on GitHub. An {owner} turns it on and off, once the administrator has accepted GitHub's terms under Service terms in Manage, {Modules}."
     }
   ]
 }

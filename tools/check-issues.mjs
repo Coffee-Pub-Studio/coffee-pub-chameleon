@@ -121,6 +121,20 @@ await test('GitHub\'s answer read as records: pull requests skipped, no person, 
   assert.deepEqual(GITHUB.waitOf(h({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000', 'x-poll-interval': '120' })), { resetAt: 1800000000000, pollMs: 120000 });
   assert.equal(GITHUB.validRepo(REPO), true);
   for (const bad of ['', 'nope', 'a/b/c', '-a/b', 'a/..', 'a/.', 'a b/c', 'https://github.com/a/b']) assert.equal(GITHUB.validRepo(bad), false, bad);
+  for (const [typed, want] of [
+    ['o/r', 'o/r'], ['  o/r  ', 'o/r'], ['https://github.com/o/r', 'o/r'], ['https://www.github.com/o/r', 'o/r'], ['github.com/o/r', 'o/r'],
+    ['HTTPS://GitHub.com/o/r', 'o/r'], ['https://github.com/o/r/', 'o/r'], ['https://github.com/o/r.git', 'o/r'],
+    ['https://github.com/o/r/issues', 'o/r'], ['https://github.com/o/r/issues/12', 'o/r'], ['https://github.com/o/r/tree/main', 'o/r'],
+    ['https://github.com/o/r?tab=readme', 'o/r'], ['https://github.com/o/r#readme', 'o/r'], ['https://github.com/o/r.git/', 'o/r'],
+    ['git@github.com:o/r.git', 'o/r'], ['git@github.com:o/r', 'o/r'], ['my-org1/some_repo.js', 'my-org1/some_repo.js'],
+  ]) assert.equal(GITHUB.repoFrom(typed), want, typed);
+  for (const bad of ['', '   ', 'nope', 'a/b/c', '-a/b', 'a/..', 'a b/c', 'http://github.com/o/r', 'https://gitlab.com/o/r', 'https://github.com.evil.example/o/r',
+    'https://evil.example/github.com/o/r', 'https://github.com/o', 'https://github.com/', 'https://github.com', 'github.com', 'git@gitlab.com:o/r.git',
+    'ftp://github.com/o/r', '//github.com/o/r', 'https://user@github.com/o/r', 'https://github.com//r', 'https://github.com/o/..', null, 7]) assert.equal(GITHUB.repoFrom(bad), '', String(bad));
+  const { cleanRepo } = require('../server/issues.js');
+  assert.equal(cleanRepo(GITHUB, 'https://github.com/o/r/issues/3'), 'o/r');
+  assert.equal(cleanRepo(GITHUB, 'https://gitlab.com/o/r'), '');
+  assert.equal(cleanRepo(null, 'o/r'), '');
 });
 
 await test('only GitHub is registered, unless the check names its stand-in', () => {

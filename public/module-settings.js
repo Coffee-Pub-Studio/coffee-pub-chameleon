@@ -94,7 +94,7 @@ function wireFollows(box, space) {
   api('GET', route).then(draw).catch((err) => { state.textContent = 'Not following'; say(err.message, true); });
   toggle.addEventListener('click', async () => {
     const repo = (input ? input.value : '').trim();
-    if (!on && !repo) { say('Enter the repository as owner/name first.', true); return; }
+    if (!on && !repo) { say('Enter the repository as owner/name, or paste its address, first.', true); return; }
     if (on && !await confirmDialog({ title: 'Turn off the pull?', message: 'The work already pulled stays in the plan as your own, and can be changed here again.', action: 'Turn off', kind: 'destructive' })) return;
     toggle.disabled = true;
     try {

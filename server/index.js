@@ -13979,7 +13979,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
     return res.json(issuePullView(space.id));
   }
   const repo = issuesLib.cleanRepo(adapter, body.repo);
-  if (!repo) return res.status(400).json({ error: 'Name the repository as owner/name.' });
+  if (!repo) return res.status(400).json({ error: 'Name the repository as owner/name, or paste its address.' });
   const at = issuePullAt(space);
   if (at.error) return res.status(409).json({ error: at.error });
   if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true })) });
