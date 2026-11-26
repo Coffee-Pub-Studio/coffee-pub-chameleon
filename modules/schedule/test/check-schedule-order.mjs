@@ -152,6 +152,29 @@ await test('setColumn gives unranked work above the drop a rank, written with th
   assert.deepEqual(byKey(a.writes), byKey(b.writes));
   assert.deepEqual(a.writes.map((x) => x.key).sort(), ['plan:a', 'plan:b', 'plan:x']);
 });
+await test('pulled work is placed one entry at a time: no before drops the rank; before only where the work above has ranks', async () => {
+  const SP = { id: 's1', name: 'Launch' };
+  const src = { from: 'github', repo: 'o/r', number: 1 };
+  const row = (o) => ({ kind: 'work', title: 'W', start: '2026-11-01', order: 'm', by: 'u', done: false, column: 'now', ...o });
+  const world = { space: SP, rows: { 'plan:g1': row({ end: '2026-11-01', source: src }), 'plan:g2': row({ end: '2026-11-02', source: src }), 'plan:g3': row({ column: 'next', rank: 'M', source: src }), 'plan:r1': row({ end: '2026-11-03', rank: 'D' }), 'plan:r2': row({ end: '2026-11-04', rank: 'M' }) }, people: [], settings: { boardColumns: 'priority' }, phases: [] };
+  const ref = (id) => ({ module: 'schedule', kind: 'plan', id, scope: 'space', space: 's1' });
+  const run = async (input) => {
+    const a = await onPage('schedule', 'setColumn', input, world, { name: 'Planner - Projects' });
+    const b = await onRunner('schedule', 'setColumn', input, world, { kinds: ['plan'], carrier: 'server' });
+    assert.ok(!b.fault, b.fault);
+    assert.equal(a.refused, b.refused, 'the same refusal');
+    if (a.refused === undefined) assert.deepEqual(a.writes, b.writes, 'the same writes');
+    return a;
+  };
+  let r = await run({ ref: ref('g3'), column: 'now' });
+  assert.deepEqual([r.writes.length, r.writes[0].value.column, r.writes[0].value.rank], [1, 'now', undefined], 'one write, and the old rank of the other column is dropped');
+  r = await run({ ref: ref('g3'), column: 'now', before: 'g2' });
+  assert.match(r.refused, /has no order yet/, 'work above with no rank would need writing too');
+  r = await run({ ref: ref('g3'), column: 'now', before: 'r2' });
+  assert.equal(r.refused, undefined);
+  assert.equal(r.writes.length, 1);
+  assert.ok(r.writes[0].value.rank > 'D' && r.writes[0].value.rank < 'M');
+});
 await test('the page: sorted by scCardOrder, a move sends before, a pulled move writes ranks alone for the others', () => {
   assert.match(page, /sort\(scCardOrder\(list\(\)\)\)/);
   assert.match(page, /scPlace\(list\(\), moved\.entry, moved\.entry\.column, b, m\.before \|\| ''\)/);

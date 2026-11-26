@@ -122,14 +122,20 @@ function scChange(input, ctx, make) {
   return answer;
 }
 // setColumn: the move (column and done), then its place in the column: in front of the work `before`, else at the end.
+// Pulled work (it has a `source`) is written on its own, one entry at a time, because a change to it may go to GitHub (server/index.js), so
+// its placement never needs another entry written: with no `before` it takes no rank and sits with the work nobody has ordered, below the
+// ranked work of its column; with `before` it is placed only when the work above it already has ranks.
 function scMoveTo(input, ctx, e, f) {
   const board = scBoardOf(ctx);
   const r = scSetColumn(e, input.column, board, { label: f.label });
   if (r.problem) return r;
   const before = typeof input.before === 'string' && input.before ? input.before : '';
+  if (e.source && !before) return { entry: { ...r.entry, rank: '' }, others: [], problem: '' };
   const placed = scPlace(scEntriesOf(ctx), r.entry, r.entry.column, board, before);
+  if (e.source && placed.others.length) return { entry: null, others: [], problem: SC_PLACE_SAY };
   return { entry: placed.entry, others: placed.others, problem: '' };
 }
+const SC_PLACE_SAY = 'The work above it has no order yet. Move it without a place, or put it in order on the board.';
 
 const ACTION_HANDLERS = {
   addMilestone: (input, ctx) => scAdd('milestone', input, ctx),
