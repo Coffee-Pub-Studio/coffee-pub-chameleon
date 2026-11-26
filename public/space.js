@@ -2810,10 +2810,15 @@ attentionButton.addEventListener('click', () => openHostMenu(attentionButton, at
 const MAX_FACT_CHIPS = 3;
 let spaceFacts = { spaceId: null, modules: [] };
 let factsDrawn = '';
+// The weather chip's state (below, "the weather on the strip"); declared here because the space is followed first.
+let weatherNow = { spaceId: null, answer: null, until: 0 };
+let weatherAsked = 0;
 function followFactsSpace() {
   const id = currentSpace && !currentSpace.isAside && !inAside() && !guestToken && me && me.role !== 'guest' ? currentSpace.id : null;
   if (id === spaceFacts.spaceId) return;
   spaceFacts = { spaceId: id, modules: [] };
+  weatherNow = { spaceId: id, answer: null, until: 0 };
+  weatherAsked += 1; // an answer still on its way belongs to the space left
   if (id) loadFacts();
 }
 let factsAsked = 0;
@@ -2821,6 +2826,7 @@ async function loadFacts() {
   const id = spaceFacts.spaceId;
   if (!id) return;
   const ticket = ++factsAsked;
+  loadWeather(); // its own timing: at most once in 30 minutes, whatever reads the facts
   try {
     const answer = await api('GET', `/api/spaces/${encodeURIComponent(id)}/facts`);
     if (ticket !== factsAsked || spaceFacts.spaceId !== id) return; // a newer read, or another space, took over
@@ -2848,7 +2854,10 @@ const factsNow = (list) => (phaseRule() && phaseRule().factsToday ? phaseRule().
 function factsInOrder() {
   const all = [];
   spaceFacts.modules.forEach((m, mi) => factsNow(m.facts).forEach((f, fi) => all.push({ ...f, module: m.module, name: m.name || m.module, rank: [Number.isInteger(f.order) ? f.order : 50, mi, fi] })));
-  return all.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2]);
+  all.sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.rank[2] - b.rank[2]);
+  const wx = weatherFact();
+  if (wx) all.push(wx); // after the modules' facts: counted in the three, and the first to give way (fitFacts drops from the end)
+  return all;
 }
 // Whether some module here reads the space's budget target (a fact marked `budget`): Set up offers the target then.
 const budgetReported = () => spaceFacts.modules.some((m) => (m.facts || []).some((f) => f.budget));
@@ -2866,8 +2875,9 @@ function factChip(f) {
   b.type = 'button';
   b.className = 'sdk-strip-chip sdk-strip-fact'; // a header chip (system.css, journey block)
   b.dataset.module = f.module;
+  if (f.weather) b.dataset.weather = '';
   b.setAttribute('aria-haspopup', 'menu');
-  b.title = f.value ? `${f.text} · ${f.value}. ${f.name}` : `${f.text}. ${f.name}`;
+  b.title = f.weather ? f.said : f.value ? `${f.text} · ${f.value}. ${f.name}` : `${f.text}. ${f.name}`;
   b.setAttribute('aria-label', b.title);
   if (typeof f.progress === 'number') {
     const fill = document.createElement('span');
@@ -2883,13 +2893,13 @@ function factChip(f) {
   words.className = 'sdk-strip-fact-text';
   words.textContent = f.text;
   b.append(icon, words);
-  b.addEventListener('click', () => openHostMenu(b, () => factMenuItems(f.module)));
+  b.addEventListener('click', () => openHostMenu(b, () => (f.weather ? weatherMenuItems() : factMenuItems(f.module))));
   return b;
 }
 // The chips, drawn again only when the facts change; then fitted to the line.
 function drawFacts() {
   const shown = phaseChipWanted() ? factsInOrder().slice(0, MAX_FACT_CHIPS) : [];
-  const key = JSON.stringify(shown.map((f) => [f.module, f.name, f.id, f.icon, f.text, f.value || '', f.progress ?? null]));
+  const key = JSON.stringify(shown.map((f) => [f.module, f.name, f.id, f.icon, f.text, f.value || '', f.progress ?? null, f.weather ? f.said : '']));
   if (key !== factsDrawn) {
     factsDrawn = key;
     statusFacts.replaceChildren(...shown.map(factChip));
@@ -2907,6 +2917,75 @@ function fitFacts() {
   for (let i = chips.length - 1; i >= 0 && crowded(); i -= 1) chips[i].hidden = true;
 }
 if (typeof ResizeObserver === 'function') new ResizeObserver(() => fitFacts()).observe(statusStrip);
+// --- the weather on the strip (plan-weather-users.md, step 2): one more fact, the space's place and day ---------------------
+// GET /api/spaces/:id/weather answers for the space (no query: the server picks the place and the day), and the chip is drawn
+// from the SDK's own WEATHER_LOOK and dayWeatherFacts (window.hostWeather, public/sdk/host.js), never a copy. Nothing is drawn
+// with weather off, no terms accepted, a picture map, no place or a day with no forecast, and nothing says why. It is asked when
+// the space loads and with the facts' reads, but never sooner than 30 minutes after an answer (the route is limited to 30 asks
+// a minute per person and counts only the asks that reach the service); weather off waits 10 minutes, and any error (429, 502,
+// a dropped line) draws nothing and waits 60 seconds.
+const WEATHER_KEEP = 30 * 60 * 1000;
+const WEATHER_OFF_KEEP = 10 * 60 * 1000;
+const WEATHER_ERROR_KEEP = 60 * 1000;
+async function loadWeather() {
+  const id = weatherNow.spaceId;
+  if (!id || !phaseChipWanted() || Date.now() < weatherNow.until) return;
+  const ticket = ++weatherAsked;
+  weatherNow.until = Date.now() + WEATHER_ERROR_KEEP; // one ask at a time; an error keeps this
+  let answer = null;
+  try {
+    answer = await api('GET', `/api/spaces/${encodeURIComponent(id)}/weather`);
+  } catch { /* nothing is drawn; the next read waits out the minute */ }
+  if (ticket !== weatherAsked || weatherNow.spaceId !== id) return;
+  if (answer && typeof answer === 'object') weatherNow.until = Date.now() + (answer.configured ? WEATHER_KEEP : WEATHER_OFF_KEEP);
+  weatherNow.answer = answer && answer.configured && answer.place ? answer : null;
+  drawFacts();
+}
+// The asked day's weather as one fact, or null. "18° Lisbon" for today, "Fri 18° Lisbon" for a later day.
+function weatherFact() {
+  const a = weatherNow.answer;
+  const look = window.hostWeather;
+  if (!a || !look || !a.place || !a.day || !a.days) return null;
+  const day = look.facts(a.days[a.day], a.units);
+  if (!day) return null;
+  const name = cleanText(a.place.name || '');
+  const [y, m, d] = String(a.day).split('-').map(Number);
+  const when = new Date(y, m - 1, d, 12);
+  const later = a.day !== phaseToday();
+  const text = `${later ? `${when.toLocaleDateString(undefined, { weekday: 'short' })} ` : ''}${day.high}°${name ? ` ${name}` : ''}`;
+  return { weather: true, id: 'weather', icon: day.icon, text, value: day.words, name: 'Weather', module: a.place.module, said: `${text}. ${day.said}`, day, date: when, credit: a.credit || '', place: a.place };
+}
+// The chip's menu (and the phase sheet row's): the day, the words with the high and low, the chance of rain, the service's
+// credit, and a way to open the module the place comes from.
+function weatherMenuItems() {
+  const f = weatherFact();
+  if (!f) return [];
+  const day = f.day;
+  const long = f.date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', '');
+  const list = document.createElement('ul');
+  list.className = 'status-fact-list';
+  const row = (icon, text) => {
+    const li = document.createElement('li');
+    const i = document.createElement('i');
+    i.className = `fa-solid fa-${icon} fa-fw`;
+    i.setAttribute('aria-hidden', 'true');
+    li.append(i, document.createTextNode(text));
+    list.appendChild(li);
+  };
+  row(day.icon, `${day.words} · High ${day.high}°${day.unit}, low ${day.low}°${day.unit}`);
+  if (day.rain !== null) row('droplet', `${day.rain}% chance of rain`);
+  const items = [{ heading: `${day.state === 'past' ? 'What it was on' : 'Forecast for'} ${long}` }, { element: list }];
+  const credit = String(f.credit).replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (credit) {
+    const p = document.createElement('p');
+    p.className = 'status-fact-credit';
+    p.textContent = credit;
+    items.push({ element: p });
+  }
+  const here = moduleHere(f.module);
+  if (here) items.push({ label: `Open ${moduleNameHere(f.module)}`, icon: 'arrow-up-right-from-square', onPick: () => openAttentionTarget(f.module) });
+  return items;
+}
 // A chip's menu: the module's name, each of its facts in full (with its value), and a way to open the module.
 function factMenuItems(moduleId) {
   const m = spaceFacts.modules.find((x) => x.module === moduleId);
@@ -3035,7 +3114,7 @@ function openPhaseSheetFrom(opener) {
     words: { owner: word('owner'), moderator: word('moderator') },
     // Where the strip shows no chips (760px and below, the phone's slim line too) or cannot fit them all, the facts
     // head the sheet instead (plan-space-story-strip.md, "The phone line").
-    facts: factsHiddenInStrip() ? factsInOrder().map((f) => ({ icon: f.icon, text: f.text, value: f.value, progress: f.progress, name: f.name, open: () => openAttentionTarget(f.module) })) : [],
+    facts: factsHiddenInStrip() ? factsInOrder().map((f) => ({ icon: f.icon, text: f.text, value: f.value, progress: f.progress, name: f.name, title: f.weather ? 'Open the forecast' : '', open: f.weather ? () => setTimeout(() => openHostMenu(phaseChip, () => weatherMenuItems()), 0) /* after the sheet's close gives the chip the keyboard */ : () => openAttentionTarget(f.module) })) : [],
   });
 }
 phaseChip.addEventListener('click', () => openPhaseSheetFrom(phaseChip));

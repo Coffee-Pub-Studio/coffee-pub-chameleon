@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides the points in "For Thomas"; server-development builds the space-level answer and the agent tool, experience-design draws the strip's chip and the Calendar's days; content-manager documents them.
 
-**Status:** Planned on the leans, 2026-11-26. Thomas asked to start issue #1143, "Ideas: Use the Weather part in the story strip and the Calendar" (2026-11-26). Under his standing rule the small choices below take the planner's lean and say so; the foundational ones are listed in "For Thomas" and are built on the lean unless he says otherwise. Nothing is built. Read against `main` at `e0722562` as code only; nothing was run.
+**Status:** Planned on the leans, 2026-11-26. Thomas asked to start issue #1143, "Ideas: Use the Weather part in the story strip and the Calendar" (2026-11-26). Under his standing rule the small choices below take the planner's lean and say so; the foundational ones are listed in "For Thomas" and are built on the lean unless he says otherwise. Step 1 (the server) and step 2 (the strip's chip: `weatherFact` and `weatherMenuItems` in `public/space.js`, `window.hostWeather` in `public/sdk/host.js`, `tools/check-strip-weather.mjs`) are built as try builds; steps 3 and 4 are not. Read against `main` at `e0722562` as code only; nothing was run.
 
 ## What it is today
 

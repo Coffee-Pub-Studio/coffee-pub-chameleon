@@ -7010,6 +7010,7 @@
   // it hosts in the page, not as a module itself) can use the very same rendering Chat and every module share,
   // rather than a second copy. See host.util.markdown above for what this covers.
   global.hostText = { esc, markdown, plain: plainText, localWhen, detailLines, parseClockText, clockText };
+  global.hostWeather = { look: WEATHER_LOOK, facts: dayWeatherFacts }; // the host page's weather chip (public/space.js, plan-weather-users.md step 2): the same icons, words and rounding as host.ui.dayWeather, never a copy
   // A module's actions library carried out on a page (libraryHandlers above), for the checks that run a module's handlers on a
   // stand-in host: fromLibrary(host, ACTION_HANDLERS, { module: () => ({ id, name }), after?, only? }).
   // util(locale): the frozen ctx.util a handler gets, with no page (the server's runner builds its own from it).

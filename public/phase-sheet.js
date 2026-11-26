@@ -471,7 +471,7 @@ export function openPhaseSheet({ phases, dates, created, today, canEdit = false,
     const b = doc.createElement('button');
     b.type = 'button';
     b.className = 'phase-sheet-fact';
-    b.title = `Open ${f.name || ''}`.trim();
+    b.title = f.title || `Open ${f.name || ''}`.trim();
     if (typeof f.progress === 'number') {
       b.classList.add('has-progress');
       b.style.setProperty('--fact-progress', `${Math.round(Math.min(1, Math.max(0, f.progress)) * 100)}%`);
