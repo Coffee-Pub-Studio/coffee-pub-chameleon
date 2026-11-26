@@ -89,6 +89,8 @@ function scCleanSource(r) {
 }
 // What a person is told on a pulled entry while the pull is on.
 const SC_PULLED_SAY = 'This comes from GitHub. Change it there.';
+// What a person is told on pulled work in a space that writes back, for what GitHub cannot delete or change from here.
+const SC_NO_DELETE_SAY = "GitHub issues can't be deleted from here. Close it, or delete it on GitHub.";
 
 // One entry as the page uses it, from whatever is stored (another version, a template's starter, a hand edit): never throws.
 function scClean(id, raw) {
@@ -121,6 +123,7 @@ function scClean(id, raw) {
     by: typeof v.by === 'string' ? v.by.slice(0, 200) : '',
     ref: scCleanRef(v.ref),
     source: scCleanSource(v.source),
+    rank: typeof v.rank === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.rank) ? v.rank : '', // the order inside a board column (kept as stored; nothing sorts by it yet)
   };
   if (kind === 'work' && typeof v.column === 'string' && SC_BOARD_ID.test(v.column)) e.column = v.column;
   if (kind === 'milestone' && e.ticked) e.done = true;
@@ -146,6 +149,7 @@ function scValue(e) {
   if (e.by) out.by = e.by;
   if (e.ref) out.ref = { ...e.ref };
   if (e.source) out.source = { ...e.source };
+  if (e.rank) out.rank = e.rank;
   if (e.kind === 'work' && e.column) out.column = e.column;
   return out;
 }

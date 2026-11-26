@@ -59,7 +59,13 @@
   const canEdit = host.can('edit');
   // While a pull is on, work that came from it is the service's (plan-github-pull.md): read-only here, and nobody adds by hand.
   const pullOn = () => Boolean(state.pull.on);
-  const locked = (e) => Boolean(e && e.source && pullOn());
+  // In a space where changes go back to GitHub (the owner's switch), someone allowed to (write_out) can move, tick, rename and
+  // tag the issues that were pulled; the rest of them (the body, comments, who it is for, deleting) stays GitHub's.
+  const writeOn = () => Boolean(state.pull.on && state.pull.write);
+  const through = () => canEdit && writeOn() && host.can('write_out');
+  const isIssue = (e) => Boolean(e && e.kind === 'work' && e.source && e.source.number);
+  const pulled = (e) => Boolean(e && e.source && pullOn());
+  const locked = (e) => pulled(e) && !(through() && isIssue(e));
   const canAdd = () => canEdit && !pullOn();
   const pageLate = (e) => !e.source && scLate(e, today()); // pulled work has one day, so it is never "late"
   const canChange = (e) => canEdit && !locked(e);
@@ -80,7 +86,8 @@
     view: '',
     filter: scFilterEmpty(), // this person's Board filters (kept in this browser)
     loaded: false,
-    pull: { on: false, name: 'GitHub', last: '', next: '', error: '' }, // the space's issue pull (host.issues.status)
+    pull: { on: false, name: 'GitHub', last: '', next: '', error: '', write: false }, // the space's issue pull (host.issues.status)
+    sent: '', // the last refused change to GitHub, as the server said it (shown in the status line for a while)
     canFollow: false, // an owner may set the pull up (host.setup.can): the empty plan offers the way
     editing: null,
     openWanted: null,
@@ -184,7 +191,7 @@
   // what is stored (the refs summary's `done` and `progress`), so the Calendar, To-do and the phase measure read it as shown.
   // Written after a change by the person who made it; two people writing the same answer at once is harmless.
   async function settleMilestones() {
-    if (!canEdit) return;
+    if (!canEdit || pullOn()) return; // pulled milestones are GitHub's: the pull settles them
     const work = list().filter((e) => e.kind !== 'note');
     const changes = scMilestoneChanges(list(), host.util.rollup(work));
     for (const c of changes) {
@@ -267,7 +274,10 @@
     const status = p.total ? [{ text: `${p.done} of ${p.total} ${what} done`, icon: 'diagram-project' }] : [];
     const v = onBoard ? boardWork() : null;
     if (v && v.on) status.push({ text: `Showing ${v.shown.length} of ${v.works.length} ${kindWord('work', { many: v.works.length !== 1 })}`, icon: 'filter' });
+    // A status item holds 60 characters: the line that says changes go back is its own item; a refusal shows as a short item with the sentence as its hover text.
+    if (writeOn()) status.unshift({ text: `Changes go to ${state.pull.name || 'GitHub'}`, icon: 'arrow-up-right-from-square' });
     if (pullOn()) status.unshift(pullStatus());
+    if (state.sent) status.unshift({ text: `Not changed on ${state.pull.name || 'GitHub'}`, title: state.sent, icon: 'triangle-exclamation' });
     host.status.set(status).catch(() => {});
   }
   // --- the pull from GitHub (host.issues): the status line, Pull now, and keeping the page in step with a pull ---------------------
@@ -297,12 +307,13 @@
   function takePull(v) {
     const was = pullOn();
     const had = state.pull.last;
-    state.pull = v && typeof v === 'object' ? { on: Boolean(v.on), name: v.name || 'GitHub', last: v.last || '', next: v.next || '', error: v.error || '', counts: v.counts || null } : { on: false, name: 'GitHub', last: '', next: '', error: '' };
-    if (was !== pullOn()) {
+    const wrote = writeOn();
+    state.pull = v && typeof v === 'object' ? { on: Boolean(v.on), name: v.name || 'GitHub', last: v.last || '', next: v.next || '', error: v.error || '', counts: v.counts || null, write: Boolean(v.on && v.write) } : { on: false, name: 'GitHub', last: '', next: '', error: '', write: false };
+    if (was !== pullOn() || wrote !== writeOn()) {
       if (outline) { outline.destroy(); outline = null; $('outline').replaceChildren(); }
       if (board) { board.destroy(); board = null; $('board').replaceChildren(); }
     }
-    return was !== pullOn() || had !== state.pull.last;
+    return was !== pullOn() || wrote !== writeOn() || had !== state.pull.last;
   }
   async function refreshPull(reload) {
     if (!host.issues || !host.issues.status) return;
@@ -501,6 +512,7 @@
   }
   function rowMenu(e) {
     if (locked(e)) return sourceMenu(e);
+    if (pulled(e)) return [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(e.id) }, closeItem(e), ...sourceMenu(e)];
     if (!canEdit) return [];
     const items = [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(e.id) }];
     if (e.kind !== 'note') items.push({ id: 'done', label: e.done ? 'Mark not done' : 'Mark done', icon: e.done ? 'rotate-left' : 'circle-check', onClick: () => toggleDone(e.id) });
@@ -511,7 +523,7 @@
   async function confirmDelete(id) {
     const e = entry(id);
     if (!e) return;
-    if (locked(e)) { sayLocked(); return; }
+    if (pulled(e)) { say(SC_NO_DELETE_SAY, 'danger'); return; }
     let ok = true;
     if (host.ui.confirm) {
       try { ok = await host.ui.confirm({ title: `Delete "${e.title}"?`, message: `It comes off the ${label('plan')} for everyone.`, action: 'Delete', kind: 'destructive' }); } catch (err) { ok = false; }
@@ -519,8 +531,63 @@
     if (!ok) return;
     try { await removeEntry(id); } catch (err) { say(err && err.message ? err.message : 'It could not be deleted.'); }
   }
+  // --- changes to pulled work: sent to GitHub first -----------------------------------------------------------------------------
+  // The server sends the change to GitHub and stores what GitHub answers. Nothing here changes unless GitHub took it: a refusal
+  // leaves the card where it was and says why in one line (the server's own sentence, also in the status line for a while).
+  // A conflict (409) brings GitHub's version, which is drawn instead. Changes go one at a time, each from the work as stored then.
+  let sentTimer = 0;
+  let lane = Promise.resolve();
+  function sayWhy(text) {
+    state.sent = text;
+    clearTimeout(sentTimer);
+    sentTimer = setTimeout(() => { state.sent = ''; chrome(); }, 12000);
+    say(text, 'danger');
+  }
+  // `make(entry)` gives the entry as it should be (or null for nothing to send). Resolves { ok, error }.
+  function sendPulled(id, make) {
+    const run = async () => {
+      const had = state.entries.get(id);
+      if (!had) return { ok: false, error: 'That is not on the plan any more.' };
+      const next = make(had.e);
+      if (!next) return { ok: true, error: '' };
+      try {
+        const saved = await host.storage.set(SC_PREFIX + id, scValue(next), { version: had.version });
+        if (saved && saved.value) remember(id, saved.value, saved.version);
+        if (state.sent) { state.sent = ''; clearTimeout(sentTimer); }
+        render();
+        return { ok: true, error: '' };
+      } catch (err) {
+        if (err && err.current && err.current.value) remember(id, err.current.value, err.current.version);
+        const error = (err && err.message) || `${state.pull.name} did not answer. Nothing was changed; try again.`;
+        sayWhy(error);
+        render();
+        return { ok: false, error };
+      }
+    };
+    const out = lane.then(run, run);
+    lane = out.catch(() => {});
+    return out;
+  }
+  // A new issue in a column: the title is asked for, GitHub makes it, and it is drawn as GitHub answered.
+  async function newIssue(columnId) {
+    if (!through() || !host.issues || !host.issues.create) return;
+    const text = await host.ui.prompt({ title: `Add an issue to ${state.pull.name}`, label: 'Title', placeholder: 'Area: what is wrong', action: 'Add', maxLength: SC_TITLE_MAX, validate: (v) => (scLine(v, 10000) ? '' : 'Give it a title.') });
+    if (text === null || !scLine(text, 10000)) return;
+    try {
+      const made = await host.issues.create({ title: scLine(text, SC_TITLE_MAX), column: columnId });
+      if (made && made.key && made.value) remember(String(made.key).slice(SC_PREFIX.length), made.value, made.version);
+      render();
+    } catch (err) { sayWhy((err && err.message) || `${state.pull.name} did not answer. Nothing was changed; try again.`); }
+  }
+  // Close, for pulled work: the issue is closed on GitHub (it moves to the done column); Reopen is the tick taken off.
+  const closeItem = (e) => ({ id: 'done', label: e.done ? 'Reopen' : 'Close', icon: e.done ? 'rotate-left' : 'circle-check', onClick: () => toggleDone(e.id) });
+
   async function toggleDone(id) {
     const had = state.entries.get(id);
+    if (had && pulled(had.e) && through() && isIssue(had.e)) {
+      await sendPulled(id, (e) => { const r = scSetDone(e, !e.done, { label: (k) => kindWord(k), board: currentBoard() }); return r.entry; });
+      return;
+    }
     if (!had || !canChange(had.e) || had.e.kind === 'note') return;
     // The tick is the rule's (scSetDone): a milestone's `ticked`, and work moving to the board's done or open column with it.
     const r = scSetDone(had.e, !had.e.done, { label: (k) => kindWord(k), board: currentBoard() });
@@ -676,6 +743,7 @@
   function cardMenu(card) {
     const e = entry(card.id);
     if (locked(e)) return sourceMenu(e);
+    if (pulled(e)) return [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(card.id) }, closeItem(e), ...sourceMenu(e)];
     if (!canEdit) return [];
     return [
       { id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(card.id) },
@@ -703,12 +771,12 @@
           ? { noRow: 'No one', otherRow: 'Change who is doing it in Edit.' }
           : { noRow: `No ${kindWord('milestone')}`, otherRow: `Change the ${kindWord('milestone')} in Edit.` },
         canMove: (c) => canChange(entry(c.id)),
-        canAdd: () => canAdd(),
+        canAdd: (columnId) => (pullOn() ? through() && !(currentBoard().columns.find((c) => c.id === columnId) || {}).done : canAdd()),
         card: drawCard,
         menu: cardMenu,
         columnMenu,
         onOpen: (c) => openEditor(c.id),
-        onAdd: (columnId) => openEditor(null, { kind: 'work', column: columnId, ...scFilterSeed(currentFilter()) }),
+        onAdd: (columnId) => { if (pullOn()) newIssue(columnId); else openEditor(null, { kind: 'work', column: columnId, ...scFilterSeed(currentFilter()) }); },
         onMove: (m) => moveCard(m),
       };
       if (v.on) boardOpts.empty = 'Nothing matches.';
@@ -740,6 +808,11 @@
   async function moveCard(m) {
     if (!canEdit || !carried) return;
     if (locked(entry(m.id))) { sayLocked(); render(); return; }
+    if (pulled(entry(m.id))) {
+      // Column and done go together (scSetColumn); GitHub takes the move first, and the card stays where it was if it does not.
+      await sendPulled(m.id, (e) => scSetColumn(e, m.column, currentBoard(), { label: (k) => kindWord(k) }).entry);
+      return;
+    }
     const ask = ++boardAsk;
     try { await carried.setColumn({ ref: pointer(m.id), column: m.column }, {}); } catch (err) {
       say(err && err.message ? err.message : 'It could not be moved.', 'danger');
@@ -1015,10 +1088,11 @@
     const seedCol = s.column ? currentBoard().columns.find((c) => c.id === s.column) : null;
     const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, owners: s.owners || [], phase: s.phase || '', tags: s.tags || [], ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}) });
     const readOnly = !canEdit || locked(shown);
-    state.editing = { id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
+    const partly = !readOnly && pulled(shown); // a pulled issue that changes on GitHub: only the title, tags and Done
+    state.editing = { partly, id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
     $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
-    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : '';
-    hide($('f-readonly'), !readOnly);
+    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}. The rest comes from there.` : '';
+    hide($('f-readonly'), !readOnly && !partly);
     $('f-kind').replaceChildren(...SC_KINDS.map((k) => Object.assign(document.createElement('option'), { value: k, textContent: cap(kindWord(k)) })));
     $('f-kind').value = shown.kind;
     $('f-title').value = shown.title;
@@ -1057,10 +1131,10 @@
     $('f-notes').value = shown.notes;
     $('f-by').textContent = shown.by ? `Added by ${nameOf(shown.by) || 'someone'}` : '';
     editorError('');
-    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly;
+    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !(el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)));
     hide($('f-save'), readOnly);
     hide($('f-cancel'), readOnly);
-    hide($('f-delete'), readOnly || !id);
+    hide($('f-delete'), readOnly || partly || !id);
     hide($('f-actions'), readOnly);
     $('f-delete').textContent = 'Delete';
     state.editing.armed = false;
@@ -1078,6 +1152,7 @@
     ev.preventDefault();
     const ed = state.editing;
     if (!ed || ed.readOnly) return;
+    if (ed.partly) { await savePulled(ed); return; }
     const kind = $('f-kind').value;
     const parent = $('f-parent').value || null;
     const moved = (parent || null) !== (ed.parent || null);
@@ -1129,6 +1204,23 @@
       $('f-save').disabled = false;
     }
   });
+  // The title, tags and Done of a pulled issue: sent to GitHub, and the editor stays open with the reason if GitHub does not take it.
+  async function savePulled(ed) {
+    const title = scLine($('f-title').value, 10000);
+    if (!title) { editorError('Give it a title.'); $('f-title').focus(); return; }
+    if (title.length > SC_TITLE_MAX) { editorError(`Give it a title of at most ${SC_TITLE_MAX} characters.`); $('f-title').focus(); return; }
+    const done = $('f-done').checked;
+    const picked = checked($('f-tags'));
+    $('f-save').disabled = true;
+    try {
+      const r = await sendPulled(ed.id, (e) => {
+        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked] }; // a tag the plan no longer lists stays as it is
+        if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard() }); if (d.entry) next = d.entry; }
+        return next;
+      });
+      if (r.ok) editor.close(); else editorError(r.error);
+    } finally { $('f-save').disabled = false; }
+  }
   $('f-delete').addEventListener('click', async () => {
     const ed = state.editing;
     if (!ed || !ed.id || ed.readOnly) return;
@@ -1159,7 +1251,7 @@
   if (carried) {
     host.actions.provide(Object.fromEntries(Object.entries(carried).map(([name, fn]) => [name, (input, by) => {
       if (!canEdit) throw new Error(name.startsWith('add') ? REFUSED : CHANGE_REFUSED);
-      if (pullOn() && (name.startsWith('add') || locked(entry(input && input.ref && input.ref.id)))) throw new Error(SC_PULLED_SAY);
+      if (pullOn() && (name.startsWith('add') || pulled(entry(input && input.ref && input.ref.id)))) throw new Error(SC_PULLED_SAY);
       return fn(input, by);
     }])));
   }
