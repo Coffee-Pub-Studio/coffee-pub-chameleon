@@ -150,6 +150,8 @@ Planner - Projects (`schedule`) 0.1.7 provides two actions for an entry that is 
 - `setDone` `{ ref, done }` ticks a milestone, or marks work done or not done. A note has nothing to tick off.
 - `updateEntry` `{ ref, title?, date?, start?, end?, notes? }` changes only the fields given: a milestone has a day (`date`), work has `start` and `end`, and a note has none. A day written empty clears it. There is no `progress` input.
 
+From 0.1.13 a third action, `setColumn` `{ ref, column }`, moves a piece of work to a column of the board ([api-modules](../api/api-modules.md), "Planner - Projects: the board"). It runs on the server for an agent like the other two and shows under **What it changed** with Undo, which puts back `column` and `done` together; `setDone` also moves the work between columns by the tick rule.
+
 Both run under the rights of the page that carries them, check what they are sent with the editor's own rules (`scSetDone`, `scUpdate` in `modules/schedule/src/schedule-lib.js`) and refuse with the editor's sentences, then save as an edit does. `addMilestone`, `addWork` and `addNote` now store `ctx.byKey` as who added the entry, so "Added by" finds the person. Because they act on an object that exists, `setDone` and `updateEntry` join the AI's catalog, which is now six tools: `maps__setPlacePoint`, `schedule__setDone`, `schedule__updateEntry`, `todo__linkTask`, `todo__setTaskDue` and `travel__addToDay` ([AI architecture](architecture-ai.md), "The catalog of write tools"). `tools/check-catalog.mjs` and `tools/golden/catalog.json` list all six.
 
 ## The server runner

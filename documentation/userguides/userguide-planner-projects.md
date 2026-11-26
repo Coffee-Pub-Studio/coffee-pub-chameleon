@@ -16,7 +16,8 @@ Who can: anyone who may **See the plan** (members, guests and moderators by defa
 | **Dates are needed** | A milestone and a piece of work need dates. Off, dates are optional and the Timeline shows only the dated entries | Driven (Projects: on; Gaming: off) |
 | **Waits on** | Lets an entry say which others it waits on, and draws the lines between them | Driven (Projects: on; Gaming: off) |
 | **Progress counts** | What the plan's count says: **Milestones done** (the default) or **Work done** | Driven |
-| **Opens on** | The view a space opens on, **Timeline** or **List** | The template's start; you may change it |
+| **Opens on** | The view a space opens on, **Timeline**, **List** or **Board** | The template's start; you may change it |
+| **Board columns** | The columns the board starts with: **To do, Doing, Done** or **Inbox, Now, Next, Later, Done**. They stay until someone edits the columns; after that the board keeps its own | The template's start (Gaming: Inbox, Now, Next, Later, Done) |
 | **Tags** | The tags an entry may carry (the Gaming template seeds story threads) | The template's start; you may change it |
 
 ## Add to the plan
@@ -45,16 +46,55 @@ A milestone is done when everything under it is done, or when you tick it. Work 
 
 Check file and the two imports need the right to **Add and change the plan**; replacing also needs **Clear the whole plan**. A file is read whole and checked before anything is written: if anything is wrong, nothing is imported and the first problem is said in one sentence. A file is at most 1 MB and 500 entries, and a plan holds at most 1000 (Add refuses a file that would go past that). After an import the page shows what was done with an **Undo** for 30 seconds, which takes away what the import added and brings back what it replaced; if someone else changed the plan meanwhile, nothing is imported and it says to try again. The file's fields, the rules and a complete example are in `FORMAT.md` in the module's source (`modules/schedule/src/`); `project-plan.schema.json` beside it is a JSON Schema (draft 2020-12) that any validator can check a file against before you bring it in, and a person or an AI can write a file by hand to it.
 
-## The two views
+## The three views
 
 - **Timeline.** Weeks across, work as bars, milestones as marks, and a line from an entry to what it waits on while **Waits on** is on. Entries with no day are listed under it in **Not scheduled** (an entry outside the weeks drawn, which run for at most two years, is listed under **Not on the Timeline**). The plan fills its window, and the Timeline is one scrolling area of its own: it scrolls sideways and down inside the window, so its scrollbar is always in reach, and the week header stays at the top and the names at the left as you scroll. **Not scheduled** stays under it.
 - **List.** The outline: entries in order, with a fold button where one has others under it. Move an entry by dragging its handle, or from the handle's menu (**Move up**, **Move down**, **Indent**, **Outdent**), or with the keyboard on the focused handle: **Alt** with the up and down arrows to move, **Alt+Right** to indent and **Alt+Left** to outdent. Up and down walk the handles; left and right fold and unfold. On a phone there is no dragging: the handle shows as **...** and opens the menu. On a phone the List is the first view, unless you have chosen one yourself.
 
+- **Board.** The work as cards in columns. See "The Board" below.
+
 Under a template that measures its phases by goals, a phase is done when every entry that names it is done (see [Spaces](userguide-spaces.md), "Phases"). The title bar's count reads, for example, "2 of 4 milestones done".
+
+## The Board
+
+The Board is the third view, beside **Timeline** and **List**. Choose **Board** in the view switch, or set **Opens on** to **Board** in the module's settings (see "Set it up"). It shows work only: a milestone is done when its work is, and a note has no done.
+
+Each column is a stage of the work. A space starts with **To do**, **Doing** and **Done**, or, under the Gaming template, **Inbox**, **Now**, **Next**, **Later** and **Done**. The count of cards sits beside each column's name. Inside a column, cards run by their end day (the ones with no day last), then in the order of the List.
+
+**The card** says the work's title, its end day or "No date" (with **Late** when it is past), who is doing it, up to two tags and "and N more", the milestone it is under, and "Waits on" the first thing it waits on while that is not done.
+
+**Move a card** (needs **Add and change the plan**):
+
+1. Drag it to another column; or
+2. choose the **...** on the card, then **Move to** and the column; or
+3. with the card focused, press **Alt+Left** or **Alt+Right** to move it one column.
+
+**Enter** on a focused card opens it to edit; the **...** menu also has **Edit** and **Delete**. Up and Down walk the cards in a column, Left and Right go to the next column. A screen reader hears, for example, "Moved "Write the brief" to Now." Someone without the right to change the plan sees the board and has no moves.
+
+**Add work to a column.** The **+** in a column's heading opens the form for new work in that column.
+
+**The List's tick.** A column can count as done. Ticking work in the List (or the **Done** box in its form) moves its card to the first column that counts as done, and unticking moves it to the first column that does not. Moving a card into a column that counts as done marks the work done, and out of it marks it not done. The List and the Timeline name the column under work's title when it is not the board's first column, so the views agree.
+
+**On a phone** the columns are sections one under another, with the done columns folded, and there is no dragging: use the card's **...** menu.
+
+### Change the columns
+
+Each column's **...** menu has **Fold** or **Unfold**, which anyone may use (a folded column is a narrow strip, and your choice is kept in your browser). For someone allowed to change the columns it also has:
+
+- **Rename**, which asks for the new name (at most 40 characters, not empty). The work stays in the column.
+- **Move left** and **Move right**.
+- **Counts as done**, on or off. The work in the column is marked done or not done to match, and so are the milestones above it. The board must keep at least one column that counts as done and at least one that does not: "Keep at least one column that counts as done." or "Keep at least one column that does not count as done."
+- **Delete**, which asks which of the other columns takes its work; the work moves there and takes that column's done state. It is refused for the last column and, with the same two sentences, for the last column that counts as done or the last that does not.
+
+The **Add a column** button above the columns asks for a name and adds the column at the end. A board has at most 12 columns: "A board has at most 12 columns."
+
+Who may: **Change the board's columns** is its own permission on the Roles tab, under **Module: Planner - Projects**. Moderators have it by default; members and guests do not; owners always may. Moving a card needs only **Add and change the plan**. A person without it sees the **Fold** choice only, no **Add a column** button, and a change forced through is refused with "Your role can't do that in this module."
+
+Each change to the columns shows an **Undo** for 30 seconds, which puts back the columns and any work that changed with them. A space still on its template's columns keeps them as they are until someone first changes them; that change makes the space's own board. If someone else changed the columns at the same moment, it says so and asks you to try again. **Export as JSON** carries the board, and **Import** brings it in (**Replace** always; **Add** only while the plan has no board of its own). A template author can rename the seven default column words (Inbox, Now, Next, Later, To do, Doing, Done) in the template's words for this module (see [Templates](userguide-templates.md)); a column someone has renamed keeps its own name.
 
 ## Where else it shows
 
-It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same. An [agent](userguide-agents.md) added to the space can also add entries, tick a milestone or work done and change an entry's title, days or notes; each waits until someone who may change the plan has it open, and an entry it adds records the agent, not the person whose page carried it out, as who added it.
+It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same. An [agent](userguide-agents.md) added to the space can also add entries, tick a milestone or work done, change an entry's title, days or notes, and move a piece of work to a column of the board. What an agent does is done at once, with no one needing to open the plan, and it is listed under **What it changed** with **Undo**; an entry it adds records the agent, not a person, as who added it.
 
 ## Who sees what
 
