@@ -2914,7 +2914,7 @@
     commit(next, 'now');
     for (const id of [f.id, ...f.marks]) if (board.has(id)) remove(id, { force: true });
     select([next.id]);
-    note('Flattened. The original picture file is still kept with the space.');
+    note(`Flattened. The original picture file is still kept with the ${host.util.word('space')}.`);
     return true;
   }
   // The computer's own file chooser, for "Add a picture" (touch and the keyboard too).

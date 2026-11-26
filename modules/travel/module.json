@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.28",
+  "version": "0.16.29",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -120,7 +120,7 @@
       {
         "name": "acceptSuggestion",
         "label": "Add it to the trip, properly typed",
-        "description": "Add a journey, stay or stop by its kind, at a saved place or as a fully typed object.",
+        "description": "Add a journey, stay or stop by its kind, at a saved place or as a fully typed \"object\".",
         "inputHints": {
           "kind": "What it is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show, event or note. Leave out for a plain stop.",
           "placeRef": "A saved place from Maps, for a stop only. The stop then shows that place's name, and its address if you gave none.",
@@ -170,7 +170,7 @@
       {
         "name": "updatePlan",
         "label": "Change an itinerary entry",
-        "description": "Change only the fields given of a journey, stay, stop or note already on the itinerary, with typed details in object.",
+        "description": "Change only the fields given of a journey, stay, stop or note already on the itinerary, with typed details in \"object\".",
         "inputHints": {
           "entry": "The entry to change, its pointer as search or an earlier answer gives it.",
           "object": "A patch { kind, title, details }; the entry's own kind and title keep them. A flight's details: airline, number, from, to, departs, arrives, terminal, gate, seat, class, reference, cost, travellers.",
