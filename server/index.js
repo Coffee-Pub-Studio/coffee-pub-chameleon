@@ -14374,7 +14374,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   // right on GitHub come from the list the person's own sign-in made, never from the page.
   let picked = null;
   if (body.link !== undefined || body.repositoryId !== undefined) {
-    const made = issueApp.linkFor(typeof body.link === 'string' ? body.link : '', { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key });
+    const made = issueApp.linkFor(typeof body.link === 'string' ? body.link : '', { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key }, body.done);
     if (!made || made.provider !== adapter.id) return res.status(404).json({ error: issuesLib.SAY.linkEnded });
     const pick = made.list.repositories.find((r) => r.repositoryId === body.repositoryId);
     if (!pick || !adapter.validRepo(pick.repo)) return res.status(400).json({ error: issuesLib.SAY.notInList });
@@ -14479,7 +14479,7 @@ app.get('/api/issues-link/back', async (req, res) => {
   if (str(req.query.error) || !str(req.query.code) || !adapter) { issueApp.drop(link.id); return issueLinkPage(res, 400, issuesLib.SAY.linkDenied, home); }
   const done = await issueApp.complete(adapter, link, str(req.query.code));
   if (!done.ok) { issueApp.drop(link.id); return issueLinkPage(res, 502, done.error, home); }
-  res.set('Referrer-Policy', 'no-referrer').redirect(302, `${slugAddress(link.slug)}/?space=${encodeURIComponent(link.spaceId)}&link=${encodeURIComponent(link.id)}`);
+  res.set('Referrer-Policy', 'no-referrer').redirect(302, `${slugAddress(link.slug)}/?space=${encodeURIComponent(link.spaceId)}&link=${encodeURIComponent(link.id)}&done=${encodeURIComponent(done.done)}`);
 });
 
 // The person who started the link reads what it found ({ link }): the repositories they can reach through the app, each with their
@@ -14490,7 +14490,7 @@ app.get('/api/spaces/:id/issues-link', async (req, res) => {
   if (!place) return;
   const { who, space } = place;
   if (!issueLinkOwner(who)) return res.status(403).json({ error: issuesLib.SAY.linkOwnerOnly(word('owner', { a: true })) });
-  const link = issueApp.linkFor(typeof req.query.link === 'string' ? req.query.link : '', { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key });
+  const link = issueApp.linkFor(typeof req.query.link === 'string' ? req.query.link : '', { slug: currentEnvironment().slug || '', spaceId: space.id, person: who.user.key }, req.query.done);
   if (!link) return res.status(404).json({ error: issuesLib.SAY.linkEnded });
   const adapter = issueAdapterOf(link.provider);
   if (adapter) await issueApp.ensureApp(adapter, Date.now()).catch(() => null);

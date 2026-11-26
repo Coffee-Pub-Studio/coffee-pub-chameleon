@@ -131,11 +131,16 @@ export async function linkThrough({ call, space, provider = 'issues-standin', be
   const to = out.back.headers.get('location');
   out.to = to ? new URL(to, out.backUrl) : null;
   out.link = out.to ? out.to.searchParams.get('link') : null;
+  out.done = out.to ? out.to.searchParams.get('done') : null; // the completion secret: in the redirect to this browser only
   if (!out.link) return out;
-  out.list = await call('GET', `/api/spaces/${space}/issues-link?link=${encodeURIComponent(out.link)}`);
+  doneOf.set(out.link, out.done);
+  out.list = await call('GET', `/api/spaces/${space}/issues-link?link=${encodeURIComponent(out.link)}&done=${encodeURIComponent(out.done)}`);
   return out;
 }
 
-// Follows one repository of a link's list: PUT /api/spaces/:id/issues-pull with { on: true, link, repositoryId }.
-export const followFrom = ({ call, space, provider = 'issues-standin', link, repositoryId, extra = {} }) =>
-  call('PUT', `/api/spaces/${space}/issues-pull`, { on: true, provider, link, repositoryId, ...extra });
+// The completion secret each link was returned with (what the browser that came back from GitHub holds), by link id.
+export const doneOf = new Map();
+// Follows one repository of a link's list: PUT /api/spaces/:id/issues-pull with { on: true, link, done, repositoryId }. `done` is the
+// link's own completion secret unless given (null leaves it out).
+export const followFrom = ({ call, space, provider = 'issues-standin', link, done = doneOf.get(link), repositoryId, extra = {} }) =>
+  call('PUT', `/api/spaces/${space}/issues-pull`, { on: true, provider, link, ...(done === null ? {} : { done }), repositoryId, ...extra });

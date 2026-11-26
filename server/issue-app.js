@@ -219,7 +219,7 @@ function authorizeUrl(adapter, link) {
 function begin(adapter, { slug, spaceId, person, redirectUri }, now = Date.now()) {
   sweep(now);
   for (const l of [...linksById.values()]) if (l.slug === slug && l.spaceId === spaceId && l.person === person) forget(l);
-  const link = { id: random(), provider: adapter.id, slug, spaceId, person, redirectUri, verifier: '', state: '', installState: '', ends: now + LINK_MS, list: null };
+  const link = { id: random(), provider: adapter.id, slug, spaceId, person, redirectUri, verifier: '', state: '', installState: '', ends: now + LINK_MS, list: null, doneHash: null };
   linksById.set(link.id, link);
   return { url: authorizeUrl(adapter, link), id: link.id };
 }
@@ -243,6 +243,7 @@ function restart(adapterOf, installState, now = Date.now()) {
   const adapter = link ? adapterOf(link.provider) : null;
   if (!link || !adapter) return null;
   link.installState = '';
+  link.doneHash = null;
   link.ends = now + LINK_MS;
   return authorizeUrl(adapter, link);
 }
@@ -294,13 +295,20 @@ async function complete(adapter, link, code, { now = Date.now(), fetchImpl } = {
   link.installState = random();
   linksByInstall.set(link.installState, link.id);
   link.ends = now + LINK_MS;
-  return { ok: true };
+  // The completion secret: it goes only in the redirect to the browser that came back from GitHub, so the list and the follow can be
+  // asked for only by that browser. Only its hash is kept. (Binds the return to the browser without a cookie: an owner who sends
+  // their authorize address to someone else never receives it.)
+  const done = random();
+  link.doneHash = crypto.createHash('sha256').update(done).digest();
+  return { ok: true, done };
 }
 // The link `id` for this person, space and environment, with its list, inside its 15 minutes; else null.
-function linkFor(id, { slug, spaceId, person }, now = Date.now()) {
+function linkFor(id, { slug, spaceId, person }, done, now = Date.now()) {
   sweep(now);
   const link = typeof id === 'string' ? linksById.get(id) : null;
-  return link && link.list && link.slug === slug && link.spaceId === spaceId && link.person === person ? link : null;
+  const given = crypto.createHash('sha256').update(typeof done === 'string' ? done : '').digest();
+  const sameDone = Boolean(link && link.doneHash) && crypto.timingSafeEqual(given, link.doneHash);
+  return link && link.list && sameDone && link.slug === slug && link.spaceId === spaceId && link.person === person ? link : null;
 }
 // The address to install the app on GitHub, carrying the link's own state (the page shows it beside the list).
 const installUrl = (adapter, link) => {

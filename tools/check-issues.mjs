@@ -46,7 +46,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { linkFake, linkThrough, followFrom } from './lib/github-link-fake.mjs';
+import { linkFake, linkThrough, followFrom, doneOf } from './lib/github-link-fake.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -1606,6 +1606,7 @@ await live('what GitHub was sent holds only what the plan allows, and no one\'s 
 // --- live: the link flow (documentation/plans/plan-github-app.md, step 2) ---------------------------------------------------------
 const linkUrls = []; // every address an answer may carry a state in: the authorize address and the install address
 const backPages = []; // the plain pages the return answered, scanned with the answers
+const linkSecrets = []; // completion secrets of links not kept in doneOf: in the redirect to the returning browser, and in no answer, log or file
 await live('the link: Connect, GitHub\'s sign-in with PKCE, the list with the person\'s own right, the revoke, then Follow', async () => {
   const one = (r, q) => new URL(r).searchParams.get(q);
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'nothing followed in the space');
@@ -1622,7 +1623,7 @@ await live('the link: Connect, GitHub\'s sign-in with PKCE, the list with the pe
   assert.match(one(t.authorizeUrl, 'code_challenge'), /^[\w-]{43}$/, 'an S256 challenge');
   assert.ok(![...u.searchParams.keys()].some((k) => /space|user|person|environment/i.test(k)) && !t.authorizeUrl.includes(S.other), 'nothing of the space or the person goes to GitHub');
   assert.equal(t.back.status, 302, `GitHub's return: ${t.backText}`);
-  assert.equal(t.to.pathname + t.to.search.replace(/link=[\w-]+/, 'link=X'), `/?space=${S.other}&link=X`, 'back to the space, with the link');
+  assert.equal(t.to.pathname + t.to.search.replace(/link=[\w-]+/, 'link=X').replace(/done=[\w-]{43}$/, 'done=D'), `/?space=${S.other}&link=X&done=D`, 'back to the space, with the link');
   assert.equal(t.back.headers.get('referrer-policy'), 'no-referrer');
   // The exchange carried the verifier (matching the challenge), the secret and the redirect address; the token was revoked.
   const ex = links.state.exchanges.at(-1);
@@ -1655,7 +1656,7 @@ await live('the link: Connect, GitHub\'s sign-in with PKCE, the list with the pe
   assert.deepEqual([rec.installation, rec.repositoryId, rec.writeOk, rec.via, typeof rec.linkBy, Boolean(rec.linkAt)], [8, 888, false, 'app', 'string', true], 'the record comes from the list');
   const no = await call('PUT', P(S.other), { token: S.admin, body: { write: true } });
   assert.deepEqual([no.status, no.json.error], [403, 'The GitHub app may not change this repository.'], 'no write without the person\'s own right');
-  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}`, { token: S.admin })).status, 404, 'a link is used up once it has been followed');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: S.admin })).status, 404, 'a link is used up once it has been followed');
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
   // A person with write access: the switch may go on.
   const w = await linked(S.other, 999, { write: true });
@@ -1689,7 +1690,7 @@ await live('the link: a state works once and for a short time; an unknown one an
   linkUrls.push(kept.authorizeUrl);
   assert.equal(kept.list.status, 200);
   await sleep(5600);
-  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${kept.link}`, { token: S.admin })).status, 404, 'the list ends too');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${kept.link}&done=${kept.done}`, { token: S.admin })).status, 404, 'the list ends too');
   const stale = await followFrom({ call: asCall(S.admin), space: S.other, link: kept.link, repositoryId: 777 });
   assert.deepEqual([stale.status, stale.json.error], [404, ENDED], 'and cannot be followed from');
   assert.equal((await status(S.other)).on, false, 'nothing was followed');
@@ -1704,21 +1705,66 @@ await live('the link: only the owner who started it, in that space, reads or fol
     const start = await call('POST', `/api/spaces/${S.other}/issues-link`, { token: who, body: { provider: 'issues-standin' } });
     assert.equal(start.status, 403, `${name} cannot start`);
     if (name === 'a member') assert.match(start.json.error, OWNER);
-    assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}`, { token: who })).status, 403, `${name} cannot read a list`);
+    assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: who })).status, 403, `${name} cannot read a list`);
     assert.equal((await followFrom({ call: asCall(who), space: S.other, link: t.link, repositoryId: 777 })).status, 403, `${name} cannot follow`);
   }
   assert.equal((await call('POST', `/api/spaces/${S.other}/issues-link`, { body: { provider: 'issues-standin' } })).status, 401, 'nobody signed in');
   assert.equal((await call('POST', `/api/spaces/${S.other}/issues-link?guest=${encodeURIComponent(S.guest)}`, { body: { provider: 'issues-standin' } })).status, 403, 'a guest');
-  assert.equal((await call('GET', `/api/spaces/${S.bugs}/issues-link?link=${t.link}`, { token: S.admin })).status, 404, 'the same link in another space');
+  assert.equal((await call('GET', `/api/spaces/${S.bugs}/issues-link?link=${t.link}&done=${t.done}`, { token: S.admin })).status, 404, 'the same link in another space');
   assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link`, { token: S.admin })).status, 404, 'no link named');
-  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=nonsense`, { token: S.admin })).status, 404);
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=nonsense&done=x`, { token: S.admin })).status, 404);
   // Another owner of the environment is another person: the link is not theirs.
   const second = await call('POST', '/api/users', { token: S.admin, body: { login: 'olive', displayName: 'Olive', role: 'owner', password: 'ownerpass1234' } });
   ok(second, 'a second owner', 201);
   const olive = ok(await call('POST', '/api/login', { body: { login: 'olive', password: 'ownerpass1234' } }), 'olive signs in').json.token;
-  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}`, { token: olive })).status, 404, 'another owner reads nothing of it');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: olive })).status, 404, 'another owner reads nothing of it');
   assert.equal((await followFrom({ call: asCall(olive), space: S.other, link: t.link, repositoryId: 777 })).status, 404, 'nor follows from it');
-  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}`, { token: S.admin })).status, 200, 'still the starter\'s');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}&done=${t.done}`, { token: S.admin })).status, 200, 'still the starter\'s');
+});
+
+await live('the link: the completion secret binds list and follow to the browser GitHub sent back; without it, wrong or used, both are refused alike', async () => {
+  const ENDED = 'This link has run out. Go back and press Connect to GitHub again.';
+  const t = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t.authorizeUrl);
+  assert.match(t.done, /^[\w-]{43}$/, 'a 256-bit secret, in the redirect');
+  assert.equal(t.list.status, 200, 'with it, the list');
+  const L = (extra) => call('GET', `/api/spaces/${S.other}/issues-link?link=${t.link}${extra}`, { token: S.admin });
+  for (const [what, extra] of [['none', ''], ['an empty one', '&done='], ['a wrong one', `&done=${'A'.repeat(43)}`], ['the link id in its place', `&done=${t.link}`], ['the state in its place', `&done=${new URL(t.authorizeUrl).searchParams.get('state')}`]]) {
+    const r = await L(extra);
+    assert.deepEqual([r.status, r.json.error], [404, ENDED], `the list with ${what}`);
+  }
+  for (const [what, done] of [['none', null], ['a wrong one', 'B'.repeat(43)], ['a number', 7], ['an object', { x: 1 }]]) {
+    const r = await followFrom({ call: asCall(S.admin), space: S.other, link: t.link, done, repositoryId: 777 });
+    assert.deepEqual([r.status, r.json.error], [404, ENDED], `the follow with ${what}: the same sentence, no hint which part failed`);
+  }
+  assert.equal((await status(S.other)).on, false, 'nothing was followed');
+  // The attack: the owner sends their authorize address to someone else; that person's browser is sent back, and holds the secret.
+  // The owner, who started the link, has none: they cannot list or follow, whatever they guess.
+  const start = await call('POST', `/api/spaces/${S.other}/issues-link`, { token: S.admin, body: { provider: 'issues-standin' } });
+  linkUrls.push(start.json.url);
+  const victim = await fetch(start.json.url, { redirect: 'manual' });
+  const returned = await fetch(victim.headers.get('location'), { redirect: 'manual' });
+  assert.equal(returned.status, 302);
+  const theirs = new URL(returned.headers.get('location'), base);
+  const stolen = { link: theirs.searchParams.get('link'), done: theirs.searchParams.get('done') };
+  assert.ok(stolen.done, 'the secret went to the browser that came back');
+  const starterSees = await call('GET', `/api/spaces/${S.other}/issues-link?link=${stolen.link}`, { token: S.admin });
+  assert.deepEqual([starterSees.status, starterSees.json.error], [404, ENDED], 'the starter never got the secret: no list');
+  const starterFollows = await followFrom({ call: asCall(S.admin), space: S.other, link: stolen.link, done: null, repositoryId: 777 });
+  assert.equal(starterFollows.status, 404, 'and no follow');
+  assert.equal((await status(S.other)).on, false);
+  // Whoever holds the secret still has to be the owner who started it, in that space and environment.
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${stolen.link}&done=${stolen.done}`, { token: S.mia })).status, 403, 'a member with the secret');
+  assert.equal((await call('GET', `/api/spaces/${S.bugs}/issues-link?link=${stolen.link}&done=${stolen.done}`, { token: S.admin })).status, 404, 'the same secret in another space');
+  // Spent when the follow succeeds (a second link of the same owner for the space replaced the first, so this one is made now).
+  const t2 = await linkThrough({ call: asCall(S.admin), space: S.other });
+  linkUrls.push(t2.authorizeUrl);
+  linkSecrets.push(t.done, stolen.done);
+  ok(await followFrom({ call: asCall(S.admin), space: S.other, link: t2.link, repositoryId: 999 }), 'with the secret, the follow');
+  const used = await followFrom({ call: asCall(S.admin), space: S.other, link: t2.link, repositoryId: 999 });
+  assert.deepEqual([used.status, used.json.error], [404, ENDED], 'used once');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${t2.link}&done=${t2.done}`, { token: S.admin })).status, 404, 'and the list too');
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
 });
 
 await live('the link: a forged installation_id on the setup address changes nothing; only the person\'s own list counts', async () => {
@@ -1752,8 +1798,10 @@ await live('the link: a forged installation_id on the setup address changes noth
     const back = await fetch(auth.headers.get('location'), { redirect: 'manual' });
     assert.equal(back.status, 302);
     const link = new URL(back.headers.get('location'), base).searchParams.get('link');
+    const done = new URL(back.headers.get('location'), base).searchParams.get('done');
+    doneOf.set(link, done);
     assert.equal(link, t.link, 'the same link, a fresh list');
-    const list = ok(await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}`, { token: S.admin }), 'the list again').json;
+    const list = ok(await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}&done=${done}`, { token: S.admin }), 'the list again').json;
     linkUrls.push(list.installUrl);
     assert.deepEqual(list.repositories.map((x) => x.repositoryId), [888]);
     const forged = await followFrom({ call: asCall(S.admin), space: S.other, link, repositoryId: 777, extra: { installation: 7 } });
@@ -1769,7 +1817,11 @@ await live('the link: a forged installation_id on the setup address changes noth
     const a2 = await fetch(r2.headers.get('location'), { redirect: 'manual' });
     const b2 = await fetch(a2.headers.get('location'), { redirect: 'manual' });
     assert.equal(b2.status, 302);
-    const list2 = ok(await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}`, { token: S.admin }), 'the list after installing').json;
+    const done2 = new URL(b2.headers.get('location'), base).searchParams.get('done');
+    assert.notEqual(done2, done, 'a new sign-in, a new completion secret');
+    doneOf.set(link, done2);
+    assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}&done=${done}`, { token: S.admin })).status, 404, 'the earlier secret is dead');
+    const list2 = ok(await call('GET', `/api/spaces/${S.other}/issues-link?link=${link}&done=${done2}`, { token: S.admin }), 'the list after installing').json;
     linkUrls.push(list2.installUrl);
     assert.deepEqual(list2.repositories.map((x) => x.repositoryId), [999, 888], 'the new repository is in the list');
   } finally { links.state.person.installations = mine; }
@@ -1795,7 +1847,7 @@ await live('the link: GitHub refused, or failed after the sign-in: a sentence, t
   assert.equal(links.state.issuedTokens.length, made + 1);
   assert.equal(links.state.revoked.length, links.state.issuedTokens.length, 'revoked although the lists failed');
   assert.equal(links.state.tokens.get(links.state.issuedTokens.at(-1)).revoked, true);
-  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=x`, { token: S.admin })).status, 404);
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues-link?link=x&done=y`, { token: S.admin })).status, 404);
   // The user token, once revoked, reaches nothing: the fake would answer 401 to a later use.
   const used = await fetch(`${ORIGIN}/user/installations`, { headers: { authorization: `Bearer ${links.state.issuedTokens.at(-1)}` } });
   assert.equal(used.status, 401, 'a revoked user token is dead');
@@ -1825,6 +1877,7 @@ await live('no secret is in an answer, the data, the record, the log or a reques
   const secrets = { 'the installation token': TOKEN, 'the client secret': CLIENT_SECRET, 'the key': pemBody[1], 'the key\'s first line': pemBody[0], ...Object.fromEntries(jwts.map((j, i) => [`a JWT (${i})`, j])), ...links.secrets() };
   // The states: only the two addresses made for GitHub carry one (the authorize and install addresses); no other answer, page, log or file.
   const stateOf = (href) => new URL(href).searchParams.get('state');
+  [...doneOf.values(), ...linkSecrets].forEach((v, i) => { secrets[`a completion secret (${i})`] = v; });
   for (const href of linkUrls) secrets[`a state (${stateOf(href)})`] = stateOf(href);
   const bare = (a) => linkUrls.reduce((t, href) => t.split(href).join(''), a);
   answers.push(...backPages);
