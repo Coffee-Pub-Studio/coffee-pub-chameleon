@@ -74,8 +74,8 @@ await test('the page: the Board is a view, drawn by host.ui.board, a card is tex
   assert.match(draw, /tags\.slice\(0, 2\)/, 'two tags');
   assert.match(draw, /Waits on/);
   const cards = page.slice(page.indexOf('function boardCards'), page.indexOf('// What a card says inside'));
-  assert.match(cards, /e\.kind === 'work'/, 'cards are work only');
-  assert.match(page, /onAdd: \(columnId\) => openEditor\(null, \{ kind: 'work', column: columnId \}\)/, 'a "+" adds work in its column');
+  assert.match(page.slice(page.indexOf('function boardWork'), page.indexOf('function filterItems')), /e\.kind === 'work'/, 'cards are work only');
+  assert.match(page, /onAdd: \(columnId\) => openEditor\(null, \{ kind: 'work', column: columnId, \.\.\.scFilterSeed\(currentFilter\(\)\) \}\)/, 'a "+" adds work in its column');
   assert.match(page, /columnMenu,/, 'the column menu carries the module\'s items (the editor, step 4)');
 });
 await test('the page: the tick and the Done box go through scSetDone with the board; a move runs setColumn', () => {

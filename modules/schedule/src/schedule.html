@@ -44,7 +44,10 @@
 
     <!-- Board: the work as cards in columns (host.ui.board) -->
     <section id="view-board" class="view" aria-label="Board" hidden>
-      <div class="board-bar" id="board-bar" hidden><button class="btn btn-quiet btn-small" type="button" id="col-add"><span class="ic" data-icon="plus"></span> Add a column</button></div>
+      <div class="board-bar" id="board-bar" hidden>
+        <span class="board-rows"><span class="board-rows-label" id="rows-label">Rows</span><span class="sdk-field"><span class="mf-switch" id="rows-switch" role="radiogroup" aria-labelledby="rows-label"><button class="mf-switch-btn" type="button" role="radio" aria-checked="true" tabindex="0" data-rows=""><span class="mf-word">None</span></button><button class="mf-switch-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-rows="milestone"><span class="mf-word" id="rows-milestone">Milestone</span></button><button class="mf-switch-btn" type="button" role="radio" aria-checked="false" tabindex="-1" data-rows="owners"><span class="mf-word">Person</span></button></span></span></span>
+        <button class="btn btn-quiet btn-small" type="button" id="col-add"><span class="ic" data-icon="plus"></span> Add a column</button>
+      </div>
       <div id="board"></div>
     </section>
   </main>

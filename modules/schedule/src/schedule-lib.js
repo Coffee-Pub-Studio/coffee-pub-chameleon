@@ -632,3 +632,83 @@ function scFromObject(kind, input, object, o) {
   }
   return { entry: scClean('new', raw), input: merged };
 }
+
+// --- the board's rows and filters (plan-projects-kanban.md, step 5b) --------------------------------------------------------------
+// Rows and filters are how the page shows the work, never stored work (no action reads them). `rowsBy` on the board is "milestone",
+// "owners" or none (the words people read: Milestone, Person, None).
+
+// The milestone work is in: the nearest milestone above it (its parent, then that one's parent, and so on). '' when it has none.
+function scMilestoneOf(e, byId) {
+  const seen = new Set();
+  let at = e && e.parent ? byId.get(e.parent) : null;
+  while (at && !seen.has(at.id)) {
+    if (at.kind === 'milestone') return at.id;
+    seen.add(at.id);
+    at = at.parent ? byId.get(at.parent) : null;
+  }
+  return '';
+}
+// The row a piece of work is in: by milestone its milestone's id, by person its first owner's key; '' when it has none.
+function scRowOf(e, rowsBy, byId) {
+  if (rowsBy === 'milestone') return scMilestoneOf(e, byId);
+  if (rowsBy === 'owners') return e && e.owners && e.owners.length ? e.owners[0] : '';
+  return '';
+}
+// The rows for the work shown: [{ id, label }] (milestones in outline order, people by name) for the rows that have work, and
+// `of[workId]` its row id ('' for the last row). `nameOf(key)` is a person's name ('' for one who left).
+function scBoardRows(shown, rowsBy, all, nameOf, goneWord) {
+  if (rowsBy !== 'milestone' && rowsBy !== 'owners') return { rows: [], of: new Map() };
+  const byId = new Map(all.map((e) => [e.id, e]));
+  const of = new Map(shown.map((e) => [e.id, scRowOf(e, rowsBy, byId)]));
+  const used = new Set(of.values());
+  used.delete('');
+  let rows;
+  if (rowsBy === 'milestone') {
+    rows = scOrdered(all).map((x) => x.entry).filter((m) => m.kind === 'milestone' && used.has(m.id)).map((m) => ({ id: m.id, label: m.title }));
+  } else {
+    rows = [...used].map((k) => ({ id: k, label: nameOf(k) || goneWord || 'Someone who left' }));
+    rows.sort((a, b) => a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1));
+  }
+  const known = new Set(rows.map((r) => r.id));
+  for (const [id, row] of of) if (row && !known.has(row)) of.set(id, '');
+  return { rows, of };
+}
+
+// The filters, a person's own view of the Board. { who: [keys, and SC_NONE for no one], tags: [ids], phase: id | SC_NONE | '', milestone: same }.
+const SC_NONE = '_none';
+function scFilterEmpty() { return { who: [], tags: [], phase: '', milestone: '' }; }
+function scFilterOn(f) { return Boolean(f && (f.who.length || f.tags.length || f.phase || f.milestone)); }
+// A kept value, read: anything that is not the shape is dropped; `have` ({ who:Set, tags:Set, phases:Set, milestones:Set }) drops what is gone.
+function scFilterClean(raw, have) {
+  const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const list = (a, ok) => [...new Set((Array.isArray(a) ? a : []).filter((x) => typeof x === 'string' && ok(x)))];
+  const one = (x, ok) => (typeof x === 'string' && x && ok(x) ? x : '');
+  const h = have || null;
+  return {
+    who: list(v.who, (x) => !h || x === SC_NONE || h.who.has(x)),
+    tags: list(v.tags, (x) => !h || h.tags.has(x)),
+    phase: one(v.phase, (x) => !h || x === SC_NONE || h.phases.has(x)),
+    milestone: one(v.milestone, (x) => !h || x === SC_NONE || h.milestones.has(x)),
+  };
+}
+// Does work pass the filter? Groups combine with "and": who (any chosen, or no one), tags (has all), phase, milestone.
+function scFilterMatch(e, f, byId) {
+  if (!scFilterOn(f)) return true;
+  if (f.who.length && !(e.owners.length ? e.owners.some((k) => f.who.includes(k)) : f.who.includes(SC_NONE))) return false;
+  if (f.tags.length && !f.tags.every((t) => e.tags.includes(t))) return false;
+  if (f.phase && (f.phase === SC_NONE ? e.phase : e.phase !== f.phase)) return false;
+  if (f.milestone) { const m = scMilestoneOf(e, byId); if (f.milestone === SC_NONE ? m : m !== f.milestone) return false; }
+  return true;
+}
+// What a new piece of work starts with while the filter is on: the chosen milestone and phase, the one person when exactly one is
+// chosen, and the tags.
+function scFilterSeed(f) {
+  const out = {};
+  if (!scFilterOn(f)) return out;
+  if (f.milestone && f.milestone !== SC_NONE) out.parent = f.milestone;
+  if (f.phase && f.phase !== SC_NONE) out.phase = f.phase;
+  const people = f.who.filter((k) => k !== SC_NONE);
+  if (people.length === 1 && f.who.length === 1) out.owners = people;
+  if (f.tags.length) out.tags = f.tags.slice();
+  return out;
+}
