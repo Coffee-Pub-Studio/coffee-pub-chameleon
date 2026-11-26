@@ -198,6 +198,7 @@ test('the manifest', () => {
     ['view', 'See the plan', true, true, true],
     ['edit', 'Add and change the plan', true, false, true],
     ['columns', "Change the board's columns", false, false, true],
+    ['write_out', 'Change it on GitHub', false, false, true],
     ['clear', 'Clear the whole plan', false, false, true],
   ]);
   assert.deepEqual(manifest.access, { read: 'view', write: 'edit' });
@@ -459,6 +460,14 @@ test('the editor: new ids from the name, rename keeps the id, at most 12, no emp
   assert.equal(ids(L.scMoveColumn(b, 'todo', 1).board), 'doing,todo,done');
   assert.equal(ids(L.scMoveColumn(b, 'todo', -1).board), 'todo,doing,done', 'at the edge nothing moves');
   assert.equal(L.scMoveColumn(b, 'zz', 1).problem, 'There is no column called zz.');
+});
+
+test('pulled work keeps when the service last changed it, and writeOut is the moderator\'s', () => {
+  const src = { from: 'github', repo: 'o/r', number: 4, url: 'https://github.com/o/r/issues/4', updated: '2026-11-01T00:00:05.000Z' };
+  assert.deepEqual(L.scClean('gh-4', { kind: 'work', title: 'T', source: src }).source, src);
+  assert.equal(L.scClean('gh-4', { kind: 'work', title: 'T', source: { ...src, updated: 'yesterday' } }).source.updated, undefined);
+  const perm = manifest.permissions.find((p) => p.key === 'write_out');
+  assert.deepEqual([perm.label, perm.default], ['Change it on GitHub', { member: false, guest: false, moderator: true }]);
 });
 
 if (fails.length) {

@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -47,6 +47,15 @@
     {
       "key": "columns",
       "label": "Change the board's columns",
+      "default": {
+        "member": false,
+        "guest": false,
+        "moderator": true
+      }
+    },
+    {
+      "key": "write_out",
+      "label": "Change it on GitHub",
       "default": {
         "member": false,
         "guest": false,
