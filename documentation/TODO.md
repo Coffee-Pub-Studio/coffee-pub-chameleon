@@ -63,6 +63,8 @@ The open issues labelled `priority: now` or `priority: next`:
 
 ## In progress
 
+- **GitHub pull, step 0 built** (`plan-github-pull`, on branch `claude/plan-github-pull`, Thomas, 2026-11-26: "Do it"): `node tools/issues-to-plan.mjs [--repo owner/name] [--out file] [--dry-run]` writes a Planner - Projects plan file from the repository's issues (Inbox, Now, Next, Later, Done board; id `gh-<n>`; the link in the notes; tags from the 20 most used labels besides priority). Load it with Export and import, Import, **Replace the plan**. A stopgap, removed when step 1 (the puller) lands. Steps 1 to 3 are not built.
+
 - **Checks that fail on `main`**, listed in [known-issues](known-issues.md), "Checks": `check-module-guards` (#686), `check-spacing`, `check-conformance` (#798), `check-destinations` (#849) and `check-nav`. The catalog and Budget-chip checks were fixed (#894, #896) and are off the list.
 
 - **The templates redesign** ([plan-templates-redesign](plans/plan-templates-redesign.md), Thomas's decisions 1 to 52, 2026-11-15 and 2026-11-16): steps 1 to 8, 11a, 11b, 12, 13, 14, 15 and 15b are merged on `main` (#838 to #860), with what followed (the planners' kinds, files and Chat, the demos, the starter-space offer: #864 to #889), and the Names and the Vault-called-Vault rule hold. Not built, or built short of the plan, each on its own:

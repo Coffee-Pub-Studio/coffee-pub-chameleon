@@ -1,0 +1,259 @@
+[
+  {
+    "number": 1,
+    "title": "Area: issue 1",
+    "state": "open",
+    "created_at": "2026-10-02T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/1",
+    "labels": [
+      {
+        "name": "priority: now"
+      },
+      {
+        "name": "bug"
+      }
+    ],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 2,
+    "title": "Area: issue 2",
+    "state": "open",
+    "created_at": "2026-10-03T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/2",
+    "labels": [
+      {
+        "name": "priority: next"
+      },
+      {
+        "name": "Planner"
+      }
+    ],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 3,
+    "title": "Area: issue 3",
+    "state": "open",
+    "created_at": "2026-10-04T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/3",
+    "labels": [
+      {
+        "name": "priority: later"
+      }
+    ],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 4,
+    "title": "Area: issue 4",
+    "state": "open",
+    "created_at": "2026-10-05T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/4",
+    "labels": [],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 5,
+    "title": "Area: issue 5",
+    "state": "closed",
+    "created_at": "2026-10-06T10:00:00Z",
+    "closed_at": "2026-10-20T23:59:00Z",
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/5",
+    "labels": [
+      {
+        "name": "priority: now"
+      },
+      {
+        "name": "Good First Issue"
+      }
+    ],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 6,
+    "title": "A pull request",
+    "state": "open",
+    "created_at": "2026-10-07T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/6",
+    "labels": [],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ],
+    "pull_request": {
+      "url": "x"
+    }
+  },
+  {
+    "number": 7,
+    "title": "Settings: long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long ",
+    "state": "open",
+    "created_at": "2026-10-08T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/7",
+    "labels": [],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 8,
+    "title": "Area: issue 8",
+    "state": "open",
+    "created_at": "2026-10-09T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/8",
+    "labels": [
+      {
+        "name": "bug"
+      },
+      {
+        "name": "enhancement"
+      },
+      {
+        "name": "Planner"
+      },
+      {
+        "name": "documentation"
+      },
+      {
+        "name": "accessibility"
+      },
+      {
+        "name": "critical"
+      },
+      {
+        "name": "duplicate"
+      },
+      {
+        "name": "good first issue"
+      },
+      {
+        "name": "help wanted"
+      },
+      {
+        "name": "invalid"
+      },
+      {
+        "name": "question"
+      },
+      {
+        "name": "wontfix"
+      },
+      {
+        "name": "x1"
+      },
+      {
+        "name": "x2"
+      },
+      {
+        "name": "x3"
+      },
+      {
+        "name": "x4"
+      },
+      {
+        "name": "x5"
+      },
+      {
+        "name": "x6"
+      },
+      {
+        "name": "x7"
+      },
+      {
+        "name": "y1"
+      },
+      {
+        "name": "y2"
+      },
+      {
+        "name": "y3"
+      }
+    ],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  },
+  {
+    "number": 9,
+    "title": "Area: issue 9",
+    "state": "closed",
+    "created_at": "2026-10-05T10:00:00Z",
+    "closed_at": null,
+    "html_url": "https://github.com/Drowbe/coffee-pub-chameleon/issues/9",
+    "labels": [],
+    "body": "SECRET BODY",
+    "user": {
+      "login": "someone"
+    },
+    "assignees": [
+      {
+        "login": "someone"
+      }
+    ]
+  }
+]
