@@ -4,7 +4,7 @@
 lane, `modules/travel/`) and the one-line SDK change (core); quality-assurance checks it when Thomas calls a feedback or
 production build; content-manager documents it.
 
-**Status:** Planned on the leans, 2026-11-26. From GitHub issue #1126 (Planner: Link a flight to its airline's check-in and
+**Status:** Planned on the leans, 2026-11-26. Steps 1 to 4 built (the SDK's `noreferrer`, the list, the menu items and the card's row, shown for all 57 entries under decision 3); step 6, a person confirming every entry, gates the release. From GitHub issue #1126 (Planner: Link a flight to its airline's check-in and
 flight status). Thomas, 2026-11-25: when we know a flight and its airline, "we should offer a way to go to that airline for
 check-in, flight status and the like." Thomas asked for it to be started on 2026-11-26. Under his standing rule (take the
 lean on small choices, write it down, ask only where blocked), every choice below is the planner's lean unless it is listed
@@ -47,6 +47,11 @@ Thomas's, fixed before this plan:
    again.
 2. **Nothing is sent from our server about who or which space**, and **a key never reaches a browser**. This plan uses no
    key and no server call at all.
+3. **Show all, with the release gate** (Thomas, 2026-11-26): the airline links show for every entry now, including the ones not
+   yet confirmed (`checked: null`), and no release ships until a person has opened both addresses of every entry and set
+   `checked`. The gate is a real check: `node modules/travel/test/check-travel-airlines.mjs --release` (or `RELEASE_GATE=1`) fails
+   while any entry is unconfirmed, naming how many and which; the default run only warns, so the module's lane stays green. The
+   project manager runs the release mode at release prep.
 
 ## Leans taken
 

@@ -4,7 +4,7 @@
  * travel-lib-airlines.js run on its own. The list is valid (codes, https addresses, no duplicates, statusLink placeholders),
  * a flight finds its airline (number prefix, three-letter prefix, name and alias, the prefix winning, nothing for an unknown
  * airline), no personal data reaches a link, and the 48-hour window. Entries nobody has opened yet (`checked: null`) are
- * listed as a warning, not a failure, until release prep. Exits 1 on any failure.
+ * listed as a warning, not a failure, until release prep; with --release (or RELEASE_GATE=1) they fail, which is the release gate. Exits 1 on any failure.
  */
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
@@ -179,8 +179,19 @@ test('airlineLinks says which links belong on the card now', () => {
   assert.deepEqual(airlineLinks(flight(), at(10, 18)).soon, { checkIn: false, status: true });
 });
 
+// The release gate (Thomas, 2026-11-26: "Show all, with the release gate"): the links show for every entry now, and no release ships until
+// a person has opened both addresses of every entry and set `checked`. The default run only warns, so the module's lane stays green; with
+// `--release` (or RELEASE_GATE=1) an unchecked entry fails. The project manager runs it at release prep:
+//   node modules/travel/test/check-travel-airlines.mjs --release
+const release = process.argv.includes('--release') || process.env.RELEASE_GATE === '1';
 const unchecked = AIRLINES.filter((a) => a.checked === null);
-if (unchecked.length) console.log(`warning - ${unchecked.length} of ${AIRLINES.length} airlines have not been opened and confirmed by a person (checked: null): ${unchecked.map((a) => a.code).join(' ')}`);
+if (unchecked.length) {
+  const sentence = `${unchecked.length} of ${AIRLINES.length} airlines have not been opened and confirmed by a person (checked: null): ${unchecked.map((a) => a.code).join(' ')}`;
+  if (release) {
+    failures += 1;
+    console.log(`not ok - release gate: ${sentence}. Open both addresses of each, then set checked to the month (YYYY-MM).`);
+  } else console.log(`warning - ${sentence}`);
+} else if (release) console.log(`ok - release gate: all ${AIRLINES.length} airlines are confirmed`);
 
 if (failures) { console.log(`${failures} failed`); process.exit(1); }
 console.log('all passed');

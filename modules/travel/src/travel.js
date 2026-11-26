@@ -230,6 +230,7 @@
     filesInto(el, item, span);
     ownersInto(el, item);
     moreInto(el, item);
+    airlineRowInto(el, item);
     roundTripInto(el, item);
     if (!canEdit) el.querySelector('.menu-btn')?.remove();
     // A part with nothing shown in it takes no room: a line of chips, then the body (the card is then its band alone).
@@ -256,6 +257,37 @@
     let box = el.querySelector('.chips2');
     if (!box) { box = document.createElement('div'); box.className = 'chips2'; (el.querySelector('.sdk-card-body') || el).append(box); }
     box.prepend(chip);
+  }
+
+  // A flight whose airline is in the list (travel-lib-airlines.js): "Check in" and "Flight status" as real links in a new tab, with no
+  // referrer. Nothing is fetched and nothing of the passenger goes in an address (plan-flight-airline-links.md). An airline that is
+  // not in the list has none.
+  const airlineTip = (name) => `Opens ${name}${/s$/i.test(name) ? "'" : "'s"} site in a new tab`;
+  function airlineMenuItems(item) {
+    const links = airlineLinks(item, new Date());
+    if (!links) return [];
+    const tip = airlineTip(links.name);
+    return [
+      { separator: true },
+      links.checkIn ? { id: 'airline-check-in', label: 'Check in', icon: 'arrow-up-right-from-square', tip, href: links.checkIn } : null,
+      links.status ? { id: 'airline-status', label: 'Flight status', icon: 'arrow-up-right-from-square', tip, href: links.status } : null,
+    ];
+  }
+  // The card's row of the same links, from 48 hours before departure (check in until it departs, flight status until the day it lands
+  // ends, by the device's clock). Drawn again with the card; there is no timer, so a card opened early shows it on the next redraw.
+  function airlineRowInto(el, item) {
+    const links = airlineLinks(item, new Date());
+    if (!links || (!links.soon.checkIn && !links.soon.status)) return;
+    const row = clone('tpl-card-airline');
+    const tip = airlineTip(links.name);
+    for (const [key, address, label] of [['checkIn', links.checkIn, 'Check in'], ['status', links.status, 'Flight status']]) {
+      const a = row.querySelector(`[data-link="${key}"]`);
+      if (!links.soon[key]) { a.remove(); continue; }
+      a.href = address;
+      a.title = tip;
+      a.setAttribute('aria-label', `${label}. ${tip}`);
+    }
+    el.append(row);
   }
 
   // A leg of a round trip: a line under its card with the other leg's day ("Round trip · Return Fri, Oct 9"), and on a return placed
@@ -1853,6 +1885,7 @@
         typeRows.length ? { id: 'type', label: 'Change type', icon: 'tag', items: typeRows } : null,
         plan.jointOf(item) === null ? { id: 'to-line', label: 'Move to unscheduled', icon: 'lightbulb', onClick: () => attempt(() => plan.moveTo(id, null, 1e6)) } : null, // off its day, into the Unscheduled area
         item.kind === 'link' ? { id: 'follow', label: item.follow ? 'Stop following its result' : 'Follow its result', icon: 'bell', onClick: () => attempt(() => plan.updateItem(id, { follow: !item.follow })) } : null,
+        ...airlineMenuItems(item),
         { id: 'delete', label: isBlock ? 'Remove' : 'Delete', icon: 'trash', danger: true, onClick: () => setTimeout(() => askDelete(id, button, isBlock), 0) },
       ],
     });
