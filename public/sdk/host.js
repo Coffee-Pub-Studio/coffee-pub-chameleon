@@ -6888,7 +6888,7 @@
   // fields only, at most 5 link changes, 5 schedules and 1 notice, a link from and a schedule or notice about this module's
   // own object here. { links: [{ op, from, to }], schedules: [{ op, key, at?, about?, notify?, repeat?, payload? }], notify }.
   const LIBRARY_EFFECTS = { links: 5, schedules: 5, notify: 1 };
-  function libraryEffects(result, own, fault, here = 'in this space') {
+  function libraryEffects(result, own, fault, here) {
     const bad = () => fault('it answered something the server can\'t use');
     const only = (v, keys) => libraryPlain(v) && Object.keys(v).every((k) => keys.includes(k));
     const pointer = (r) => only(r, ['module', 'kind', 'id', 'scope', 'space']) && ['module', 'kind', 'id', 'scope'].every((k) => typeof r[k] === 'string' && r[k] && r[k].length <= 128) && (r.space === undefined || (typeof r.space === 'string' && r.space.length <= 128));
@@ -7004,7 +7004,8 @@
   async function carryLibrary(host, name, fn, input, carried, o) {
     const util = host.util || {};
     const mod = (o && typeof o.module === 'function' ? o.module() : null) || {};
-    const moduleName = typeof mod.name === 'string' && mod.name ? mod.name : 'This module';
+    const word = typeof util.word === 'function' ? util.word : (key, wo) => (wo && wo.many ? `${key}s` : key);
+    const moduleName = typeof mod.name === 'string' && mod.name ? mod.name : `This ${word('module')}`;
     const here = typeof host.space === 'function' && host.space() ? host.space().id : null;
     const own = (ref) => typeof ref.id === 'string' && Boolean(ref.id) && typeof ref.kind === 'string' && typeof mod.id === 'string' && ref.module === mod.id && ref.scope === 'space' && ref.space === here;
     const rows = await host.storage.list('');
@@ -7032,7 +7033,6 @@
       }
     }
     const facts = await libraryFacts(host, input);
-    const word = typeof util.word === 'function' ? util.word : (key, wo) => (wo && wo.many ? `${key}s` : key);
     // The place searches the action declares (o.lookups[name], its manifest's `lookups`), done before the handler as the
     // runner's are: the input's text on one line, at most 200 characters, searched through this page's host.geocode.search
     // (the module's own place search, the server's saved places first), at most 6 { title, sub, lat, lng, key }. None for
