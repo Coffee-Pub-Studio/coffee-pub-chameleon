@@ -2,7 +2,9 @@
 
 **Audience:** Thomas, who decided how the board works; experience-design, which builds the shared board piece and the view; server-development, which builds the rule, the action and the checks.
 
-**Status:** Decided by Thomas, 2026-11-26; the first build (steps 1 to 4) is built, and the second build (swimlanes and filters, step 5) is the open work. From GitHub issue #1144, Thomas, 2026-11-26: "another ask for Planner - Projects, a kanban view (a board of columns, one per status, with the work as cards to move between them)." The columns were then discussed the same day as "foundational and bigger than a 'choose one'", against two references: Thomas's own board (Inbox, Now, Next, Later, Done: a priority horizon, with a count per column, a "..." menu and a "+" to add into a column) and a friend's dense board (columns as stages, swimlanes by epic, filters, WIP counts, density zoom, a time axis), which is not to be copied whole. The earlier recommendation of three fixed columns (To do, Doing, Done) is replaced by the decisions below.
+**Status:** Decided by Thomas, 2026-11-26; steps 1 to 4 are built and the second build (swimlanes and filters, step 5) is planned, not built. From GitHub issue #1144, Thomas, 2026-11-26: "another ask for Planner - Projects, a kanban view (a board of columns, one per status, with the work as cards to move between them)." The columns were then discussed the same day as "foundational and bigger than a 'choose one'", against two references: Thomas's own board (Inbox, Now, Next, Later, Done: a priority horizon, with a count per column, a "..." menu and a "+" to add into a column) and a friend's dense board (columns as stages, swimlanes by epic, filters, WIP counts, density zoom, a time axis), which is not to be copied whole. The earlier recommendation of three fixed columns (To do, Doing, Done) is replaced by the decisions below.
+
+**Second build:** Thomas, 2026-11-26: "start the second kanban build (swimlanes and filters)." Planned in detail below ("The second build: swimlanes and filters"), on the planner's leans under Thomas's standing rule; the leans taken are listed there.
 
 **Progress:** Step 2 is built (try build, 2026-11-26): `host.ui.board` in `public/sdk/host.js`, its `board` block in `public/sdk/system.css`, `tools/check-board.mjs` (in `npm run check`) and a Board entry with a live piece on the Design System page. It takes cards as `{ id, column, title? }` and draws each card's inside through `card(card, contentEl)`; `set(cards, columns?)` redraws; a move into a folded column opens it; the stacked layout starts every done column folded and does not keep that choice. Rows are accepted and not drawn. Steps 1, 3 and 4 are built (see Progress below); step 5 is not.
 
@@ -84,6 +86,55 @@ Small choices the decisions leave, written down so the build has no gaps (CLAUDE
 - Column "..." for someone with `columns`: **Rename**, **Counts as done** (on or off), **Move left**, **Move right**, **Add a column after**, **Delete** (asks which column takes its work, refused as the rules say), and **Edit columns**, which opens the column editor: every column with its name, its done flag and its place, add and delete under the same rules.
 - The List and Timeline show the column's name under work's title when it is not the first column, so the views agree.
 
+## The second build: swimlanes and filters
+
+Decision 10 names swimlanes (milestone, person) and filters for the second build; decision 4 already stores `rowsBy` on the board record and decision 5 already puts `rows` in the piece's contract. Everything else here is the planner's lean, taken under Thomas's standing rule (CLAUDE.md, "Decisions stick"); he may overturn any of it.
+
+### Leans taken
+
+1. **Rows are the board's, not the person's.** `rowsBy` is on `board:main` (decision 4), so everyone sees the same rows. The stored values stay `"milestone"` and `"owners"` (the work field it reads; no rename), or absent for none; the words a person reads are **Milestone**, **Person** and **None**.
+2. **Who may change the rows: the `columns` right,** not `edit`. The rows are the board's shape, as the columns are, and the server's `guards.keys` rule already holds every `board:` write to `columns`, so no new guard is needed.
+3. **Where:** a **Rows** switch (None | Milestone | Person) in the Board's own bar beside **Add a column**, drawn as the shared `.mf-switch` (the same form switch as the Planner's "How you get there"). Shown only to someone with `columns`; everyone else sees the rows and no control. Not on the toolbar, which holds the person's own view choices, and not a new settings window.
+4. **A change of rows** is one `board:main` write with **Undo** on the bar the column changes use; a board still on the template's columns becomes a stored one on that first change, as with columns.
+5. **A move changes the column only, never the row,** in this build. Changing a card's row would change its milestone or who is doing it, which the editor does better. Only the card's own row takes a drop; a drop on another row's cell does nothing and the live line says why (below).
+6. **A card is in one row.** By milestone: its nearest milestone above it in the outline. By person: its first owner (the card still names everyone). Cards with no row go in a last row, **No milestone** or **No one**, drawn only when it has cards.
+7. **Row order:** milestones in outline order; people by name. A row with no shown cards is not drawn.
+8. **Filters are the person's own view,** on the Board only, kept in their browser as the view and the folds are (`schedule-filter:<space>`). The List and the Timeline do not get them in this build; that is a later step if asked, since a filtered outline needs its own rule for parents.
+9. **Agents: nothing changes.** Rows and filters are how the page shows the work, not stored work. No action reads or writes `rowsBy`; `setColumn` and the tick are as they are.
+
+### The SDK piece (core): rows in `host.ui.board`
+
+The piece still knows nothing about Projects. Options gain or use:
+
+- `rows?: [{ id, label }]`: drawn only when it is a non-empty array; without it the board is exactly as today. A row id follows the column id rule. A card's `row` names one; a card with no `row`, or a `row` not in `rows`, goes in the piece's own last row, labelled `labels.noRow` (default "No row"; Projects passes "No milestone" or "No one"), drawn only when it has cards.
+- `set(cards, columns?, rows?)`: rows may change with the cards.
+- `labels.otherRow`: the live line when a card is dropped on another row (default "A card stays in its row."; Projects passes "Change the milestone in Edit." or "Change who is doing it in Edit.").
+- `empty`: already in the piece; Projects passes "Nothing matches." while a filter is on.
+
+What it draws with rows:
+
+- **Wide layout:** the column headings once, at the top and held there while the rows scroll (heading, count, "+", "..." as today). Under them, one band per row: a full-width row heading (a fold chevron, the label, the row's count, "Launch, 4") and the row's cells, one per column, lined up under the headings.
+- **Folding a row** shows its heading only. Kept per person in the browser under `<foldKey>:rows`, in both layouts. Folding a column narrows it in every row; a folded column's cell shows its own count.
+- **Counts:** a column heading counts the cards shown in that column across every row; a row heading counts the cards shown in that row; a cell's count is shown only when its column is folded, and is always in the cell list's name.
+- **Stacked layout (640 px and narrower, or a coarse pointer):** each row is a group under its heading, foldable, and inside it the column sections as today (every done column folded, that choice not kept, no drag).
+- **Drag:** a card can be dropped only in its own row's cells; only those light up. Another row's cell gives no highlight and a drop there changes nothing and says `labels.otherRow`.
+- **Keyboard** (still one Tab stop): **Up** and **Down** walk the column inside the row, then pass through the next row's heading (a stop, where **Left** and **Right** fold and unfold it as the outline does) into that row's nearest card in the same column, else its nearest column with a card. **Left** and **Right** on a card stay in the row: the nearest card of the next column in that row that has one; an empty cell is skipped, and at the row's end focus stays. **Up** from the first row's heading reaches the column headings as today. **Alt+Left** and **Alt+Right** move one column within the row; the card menu's **Move to <column>** is unchanged.
+- **Accessibility:** each row is a group named by its heading and count; each cell is a list named "Now in Launch, 2"; the row heading's fold button says Fold or Unfold with `aria-expanded`; the drop highlight and the row bands use theme tokens only; no motion under reduced motion; 44 px touch targets for the row heading.
+
+### The module (`modules/schedule`): the Rows switch, the rows and the filters
+
+- **Rows.** The Rows switch (lean 3) writes `rowsBy`. The page builds `rows` from the board's `rowsBy` (lean 6 and 7), each card's `row`, and passes `noRow` and `otherRow`. A person's name is their display name, else "Someone who left".
+- **The Filter button** is the toolbar's own **Filters** (`type: 'chips'` items through `host.toolbar.set`, after the view switch), on the Board view only. Groups, each drawn only when it has options:
+  - **Who:** a switch for each person with work on the plan, and **No one**; off by default; shows work with any person chosen. With counts.
+  - **Tag:** `host.tags.filterOptions(counts)`; "has all of them", as the SDK says.
+  - **Phase** (only when the template has phases): one choice, **Every phase**, each phase, **No phase**.
+  - **Milestone:** one choice, **Every milestone**, each milestone in outline order, **No milestone**.
+  - Groups combine with "and". A kept value naming something that is gone is dropped on read.
+- **What filtered looks like:** the host's Filters button shows how many are applied, and its menu starts with **Clear filters**. The status bar adds "Showing 4 of 12 work" (the template's word) beside the plan's progress, which stays the whole plan's. No pills on the board. An empty cell or column says "Nothing matches."
+- **Counts and folding when filtered:** every count is of the shown cards. Folding is unchanged (a done column folded stays folded; its strip shows the shown count).
+- **A move cannot hide a card:** no filter reads the column, so a drag, a menu move or a key move keeps the card shown. **"+" while filtered** starts the editor with the filter's milestone and phase when one is chosen, its person when exactly one is, and its tags; if the saved work still does not match, a toast says "Added. The filter hides it."
+- **Phone at 390:** the Filters button and the stacked rows as above; the Rows switch wraps under **Add a column** in the bar.
+
 ## Progress
 
 Step 1 is built (Planner - Projects 0.1.13, try build, 2026-11-26): the rule, the stored board, `setColumn`, the `columns` permission and the file format. The server refuses a `board:` write by someone without `columns` through a `guards.keys` rule on `board:{id}` with `need: "columns"` (and the board's shape under `fields`), which the storage route already supported. Departures: the `boardColumns` labels are the library's own words, not `labels` entries yet, and `defaultView` has no `board` option yet; both belong to step 3 with the page.
@@ -100,7 +151,9 @@ Each is a try build unless Thomas calls another kind. Each module change bumps t
 2. **The shared board piece** (experience-design; core; large). `host.ui.board` with columns, counts, fold, "+", the column and card menus, drag, keys, live line and the stacked phone layout; rows accepted and ignored. Its styles, `tools/check-board.mjs` (pure parts in node, the drawn piece in a browser, as `check-outline.mjs`) and a Design System entry. Needs step 1 only for the demo data shape, so it can run beside it.
 3. **The Board view** (experience-design; module lane; medium). The view option and `defaultView`, the cards, "+", moves through `setColumn`, the column name in List and Timeline, the Gaming template's `boardColumns`. Needs steps 1 and 2.
 4. **The column menu and editor** (experience-design; module lane; medium). Rename, done flag, order, add, delete with its chooser, all gated by `columns`. Can be split from step 3 if step 3 runs long (decision 10's "if it fits").
-5. **Second build: swimlanes and filters** (experience-design, with core for rows in `host.ui.board`; medium each). Rows by milestone or person from `rowsBy`, and a Filter button (who, tag, phase, milestone) kept per person. To be planned in detail when the first build is used.
+5. **Second build: swimlanes and filters** ("The second build" above), as two try builds:
+   - **5a. Rows in the board piece** (experience-design; core; medium). `rows`, `row`, `noRow`, `otherRow` and `set(cards, columns?, rows?)` in `host.ui.board` (`public/sdk/host.js`), the row bands, row folding, the held column headings, the stacked row groups, the row-bound drop, the keyboard through rows and their styles in `public/sdk/system.css`; the pure parts (grouping by row, the no-row row, the walk through rows) and the drawn piece in `tools/check-board.mjs`; the Design System's Board entry gains a rows demo. Without `rows` the board must draw exactly as today.
+   - **5b. The Rows switch and the filters** (experience-design; module lane; medium). In `modules/schedule`: the Rows switch and its `rowsBy` write with Undo, the rows and the cards' `row`, the Filters groups and their kept value, the status line, "Nothing matches.", the "+" prefill and its toast; a patch version bump; a new `test/check-schedule-board-rows.mjs` (rows by milestone and person, a member without the switch, a drop on another row refused, the filters, the kept value, the counts). Needs 5a.
 
 Documented 2026-11-26 (content-manager): the user guide, the SDK and module API, the architecture and the design theme cover steps 1 to 4. Documentation when Thomas calls a feedback or production build (content-manager): the Planner - Projects user guide, [api-module-sdk](../api/api-module-sdk.md) for `host.ui.board`, design-theme for its look, and the Roles page's new right.
 
@@ -109,6 +162,8 @@ Documented 2026-11-26 (content-manager): the user guide, the SDK and module API,
 - **Step 1.** Checked by a tool: `npm run check:module -- schedule` and the server's storage-route check for the `columns` refusal. Cases: work without a column on each board default; tick and untick moving between columns; a flag change rewriting `done` and the milestones; each delete refusal; a rename leaving every card's `column` as it was; `setColumn` on page and server giving the same writes; an agent's move undone.
 - **Step 2.** Checked by a tool: `node tools/check-board.mjs`, `node tools/check-switches.mjs`, `node tools/check-radius.mjs` and the Design System check; live in headless Chromium on the Design System page at 1280 and 390, light and dark: drag, the menus, the keys, fold, "+" and the announcement.
 - **Steps 3 and 4.** `npm run check:module -- schedule`, then live on a local server in headless Chromium at 1280 and 390, light and dark: both templates' default columns, a move by drag, menu and keys, the List's tick moving the card and the board's Done unticking it in the List, done columns folded at 390, a second browser seeing a move, a member refused the column editor while a moderator has it, and an agent's `setColumn` through an agent token moving the card on an open board with Undo putting it back.
+- **Step 5a.** Checked by a tool: `node tools/check-board.mjs`, `node tools/check-switches.mjs`, `node tools/check-radius.mjs` and the Design System check; live in headless Chromium on the Design System page at 1280 and 390, light and dark: the rows demo's bands, row and column folding, the counts, the keys through rows, a drop on another row refused with its line, the stacked row groups at 390, and the board without `rows` unchanged.
+- **Step 5b.** `npm run check:module -- schedule`, then live on a local server in headless Chromium at 1280 and 390, light and dark: rows by milestone and by person with the "No" rows, a moderator changing the rows and Undo, a member seeing rows and no switch (and a forced `rowsBy` write refused by the server), each filter group alone and together, the Filters count and **Clear filters**, the status line, the filter kept over a reload, "+" while filtered, and a second browser seeing a rows change.
 - **Not checkable here:** the board inside a space's canvas during a call (no LiveKit server locally; read as code only), a real phone's touch, and a real screen reader (the live line is checked by its text).
 
 ## Open questions
@@ -119,3 +174,10 @@ None of these blocks the first build; each has a lean that the build takes unles
 2. **The phone's Done fold:** every done column folded, or only the last. Lean: every done column, since a done column is finished work.
 3. **Several boards later:** decision 4 keeps columns in each board's record, so a second board with its own columns needs its own field on work. Lean: each board names its `field` (the first is `column`), so a second board adds a field and board one's data never changes. Blocks only the "several boards" step, which is later and only if asked.
 4. **Order inside a column:** not stored, by end day (lean, taken). A stored board order would be a later change if the board is used for priority within a column, as Thomas's own Now column may want.
+
+For the second build (none blocks it; each lean is taken):
+
+5. **Rows shared or each person's own.** Decision 4 puts `rowsBy` on the board, so the rows are everyone's and changed under `columns`. If Thomas wants each person to choose their own rows, `rowsBy` would move to the browser like the filters and the stored field would go. Lean: shared, as decision 4 has it.
+6. **Work with two people, rows by person:** in its first owner's row only (lean), or in every owner's row. Every owner's row means one piece of work on the board twice, which the piece's one-card-one-place rule (focus, moves, the live line) does not allow today.
+7. **Moving between rows** (changing the milestone or the person by dragging) is left out of this build (lean 5). If it is wanted later, `onMove` gains `row` and the module writes the field through `updateEntry`.
+8. **Filters on the List and the Timeline:** not in this build (lean 8); a later step if asked.
