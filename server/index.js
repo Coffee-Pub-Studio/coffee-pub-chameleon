@@ -40,6 +40,7 @@ const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geoco
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
 const weatherProviders = require('./weather-providers');
 const { WeatherTerms } = require('./weather-terms');
+const { weatherSpaceDay } = require('./weather-space');
 const { WeatherCache, weatherDays, wouldAsk: weatherWouldAsk, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
 const airportList = require('./airports');
 const { RegionCutJobs, RegionCutError } = require('./region-cut');
@@ -13525,6 +13526,74 @@ function weatherMainPlace(text) {
   }
   return null;
 }
+const weatherDay = (v) => (typeof v === 'string' && weatherDaysBetween(v, v, 1).length ? v : '');
+// The space's phases as dated bands ({ main, dated, start, end }), null when it has no phases.
+function weatherMainBands(spaceId) {
+  const phases = phaseStatesOf(spaceId).phases;
+  const space = store.spaceById(spaceId);
+  if (!phases.length || !space) return null;
+  try { return phaseRule.timelineOf(phases, space.phases || {}, { today: todayIn(ACTION_TZ), created: space.createdAt }) || []; } catch { return []; }
+}
+// The space's place, as this asker may see it (plan-weather-users.md): the first module in the registry's order, on in the space,
+// that declares `weather.main` with a `place`, that the asker may read here and whose main text is not empty.
+// { manifest, text, from, to } (the text and the days as that module stores them), or null. Nothing is stored and nothing is asked.
+function weatherSpacePick(who, perms, space) {
+  if (!space || !who) return null;
+  for (const { manifest, entry } of modules.enabledAll()) {
+    const mn = manifest.weather && manifest.weather.main;
+    if (!mn || !mn.place || !manifest.scope.includes('space') || refusedInLobby(manifest, space.id)) continue;
+    if (moduleSpaceRefusal(entry, who, space) || !moduleCan(manifest, perms, 'read') || shutFromGuests(who, manifest, space.id)) continue;
+    if (hiddenFor(who, manifest, space.id).includes(mn.place)) continue;
+    const scopeKey = `space:${space.id}`;
+    const text = weatherMainText({ manifest, scopeKey });
+    if (!text) continue;
+    const stored = moduleData.get(manifest.id, scopeKey, mn.key);
+    const v = stored && stored.value && typeof stored.value === 'object' ? stored.value : {};
+    return { manifest, text, from: mn.from ? weatherDay(v[mn.from]) : '', to: mn.to ? weatherDay(v[mn.to]) : '' };
+  }
+  return null;
+}
+// A main place's text found: `{ lat, lon }`, null when not found, or false after a 429 was sent (count() refused).
+async function weatherPlaceAt(text, count) {
+  const found = weatherMainPlace(text);
+  if (found && found.ask) {
+    if (!count()) return false;
+    return found.ask();
+  }
+  return found;
+}
+// One ask counts once against the limit of the module the place or the days belong to; over it, a 429 is sent and false answered.
+function weatherCounter(res, moduleId, by) {
+  let counted = false;
+  return () => {
+    if (counted) return true;
+    if (overLimit(moduleId, by, 'weather')) { res.status(429).json({ error: limitMessage() }); return false; }
+    counted = true;
+    return true;
+  };
+}
+// Asks for the days in `inWindow`, each at its place (`at`: Map(day -> { lat, lon })), and sends the answer.
+async function weatherFinish(res, setup, answer, inWindow, at, count) {
+  const runs = new Map(); // "lat,lon" -> { lat, lon, days }
+  for (const d of inWindow) {
+    const p = at.get(d);
+    if (!p) continue;
+    const k = `${p.lat},${p.lon}`;
+    if (!runs.has(k)) runs.set(k, { lat: p.lat, lon: p.lon, days: [] });
+    runs.get(k).days.push(d);
+  }
+  // Only an ask of the service counts: an answer wholly from what is kept does not.
+  if ([...runs.values()].some((r) => weatherWouldAsk(weatherCache, setup.provider, r.lat, r.lon, r.days)) && !count()) return;
+  let failed = false;
+  let some = false;
+  await Promise.all([...runs.values()].map(async (r) => {
+    const got = await weatherDays(weatherCache, setup.provider, r.lat, r.lon, r.days, { units: setup.units });
+    if (got.failed) failed = true;
+    for (const d of r.days) { answer.days[d] = got.days[d]; if (got.days[d].state === 'forecast' || got.days[d].state === 'past') some = true; }
+  }));
+  if (failed && !some) return void res.status(502).json({ error: 'weather is not available right now' });
+  res.json(answer);
+}
 // The days asked for: `from` and `to`, or the trip's own first and last day (the space's main phase when it has phases,
 // else the stored ones, else the first and last day a stop is on). { days } or { error }.
 function weatherDaysAsked(ctx, query) {
@@ -13538,11 +13607,8 @@ function weatherDaysAsked(ctx, query) {
   if (!from || !to) {
     let start = '';
     let end = '';
-    const phases = phaseStatesOf(ctx.spaceId).phases;
-    if (phases.length) {
-      const space = store.spaceById(ctx.spaceId);
-      let bands = [];
-      try { bands = phaseRule.timelineOf(phases, space.phases || {}, { today: todayIn(ACTION_TZ), created: space.createdAt }) || []; } catch { bands = []; }
+    const bands = weatherMainBands(ctx.spaceId);
+    if (bands) {
       const main = bands.find((b) => b.main && b.dated);
       if (main) { start = main.start; end = main.end || main.start; }
     } else if (w.main) {
@@ -13554,6 +13620,11 @@ function weatherDaysAsked(ctx, query) {
     if (!start && w.stops) {
       const on = moduleData.list(ctx.manifest.id, ctx.scopeKey, w.stops.prefix).map((r) => day(r.value && r.value[w.stops.day])).filter(Boolean).sort();
       if (on.length) { start = on[0]; end = on[on.length - 1]; }
+    }
+    // A module whose days use the space's place (`space`) takes the days of the module the place comes from.
+    if (!start && w.space) {
+      const pick = weatherSpacePick(ctx.who, ctx.perms, store.spaceById(ctx.spaceId));
+      if (pick && pick.from) { start = pick.from; end = pick.to || start; }
     }
     if (!from && !to) own = true;
     from = from || start || to;
@@ -13587,20 +13658,19 @@ app.get('/api/modules/:id/weather', async (req, res) => {
   const inWindow = asked.days.filter((d) => weatherDayState(d, now) !== 'outOfRange');
   for (const d of asked.days) answer.days[d] = { state: inWindow.includes(d) ? 'noPlace' : 'outOfRange' };
   if (!inWindow.length) return res.json(answer);
-  // Each day's place: its first stop at a place with a position, else the trip's main place, else none.
+  // Each day's place: its first stop at a place with a position, else the trip's main place, else the space's place (a
+  // module that declares `space`), else none.
   const at = weatherStopPlaces(ctx, inWindow);
-  let counted = false;
-  const count = () => {
-    if (counted) return true;
-    if (overLimit(ctx.manifest.id, ctx.by, 'weather')) { res.status(429).json({ error: limitMessage() }); return false; }
-    counted = true;
-    return true;
-  };
+  const count = weatherCounter(res, ctx.manifest.id, ctx.by);
   if (inWindow.some((d) => !at.has(d))) {
-    let main = weatherMainPlace(weatherMainText(ctx));
-    if (main && main.ask) {
-      if (!count()) return;
-      main = await main.ask();
+    let main = await weatherPlaceAt(weatherMainText(ctx), count);
+    if (main === false) return;
+    if (!main && ctx.manifest.weather.space) {
+      const pick = weatherSpacePick(ctx.who, ctx.perms, store.spaceById(ctx.spaceId));
+      if (pick) {
+        main = await weatherPlaceAt(pick.text, count);
+        if (main === false) return;
+      }
     }
     const pos = main ? weatherPositionKey(main.lat, main.lon) : null;
     if (pos) {
@@ -13608,25 +13678,52 @@ app.get('/api/modules/:id/weather', async (req, res) => {
       for (const d of inWindow) if (!at.has(d)) at.set(d, { lat, lon });
     }
   }
-  const runs = new Map(); // "lat,lon" -> { lat, lon, days }
-  for (const d of inWindow) {
-    const p = at.get(d);
-    if (!p) continue;
-    const k = `${p.lat},${p.lon}`;
-    if (!runs.has(k)) runs.set(k, { lat: p.lat, lon: p.lon, days: [] });
-    runs.get(k).days.push(d);
+  await weatherFinish(res, setup, answer, inWindow, at, count);
+});
+// The weather of the space's own place (plan-weather-users.md, step 1): the place is the first enabled module's declared `weather.main`
+// (weatherSpacePick), found as this asker, so someone who may not read that module gets no place and the destination
+// never leaks. With no `from` and `to` the server picks the one day the status line shows (weatherSpaceDay). It counts
+// against the place module's limit; to the weather service go a rounded position and days, to the place search the text only
+// when not saved or remembered: never who asks or which space.
+app.get('/api/spaces/:id/weather', async (req, res) => {
+  const ctx = factsFor(req, res);
+  if (!ctx) return;
+  const { who, space, perms } = ctx;
+  if (pictureMapOf()) return res.json({ ...WEATHER_OFF, pictureMap: true });
+  const setup = weatherSetup();
+  if (!setup) return res.json(WEATHER_OFF);
+  const given = (name) => req.query[name] !== undefined && req.query[name] !== '';
+  let days = null;
+  if (given('from') || given('to')) {
+    if (!given('from') || !given('to')) return res.status(400).json({ error: 'Give both the first and the last day.' });
+    const from = weatherDay(String(req.query.from));
+    const to = weatherDay(String(req.query.to));
+    if (!from || !to) return res.status(400).json({ error: 'Give the days as YYYY-MM-DD.' });
+    if (from > to) return res.status(400).json({ error: 'The first day must not be after the last.' });
+    days = weatherDaysBetween(from, to, WEATHER_MAX_DAYS + 1);
+    if (days.length > WEATHER_MAX_DAYS) return res.status(400).json({ error: `Ask for at most ${WEATHER_MAX_DAYS} days at a time.` });
   }
-  // Only an ask of the service counts: an answer wholly from what is kept does not.
-  if ([...runs.values()].some((r) => weatherWouldAsk(weatherCache, setup.provider, r.lat, r.lon, r.days)) && !count()) return;
-  let failed = false;
-  let some = false;
-  await Promise.all([...runs.values()].map(async (r) => {
-    const got = await weatherDays(weatherCache, setup.provider, r.lat, r.lon, r.days, { units: setup.units });
-    if (got.failed) failed = true;
-    for (const d of r.days) { answer.days[d] = got.days[d]; if (got.days[d].state === 'forecast' || got.days[d].state === 'past') some = true; }
-  }));
-  if (failed && !some) return res.status(502).json({ error: 'weather is not available right now' });
-  res.json(answer);
+  const answer = { configured: true, credit: setup.credit, units: setup.units, place: null, days: {} };
+  const pick = weatherSpacePick(who, perms, space);
+  if (!pick) return res.json(answer);
+  let day = null;
+  if (!days) {
+    day = weatherSpaceDay(weatherMainBands(space.id) || [], pick, todayIn(ACTION_TZ));
+    days = day ? [day] : [];
+  }
+  answer.place = { module: pick.manifest.id, name: pick.text.slice(0, 24) };
+  if (day) answer.day = day;
+  const now = Date.now();
+  const inWindow = days.filter((d) => weatherDayState(d, now) !== 'outOfRange');
+  for (const d of days) answer.days[d] = { state: inWindow.includes(d) ? 'noPlace' : 'outOfRange' };
+  if (!inWindow.length) return res.json(answer);
+  const count = weatherCounter(res, pick.manifest.id, who.user.key);
+  const found = await weatherPlaceAt(pick.text, count);
+  if (found === false) return;
+  const pos = found ? weatherPositionKey(found.lat, found.lon) : null;
+  if (!pos) return res.json({ configured: true, credit: setup.credit, units: setup.units, place: null, days: {} });
+  const [lat, lon] = pos.split(',').map(Number);
+  await weatherFinish(res, setup, answer, inWindow, new Map(inWindow.map((d) => [d, { lat, lon }])), count);
 });
 // --- who accepts a weather service's terms ----------------------------------------------------------------------------------
 // A service's terms are accepted by a person in authority, once for the whole server (server/weather-terms.js): on a single

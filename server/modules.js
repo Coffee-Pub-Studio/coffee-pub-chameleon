@@ -852,12 +852,16 @@ function cleanWeather(raw, scope) {
   };
   const st = raw.stops && typeof raw.stops === 'object' ? raw.stops : null;
   const mn = raw.main && typeof raw.main === 'object' ? raw.main : null;
-  if (!st && !mn) throw new ModuleError('module.json: weather needs `stops` or `main`, to say where a day is');
+  // `space: true`: this module's days have no place of their own and use the space's place (plan-weather-users.md).
+  if (raw.space !== undefined && raw.space !== true) throw new ModuleError('module.json: weather `space` must be true');
+  const sp = raw.space === true;
+  if (!st && !mn && !sp) throw new ModuleError('module.json: weather needs `stops`, `main` or `space`, to say where a day is');
   if (st && (typeof st.prefix !== 'string' || !WEATHER_KEY.test(st.prefix))) throw new ModuleError('module.json: weather stops need a `prefix`, the start of their stored keys');
   if (mn && (typeof mn.key !== 'string' || !WEATHER_KEY.test(mn.key))) throw new ModuleError('module.json: weather main needs a `key`, the stored key it is read from');
   return {
     stops: st ? { prefix: st.prefix, day: field(st.day, 'stops `day`'), time: field(st.time, 'stops `time`', true), order: field(st.order, 'stops `order`', true), place: field(st.place, 'stops `place`') } : null,
     main: mn ? { key: mn.key, place: field(mn.place, 'main `place`', true), from: field(mn.from, 'main `from`', true), to: field(mn.to, 'main `to`', true) } : null,
+    space: sp,
   };
 }
 // A choice setting marked `"adapters": "weather"` (the Weather module's service) is filled from the registered adapters, once
