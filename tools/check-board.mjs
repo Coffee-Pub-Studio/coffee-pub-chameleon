@@ -44,7 +44,7 @@ const css = read('public/sdk/system.css');
 const from = sdk.indexOf('// board:start');
 const to = sdk.indexOf('// board:end');
 ok(from > 0 && to > from, 'public/sdk/host.js has its board:start and board:end markers');
-const P = new Function(`${sdk.slice(from, to)}\nreturn { boardColumns, boardGroup, boardStep, boardNearest, boardRows, boardRowOf, boardGroupRows, boardNearestCell };`)();
+const P = new Function(`${sdk.slice(from, to)}\nreturn { boardColumns, boardGroup, boardStep, boardNearest, boardRows, boardRowOf, boardGroupRows, boardNearestCell, boardMoveTo, boardSlot, boardSlotAt };`)();
 {
   same(P.boardColumns(null), [], 'no columns is an empty board');
   same(P.boardColumns('x'), [], 'columns that are not a list are an empty board');
@@ -70,6 +70,21 @@ const P = new Function(`${sdk.slice(from, to)}\nreturn { boardColumns, boardGrou
     same(P.boardGroupRows(cols, rows, [{ id: '1', column: 'a', row: 'r1' }], 'No row').map((r) => r.id), ['r1'], 'the no-row row is not drawn when it has no cards');
     same(P.boardGroupRows(cols, rows, [], 'No row'), [], 'no cards draw no rows');
     same([P.boardNearestCell([0, 0, 0], 1), P.boardNearestCell([1, 0, 1], 1), P.boardNearestCell([0, 0, 2], 0), P.boardNearestCell([3, 0, 0], 2), P.boardNearestCell([], 0)], [-1, 0, 2, 0, -1], 'the nearest cell with a card, the left one on a tie');
+  }
+  // order inside a column: where a card goes, a drop's slot
+  {
+    const ids = ['a', 'b', 'c', 'd'];
+    same(P.boardMoveTo(ids, 'b', 'up'), { before: 'a', index: 0 }, 'up puts a card in front of the one above');
+    same(P.boardMoveTo(ids, 'b', 'down'), { before: 'd', index: 2 }, 'down puts a card in front of the one two below');
+    same(P.boardMoveTo(ids, 'c', 'down'), { before: null, index: 3 }, 'down past the second last is the end');
+    same(P.boardMoveTo(ids, 'd', 'top'), { before: 'a', index: 0 }, 'top is in front of the first');
+    same(P.boardMoveTo(ids, 'a', 'bottom'), { before: null, index: 3 }, 'bottom is the end');
+    same([P.boardMoveTo(ids, 'a', 'up'), P.boardMoveTo(ids, 'd', 'down'), P.boardMoveTo(ids, 'a', 'top'), P.boardMoveTo(ids, 'd', 'bottom'), P.boardMoveTo(ids, 'x', 'up'), P.boardMoveTo(ids, 'a', 'sideways'), P.boardMoveTo('x', 'a', 'up'), P.boardMoveTo([], 'a', 'up')], [null, null, null, null, null, null, null, null], 'an edge, a card that is not there and a word that is not one move nothing');
+    same([P.boardSlot(ids, 'x', 0), P.boardSlot(ids, 'x', 2), P.boardSlot(ids, 'x', 4), P.boardSlot(ids, 'x', 99), P.boardSlot(ids, 'x', -3), P.boardSlot([], 'x', 1)], [
+      { before: 'a', index: 0, same: false }, { before: 'c', index: 2, same: false }, { before: null, index: 4, same: false }, { before: null, index: 4, same: false }, { before: 'a', index: 0, same: false }, { before: null, index: 0, same: false }], 'a drop from another column lands in front of the card at the slot, or at the end');
+    same([P.boardSlot(ids, 'b', 1), P.boardSlot(ids, 'b', 2), P.boardSlot(ids, 'b', 0), P.boardSlot(ids, 'b', 3), P.boardSlot(ids, 'b', 4), P.boardSlot(ids, 'd', 4), P.boardSlot(ids, 'a', 0)], [
+      { before: 'c', index: 1, same: true }, { before: 'c', index: 1, same: true }, { before: 'a', index: 0, same: false }, { before: 'd', index: 2, same: false }, { before: null, index: 3, same: false }, { before: null, index: 3, same: true }, { before: 'b', index: 0, same: true }], 'a drop inside the column counts the card where it stands: the gaps either side of it leave it as it is');
+    same([P.boardSlotAt([10, 30, 50], 5), P.boardSlotAt([10, 30, 50], 31), P.boardSlotAt([10, 30, 50], 99), P.boardSlotAt([], 5), P.boardSlotAt('x', 5)], [0, 2, 3, 0, 0], 'the slot is how many middles are above the pointer');
   }
   const piece = sdk.slice(sdk.indexOf('function createBoard('), sdk.indexOf('function createProgress('));
   ok(!/postMessage|window\.parent|window\.top/.test(piece), 'the board never talks to a parent or posts a message');
@@ -103,6 +118,8 @@ window.__ready = (async () => {
   const { host } = window.createHost({ call: answer, root: document, rootElement: document.body });
   try { await host.ready(); } catch (e) { /* the stand-in answers enough */ }
   const T = window.T = { host, moves: [], adds: [], opened: [], folds: [], data: ${DATA}, columns: ${COLUMNS}, apply: true, can: true };
+  // the module's own part: the card takes the column and goes in front of before, else last
+  T.place = (list, m) => { const mover = Object.assign({}, list.find((x) => x.id === m.id), { column: m.column }); const rest = list.filter((x) => x.id !== m.id); const at = m.before ? rest.findIndex((x) => x.id === m.before) : -1; rest.splice(at < 0 ? rest.length : at, 0, mover); return rest; };
   T.reset = () => { T.data = ${DATA}; T.moves = []; T.adds = []; T.opened = []; T.board.set(T.data, T.columns); };
   T.board = host.ui.board(document.getElementById('bd'), {
     columns: T.columns, cards: T.data, name: 'Plan board', foldKey: 'board-check', empty: 'No cards.',
@@ -119,7 +136,7 @@ window.__ready = (async () => {
     onFold: (id, f) => { T.folds.push([id, f]); },
     onMove: (m) => {
       T.moves.push(m);
-      if (T.apply) { T.data = T.data.map((x) => (x.id === m.id ? Object.assign({}, x, { column: m.column }) : x)); T.board.set(T.data); }
+      if (T.apply) { T.data = T.place(T.data, m); T.board.set(T.data); }
     },
   });
   T.other = host.ui.board(document.getElementById('bd2'), { columns: [{ id: 'z', label: 'Elsewhere' }], cards: [{ id: 'z1', column: 'z', title: 'Other card' }], name: 'Other', onMove: () => {} });
@@ -210,7 +227,7 @@ async function chromium() {
     const activeTitle = `(() => { const a = document.activeElement; const c = a && a.closest && a.closest('.sdk-board-card'); const t = c && c.querySelector('.sdk-board-content > div'); return t ? t.textContent : (a && a.className) || ''; })()`;
     const menuItems = `[...document.querySelectorAll('.sdk-menu-item')].map((e) => e.textContent.trim())`;
     const pick = async (page, label) => {
-      const at = await page.ev(`(() => { const e = [...document.querySelectorAll('.sdk-menu-item')].find((x) => x.textContent.trim() === ${JSON.stringify(label)}); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+      const at = await page.ev(`(() => { const e = [...document.querySelectorAll('.sdk-menu-item')].find((x) => x.textContent.trim() === ${JSON.stringify(label)}); e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
       await page.clickAt(at.x, at.y);
     };
     const live = `document.querySelector('#bd .sdk-board-live').textContent`;
@@ -277,7 +294,7 @@ async function chromium() {
         // --- the card menu and a move by it ---
         const more = await page.ev(center(`${card('Write the brief')}.querySelector('.sdk-board-more')`));
         await page.clickAt(more.x, more.y);
-        same(await page.ev(menuItems), ['Open', 'Move to Doing', 'Move to Later', 'Move to Done', 'Edit'], `${tag}: the card menu: Open, a move to each other column, then the module's own`);
+        same(await page.ev(menuItems), ['Open', 'Move up', 'Move down', 'Move to top', 'Move to bottom', 'Move to Doing', 'Move to Later', 'Move to Done', 'Edit'], `${tag}: the card menu: Open, a move to each other column, then the module's own`);
         if (phone) ok((await page.ev(`[...document.querySelectorAll('.sdk-menu-item')].map((e) => e.getBoundingClientRect().height)`)).every((h) => h >= 44), `${tag}: menu rows are 44 px or more`);
         await page.shot(`${width}-${mode}-card-menu`);
         await page.key('Escape');
@@ -285,7 +302,7 @@ async function chromium() {
         await page.clickAt(more.x, more.y);
         await pick(page, 'Move to Doing');
         same(await page.ev('T.moves'), [{ id: 'a', column: 'doing' }], `${tag}: Move to reports { id, column }`);
-        same((await page.ev(shape))[1], 'doing:Write the brief|Plan the day', `${tag}: and the module's own write is drawn`);
+        same((await page.ev(shape))[1], 'doing:Plan the day|Write the brief', `${tag}: and the module's own write is drawn (at the end of the column)`);
         await sleep(200);
         same(await page.ev(live), 'Moved "Write the brief" to Doing.', `${tag}: the polite line says it`);
         same(await page.ev(activeTitle), 'Write the brief', `${tag}: focus stays on the moved card`);
@@ -295,6 +312,29 @@ async function chromium() {
         await page.clickAt(more.x, more.y);
         await pick(page, 'Edit');
         same(await page.ev('T.opened'), ['edit:a'], `${tag}: the module's own card item runs`);
+        await page.ev('T.reset(); 1'); await sleep(200);
+
+        // --- order inside a column: the card menu (the way on a phone) ---
+        const disabledItems = `[...document.querySelectorAll('.sdk-menu-item')].filter((x) => x.disabled || x.getAttribute('aria-disabled') === 'true').map((x) => x.textContent.trim())`;
+        await page.clickAt(more.x, more.y);
+        same(await page.ev(disabledItems), ['Move up', 'Move to top'], `${tag}: the first card cannot move up or to the top`);
+        await pick(page, 'Move down');
+        await sleep(250);
+        same(await page.ev('T.moves'), [{ id: 'a', column: 'inbox' }], `${tag}: Move down in the last place but one sends the column and no place (the end)`);
+        same((await page.ev(shape))[0], 'inbox:Book the venue|Write the brief', `${tag}: and the card is one place down`);
+        same(await page.ev(live), 'Moved to position 2 of 2 in Inbox.', `${tag}: the polite line says where it is`);
+        same(await page.ev(activeTitle), 'Write the brief', `${tag}: focus stays on the card`);
+        const more2 = await page.ev(center(`${card('Write the brief')}.querySelector('.sdk-board-more')`));
+        await page.clickAt(more2.x, more2.y);
+        same(await page.ev(disabledItems), ['Move down', 'Move to bottom'], `${tag}: the last card cannot move down or to the bottom`);
+        await pick(page, 'Move to top');
+        await sleep(250);
+        same(await page.ev('T.moves.slice(1)'), [{ id: 'a', column: 'inbox', before: 'b' }], `${tag}: Move to top sends the card it lands in front of`);
+        same((await page.ev(shape))[0], 'inbox:Write the brief|Book the venue', `${tag}: and the card is first`);
+        await page.ev('T.reset(); 1'); await sleep(200);
+        await page.clickAt((await page.ev(center(`${card('Plan the day')}.querySelector('.sdk-board-more')`))).x, (await page.ev(center(`${card('Plan the day')}.querySelector('.sdk-board-more')`))).y);
+        same(await page.ev(menuItems).then((x) => x.filter((t) => /^Move (up|down|to top|to bottom)$/.test(t))), [], `${tag}: a column of one card has no moves inside it`);
+        await page.key('Escape');
         await page.ev('T.reset(); 1'); await sleep(200);
 
         // --- a move into a folded column opens it; folding ---
@@ -367,13 +407,13 @@ async function chromium() {
           same(await page.ev(live), 'Moved "Write the brief" to Doing.', `${tag}: and the line says it`);
           await page.key('ArrowLeft', { alt: true });
           same(await page.ev('T.moves.length'), 2, `${tag}: Alt+Left moves it back`);
-          same((await page.ev(shape))[0], 'inbox:Write the brief|Book the venue', `${tag}: to where it was`);
+          same((await page.ev(shape))[0], 'inbox:Book the venue|Write the brief', `${tag}: to its column (at the end of it)`);
           await page.key('ArrowLeft', { alt: true });
           same(await page.ev('T.moves.length'), 2, `${tag}: Alt+Left in the first column does nothing`);
           await page.key('Enter');
           same(await page.ev('T.opened'), ['a'], `${tag}: Enter opens the card`);
           await page.key(' ');
-          same(await page.ev(menuItems), ['Open', 'Move to Doing', 'Move to Later', 'Move to Done', 'Edit'], `${tag}: Space opens the card menu`);
+          same(await page.ev(menuItems), ['Open', 'Move up', 'Move down', 'Move to top', 'Move to bottom', 'Move to Doing', 'Move to Later', 'Move to Done', 'Edit'], `${tag}: Space opens the card menu`);
           await page.key('Escape');
           same(await page.ev(activeTitle), 'Write the brief', `${tag}: and Escape comes back to the card`);
           await page.ev(`T.reset(); document.querySelector('#bd .sdk-board-card').focus(); 1`);
@@ -383,9 +423,65 @@ async function chromium() {
           same(await page.ev(activeTitle), 'Write the brief', `${tag}: and Shift+Tab comes back to the card it left`);
           await page.ev('T.reset(); 1'); await sleep(150);
 
+          // --- order inside a column: Alt+Up and Alt+Down, and a drop's place ---
+          await page.ev(`${card('Write the brief')}.focus(); 1`);
+          same(await page.ev(`document.activeElement.getAttribute('aria-keyshortcuts')`), 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown', `${tag}: a card names its move keys`);
+          same(await page.ev(`getComputedStyle(document.activeElement).outlineStyle + ':' + (parseFloat(getComputedStyle(document.activeElement).outlineWidth) >= 2)`), 'solid:true', `${tag}: a focused card has a visible focus ring`);
+          await page.key('ArrowUp', { alt: true });
+          await sleep(250);
+          same(await page.ev('T.moves'), [], `${tag}: Alt+Up on the first card moves nothing`);
+          same(await page.ev(live), 'Already at the top.', `${tag}: and says so`);
+          await page.key('ArrowDown', { alt: true });
+          await sleep(250);
+          same(await page.ev('T.moves'), [{ id: 'a', column: 'inbox' }], `${tag}: Alt+Down moves it one place down`);
+          same((await page.ev(shape))[0], 'inbox:Book the venue|Write the brief', `${tag}: and it is drawn there`);
+          same(await page.ev(live), 'Moved to position 2 of 2 in Inbox.', `${tag}: the line says where`);
+          same(await page.ev(activeTitle), 'Write the brief', `${tag}: and focus stays on the card`);
+          await page.key('ArrowDown', { alt: true });
+          await sleep(250);
+          same([await page.ev('T.moves.length'), await page.ev(live)], [1, 'Already at the bottom.'], `${tag}: Alt+Down on the last card moves nothing and says so`);
+          await page.key('ArrowUp', { alt: true });
+          await sleep(250);
+          same(await page.ev('T.moves.slice(1)'), [{ id: 'a', column: 'inbox', before: 'b' }], `${tag}: Alt+Up sends the card it lands in front of`);
+          same(await page.ev(live), 'Moved to position 1 of 2 in Inbox.', `${tag}: and the line says where`);
+          await page.ev('T.apply = false; T.reset(); 1'); await sleep(150);
+          await page.ev(`document.querySelector('#bd .sdk-board-live').textContent = ''; ${card('Write the brief')}.focus(); 1`);
+          await page.key('ArrowDown', { alt: true });
+          await sleep(250);
+          same(await page.ev(live), '', `${tag}: a move the module does not draw is not announced`);
+          await page.ev('T.apply = true; T.reset(); 1'); await sleep(150);
+          // a drop inside a column: the pointer's place among the cards (a line before or after one), the same place is no drop
+          const slot = (title, over, where) => `(() => {
+            const c = ${card(title)};
+            const t = ${card(over)};
+            const dt = new DataTransfer();
+            const fire = (type, el, y) => { const r = el.getBoundingClientRect(); const ev = new DragEvent(type, { bubbles: true, cancelable: true, clientX: r.x + 20, clientY: y === undefined ? r.y + 2 : y, dataTransfer: dt }); el.dispatchEvent(ev); return ev; };
+            fire('dragstart', c);
+            const r = t.getBoundingClientRect();
+            const y = ${where === 'below' ? 'r.y + r.height - 2' : 'r.y + 2'};
+            const over = fire('dragover', t, y);
+            const li = t.closest('li');
+            const mark = li.classList.contains('is-drop-before') ? 'before' : li.classList.contains('is-drop-after') ? 'after' : '';
+            const col = t.closest('.sdk-board-col').classList.contains('is-drop');
+            const line = getComputedStyle(li.querySelector('.sdk-board-card')).boxShadow !== 'none';
+            fire('drop', t, y);
+            fire('dragend', c);
+            return { over: over.defaultPrevented, effect: dt.dropEffect, mark, col, line, last: T.moves[T.moves.length - 1] || null, moves: T.moves.length };
+          })()`;
+          let sl = await page.ev(slot('Write the brief', 'Book the venue', 'below'));
+          same([sl.over, sl.mark, sl.col, sl.line, sl.last], [true, 'after', false, true, { id: 'a', column: 'inbox' }], `${tag}: a drop on the lower half of the last card puts the dragged one at the end, with a line drawn`);
+          await page.ev('T.reset(); 1'); await sleep(150);
+          sl = await page.ev(slot('Book the venue', 'Write the brief', 'above'));
+          same([sl.over, sl.mark, sl.last], [true, 'before', { id: 'b', column: 'inbox', before: 'a' }], `${tag}: a drop on the upper half of a card goes in front of it`);
+          await page.ev('T.reset(); 1'); await sleep(150);
+          sl = await page.ev(slot('Write the brief', 'Write the brief', 'above'));
+          same([sl.over, sl.mark, sl.moves], [false, '', 0], `${tag}: a drop where the card already is draws no line and moves nothing`);
+          sl = await page.ev(slot('Write the brief', 'Plan the day', 'below'));
+          same([sl.mark, sl.col, sl.last], ['after', true, { id: 'a', column: 'doing' }], `${tag}: a drop into another column at the end sends no place, and lights the column too`);
+          await page.ev('T.reset(); 1'); await sleep(150);
           // --- drag ---
           let r = await page.ev(dnd('Write the brief', 'doing'));
-          same([r.overPrevented, r.cls, r.dropPrevented, r.last], [true, true, true, { id: 'a', column: 'doing' }], `${tag}: dragging a card over another column shows where it lands and drops there`);
+          same([r.overPrevented, r.cls, r.dropPrevented, r.last], [true, true, true, { id: 'a', column: 'doing', before: 'c' }], `${tag}: dragging a card over another column shows where it lands (the column, from its heading: the top) and drops there`);
           await sleep(150);
           same(await page.ev(live), 'Moved "Write the brief" to Doing.', `${tag}: and the line says it`);
           await page.ev('T.reset(); 1'); await sleep(150);
@@ -487,7 +583,7 @@ async function chromium() {
         // a move by menu changes the column only
         const rm = await page.ev(vcenter(`${rcard('Write the brief')}.querySelector('.sdk-board-more')`));
         await page.clickAt(rm.x, rm.y);
-        same(await page.ev(menuItems), ['Move to Doing', 'Move to Later', 'Move to Done'], `${tag}: rows: the card menu moves between columns only`);
+        same(await page.ev(menuItems), ['Move up', 'Move down', 'Move to top', 'Move to bottom', 'Move to Doing', 'Move to Later', 'Move to Done'], `${tag}: rows: the card menu moves inside the cell, then between columns`);
         await pick(page, 'Move to Doing');
         same(await page.ev('T.rmoves'), [{ id: 'a', column: 'doing' }], `${tag}: rows: a move reports the column only`);
         await sleep(200);
@@ -565,7 +661,7 @@ async function chromium() {
           rr = await page.ev(rdnd('Write the brief', '', 'doing'));
           same(rr.moves, 0, `${tag}: rows: the no-row row's cell is another row too`);
           rr = await page.ev(rdnd('Loose end', '', 'later'));
-          same(rr.last, { id: 'f', column: 'later' }, `${tag}: rows: a card with no row moves inside the no-row row`);
+          same(rr.last, { id: 'f', column: 'later', before: 'g' }, `${tag}: rows: a card with no row moves inside the no-row row`);
           await page.ev('T.reset3(); 1'); await sleep(200);
         } else {
           same(await page.ev(`[...document.querySelectorAll('${R} .sdk-board-row')].map((r) => r.querySelectorAll('.sdk-board-col').length)`), [4, 4, 4], '390: rows: each row group holds the columns as the stacked board does');

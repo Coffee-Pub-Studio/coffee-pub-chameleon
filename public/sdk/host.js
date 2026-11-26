@@ -2337,16 +2337,50 @@
     for (let i = 0; i < counts.length; i += 1) if (counts[i] > 0 && (best < 0 || Math.abs(i - from) < Math.abs(best - from))) best = i;
     return best;
   }
+  // Where a card goes inside its column, from the ids of the cards the cell shows in order. `how` is 'up', 'down', 'top' or 'bottom'.
+  // -> { before, index }: `before` is the id of the card it lands in front of (null: at the end), `index` its place afterwards; null when
+  // it is not in the list or would not move.
+  function boardMoveTo(ids, id, how) {
+    const list = Array.isArray(ids) ? ids : [];
+    const i = list.indexOf(id);
+    if (i < 0) return null;
+    const j = how === 'up' ? i - 1 : how === 'down' ? i + 1 : how === 'top' ? 0 : how === 'bottom' ? list.length - 1 : -1;
+    if (j < 0 || j >= list.length || j === i) return null;
+    const rest = list.filter((x) => x !== id);
+    return { before: j < rest.length ? rest[j] : null, index: j };
+  }
+  // A drop at the slot `at` (0 to ids.length: the gap before ids[at]; the last is the end) of a cell showing `ids`, the card `id` possibly
+  // among them: -> { before, index, same }. `same` is a drop that leaves the card where it is.
+  function boardSlot(ids, id, at) {
+    const list = Array.isArray(ids) ? ids : [];
+    const i = list.indexOf(id);
+    const n = Math.max(0, Math.min(list.length, Math.floor(Number(at)) || 0));
+    const rest = list.filter((x) => x !== id);
+    const index = i >= 0 && i < n ? n - 1 : n;
+    return { before: index < rest.length ? rest[index] : null, index, same: i >= 0 && index === i };
+  }
+  // The slot a pointer at `y` is in, from the vertical middles of a cell's cards in order: how many middles are above it.
+  function boardSlotAt(mids, y) {
+    let n = 0;
+    for (const m of Array.isArray(mids) ? mids : []) if (Number(m) < y) n += 1;
+    return n;
+  }
   // board:end
 
   const BOARD_WORDS = {
     name: 'Board', empty: 'Nothing here.', fold: 'Fold', unfold: 'Unfold', open: 'Open', more: 'More', countsDone: 'Counts as done',
     noRow: 'No row', otherRow: 'A card stays in its row.', cell: (column, row, count) => `${column} in ${row}, ${count}`,
     add: (column) => `Add to ${column}`, moveTo: (column) => `Move to ${column}`, moved: (title, column) => `Moved "${title}" to ${column}.`,
+    moveUp: 'Move up', moveDown: 'Move down', moveTop: 'Move to top', moveBottom: 'Move to bottom',
+    position: (n, total, column) => `Moved to position ${n} of ${total} in ${column}.`, atTop: 'Already at the top.', atBottom: 'Already at the bottom.',
   };
   let boardSeq = 0;
   // host.ui.board(el, { columns, cards, name?, labels?, card?(card, contentEl), menu?(card), columnMenu?(column), canMove?, canAdd?, foldKey?,
-  //   collapsed?, rows?, onOpen?(card), onAdd?(columnId), onMove({ id, column }), onFold?(id, folded) }) -> { set(cards, columns?, rows?), focus(id), destroy() }.
+  //   collapsed?, rows?, onOpen?(card), onAdd?(columnId), onMove({ id, column, before? }), onFold?(id, folded) }) -> { set(cards, columns?, rows?), focus(id), destroy() }.
+  // The cards of a column are drawn in the order given; the module keeps that order. onMove: `column` is the column it lands in (the
+  // card's own for a move inside its column); `before` is the id of the card it lands in front of, and missing means at the end of the
+  // column. A drop reports where the pointer was; Alt+Up and Alt+Down and the card menu's Move up, Move down, Move to top and Move to
+  // bottom move a card inside its column; Alt+Left and Alt+Right and "Move to <column>" put it at the end of the other column.
   // rows: [{ id, label }] draws the board in rows (a card's `row` names its row); without it the board is the columns alone.
   // deps: { icon(name) -> Promise<svg>, menu(args) } from the module's host.
   function createBoard(el, o, deps) {
@@ -2383,6 +2417,7 @@
     let said = null; // the move the module was told of, announced once a later set() shows it
     let drag = null; // { id, card } while this board's own card is being dragged
     let dropAt = null;
+    let dropMark = null; // the card's line the drop mark is drawn on
     let overOther = false; // the drag is over another row's cell: told on release
     let lastCol = 0; // the column the keyboard last was in, kept while it walks the row headings
     let dead = false;
@@ -2439,7 +2474,7 @@
       box.tabIndex = key === current ? 0 : -1;
       const can = movable(k);
       box.draggable = can && !stacked();
-      if (can) box.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+      if (can) box.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown');
       const more = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-board-more');
       more.type = 'button';
       more.tabIndex = -1;
@@ -2624,8 +2659,19 @@
       let target = had && stops.has(had) ? stops.get(had) : null;
       if (said) { // told only once the board shows the move, and only for a few seconds
         const k = cardOf(said.id);
-        if (k && k.column === said.column && Date.now() - said.at < 5000) { setCurrent(`c:${k.id}`); target = stops.get(`c:${k.id}`); say(said.text); }
-        said = null;
+        const fresh = Date.now() - said.at < 5000;
+        let there = true;
+        if (k && k.column === said.column && fresh) {
+          let text = said.text;
+          if (said.index !== undefined) { // a move inside the column: told once the card is where it was asked to go (a draw before the module has written it all is not it)
+            const at = infoOf(stops.get(`c:${k.id}`));
+            there = Boolean(at && at.card && at.at === said.index);
+            text = there ? words.position(at.at + 1, listOf(at).length, colOf(k.column).label) : '';
+          }
+          setCurrent(`c:${k.id}`); target = stops.get(`c:${k.id}`);
+          if (text) say(text);
+        }
+        if (there || !fresh) said = null;
       }
       if (target) target.focus({ preventScroll: false });
     }
@@ -2656,18 +2702,35 @@
       const f = stops.get(`r:${id}`); if (f) f.focus();
     }
 
-    function perform(id, to) {
+    // `slot` ({ before, index, same }) is where in the column it lands; without it, at the end of the column.
+    function perform(id, to, slot) {
       const k = cardOf(id);
       const c = colOf(to);
-      if (!k || !c || k.column === to || !movable(k)) return;
+      if (!k || !c || !movable(k)) return;
+      const inside = k.column === to;
+      if (inside && (!slot || slot.same)) return;
       const title = titleOf(k, stops.get(`c:${id}`) && stops.get(`c:${id}`).querySelector('.sdk-board-content'));
       // A card moved into a folded column opens it, so the card stays where focus is.
       if (isFolded(c, rowKeyOf(k))) { if (stacked()) stackedFolds.set(sfKey(c, rowKeyOf(k)), false); else folded.delete(c.id); }
-      said = { id, column: to, at: Date.now(), text: typeof words.moved === 'function' ? words.moved(title, c.label) : String(words.moved) };
+      said = { id, column: to, at: Date.now(), text: typeof words.moved === 'function' ? words.moved(title, c.label) : String(words.moved), index: inside ? slot.index : undefined };
+      const m = { id, column: to };
+      if (slot && slot.before) m.before = slot.before;
       try {
-        const r = options.onMove({ id, column: to });
+        const r = options.onMove(m);
         if (r && typeof r.catch === 'function') r.catch((err) => { said = null; console.error(err); });
       } catch (err) { said = null; console.error(err); }
+    }
+    // The cards of the cell a stop is in, in the order shown: [{ card, el }].
+    const listOf = (at) => (at.cell || at.col).cards;
+    // A move inside the column ('up', 'down', 'top', 'bottom') of the card `id`; at an edge it says so.
+    function reorder(id, how) {
+      const k = cardOf(id);
+      const at = infoOf(stops.get(`c:${id}`));
+      if (!k || !at || !at.card || !movable(k)) return;
+      const ids = listOf(at).map((x) => x.card.id);
+      const m = boardMoveTo(ids, id, how);
+      if (!m) { if (ids.length > 1) say(how === 'up' || how === 'top' ? words.atTop : words.atBottom); return; }
+      perform(id, k.column, { before: m.before, index: m.index, same: false });
     }
 
     function showCardMenu(id, anchor) {
@@ -2675,6 +2738,13 @@
       if (!k) return;
       const items = [];
       if (typeof options.onOpen === 'function') items.push({ id: 'open', label: words.open, icon: 'arrow-up-right-from-square', onClick: () => { try { options.onOpen(k); } catch (err) { console.error(err); } } }, { separator: true });
+      const here = infoOf(stops.get(`c:${id}`));
+      const ids = here && here.card ? listOf(here).map((x) => x.card.id) : [];
+      if (movable(k) && ids.length > 1) {
+        for (const [how, label, ic] of [['up', words.moveUp, 'arrow-up'], ['down', words.moveDown, 'arrow-down'], ['top', words.moveTop, 'angles-up'], ['bottom', words.moveBottom, 'angles-down']]) {
+          items.push({ id: `move-${how}`, label, icon: ic, disabled: !boardMoveTo(ids, id, how), onClick: () => reorder(id, how) });
+        }
+      }
       if (movable(k)) for (const c of columns) if (c.id !== k.column) items.push({ id: `move-${c.id}`, label: typeof words.moveTo === 'function' ? words.moveTo(c.label) : `${words.moveTo} ${c.label}`, icon: 'arrow-right', onClick: () => perform(id, c.id) });
       let extra = [];
       try { extra = typeof options.menu === 'function' ? options.menu(k) : []; } catch (err) { console.error(err); }
@@ -2819,6 +2889,11 @@
           if (to) perform(id, to);
           return;
         }
+        if (e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { // Alt+Up and Alt+Down: one place up or down inside the column
+          e.preventDefault();
+          if (e.target === stop) reorder(id, e.key === 'ArrowUp' ? 'up' : 'down');
+          return;
+        }
         if (e.altKey || e.shiftKey) { if (!(e.shiftKey && e.key === 'F10')) return; }
         if (e.target !== stop) return; // a key inside something in the card is that thing's own
         if (rowsOn && (narrow ? keyStacked(e, stop, at) : keyRows(e, stop, at))) return;
@@ -2843,7 +2918,10 @@
       else if (e.key === 'ArrowDown') { if (col.cards.length) go(col.cards[0].el); else if (narrow && layout[li + 1]) go(layout[li + 1].fold); }
       else if (e.key === 'ArrowUp' && narrow && li > 0) { const p = layout[li - 1]; go(p.cards.length ? p.cards[p.cards.length - 1].el : p.fold); }
     };
-    function clearDrop() { if (dropAt) { dropAt.classList.remove('is-drop'); dropAt = null; } }
+    function clearDrop() {
+      if (dropAt) { dropAt.classList.remove('is-drop'); dropAt = null; }
+      if (dropMark) { dropMark.classList.remove('is-drop-before', 'is-drop-after'); dropMark = null; }
+    }
     const dragStart = (e) => {
       const box = e.target.closest ? e.target.closest('.sdk-board-card') : null;
       if (!box || !el.contains(box) || !box.draggable) return;
@@ -2860,6 +2938,15 @@
     const mine = (e) => drag && e.dataTransfer && [...(e.dataTransfer.types || [])].includes(MIME);
     // With rows, a card lands only in a cell of its own row; without, in any column.
     const targetOf = (e) => (e.target.closest ? e.target.closest(hasRows() ? '.sdk-board-cell' : '.sdk-board-col') : null);
+    // Where a pointer at `y` would drop in `sec` (a column, or a row's cell): the slot among its cards (see boardSlot), and the card's line the
+    // mark is drawn on. Cards are read from the page (their lines' middles), the card being dragged counted where it stands.
+    const slotIn = (sec, id, y) => {
+      const lis = [...sec.querySelectorAll('.sdk-board-item')];
+      const ids = lis.map((li) => (keys.get(li.firstElementChild) || '').slice(2));
+      const rect = (li) => li.getBoundingClientRect();
+      const at = boardSlotAt(lis.map((li) => rect(li).top + rect(li).height / 2), y);
+      return { ...boardSlot(ids, id, at), mark: lis[at] || null, end: at >= lis.length && lis.length > 0 ? lis[lis.length - 1] : null };
+    };
     const dragOver = (e) => {
       if (drag && !(drag.box.isConnected && el.contains(drag.box))) drag = null; // its card is gone: no drag of ours
       if (!mine(e)) return; // not this board's own drag: left alone
@@ -2867,11 +2954,15 @@
       const k = cardOf(drag.id);
       clearDrop();
       overOther = Boolean(sec && el.contains(sec) && k && hasRows() && sec.dataset.row !== rowKeyOf(k));
-      if (!sec || !el.contains(sec) || !k || overOther || sec.dataset.col === k.column) { e.dataTransfer.dropEffect = 'none'; return; }
+      if (!sec || !el.contains(sec) || !k || overOther) { e.dataTransfer.dropEffect = 'none'; return; }
+      const slot = slotIn(sec, drag.id, e.clientY);
+      if (sec.dataset.col === k.column && slot.same) { e.dataTransfer.dropEffect = 'none'; return; } // where it already is
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      sec.classList.add('is-drop');
+      if (sec.dataset.col !== k.column) sec.classList.add('is-drop');
+      if (slot.mark) slot.mark.classList.add('is-drop-before'); else if (slot.end) slot.end.classList.add('is-drop-after');
       dropAt = sec;
+      dropMark = slot.mark || slot.end;
     };
     const dragLeave = (e) => { if (!e.relatedTarget || !el.contains(e.relatedTarget)) { clearDrop(); overOther = false; } };
     const drop = (e) => {
@@ -2885,7 +2976,7 @@
       overOther = false;
       if (!sec || !el.contains(sec)) return;
       if (hasRows() && k && sec.dataset.row !== rowKeyOf(k)) { say(words.otherRow); return; } // a card stays in its row: nothing moves
-      perform(id, sec.dataset.col);
+      perform(id, sec.dataset.col, slotIn(sec, id, e.clientY));
     };
     const dragEnd = () => {
       clearDrop();

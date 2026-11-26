@@ -5948,6 +5948,9 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 .sdk-board-card[draggable="true"] { cursor: grab; }
 .sdk-board-card[draggable="true"]:active { cursor: grabbing; }
 .sdk-board-item.dragging > .sdk-board-card { opacity: 0.5; }
+/* Where a drag would land inside a column: a line before or after the card it would sit beside. */
+.sdk-board-item.is-drop-before > .sdk-board-card { box-shadow: 0 calc(-1 * var(--space-1)) 0 -1px var(--accent-fill); }
+.sdk-board-item.is-drop-after > .sdk-board-card { box-shadow: 0 var(--space-1) 0 -1px var(--accent-fill); }
 .sdk-board-content {
   flex: 1 1 auto;
   min-width: 0;

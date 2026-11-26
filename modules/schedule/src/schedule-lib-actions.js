@@ -116,7 +116,19 @@ function scChange(input, ctx, make) {
   const had = scEntryFor(input, ctx, f);
   const out = make(had, f);
   if (out.problem) throw new Error(out.problem);
-  return scAnswer(ctx, scEntriesOf(ctx), had, out.entry);
+  const answer = scAnswer(ctx, scEntriesOf(ctx), had, out.entry);
+  // Other work whose rank changed with it (setColumn): written after it, no links or milestones of their own.
+  if (out.others && out.others.length) answer.writes.push(...out.others.map(scWrite));
+  return answer;
+}
+// setColumn: the move (column and done), then its place in the column: in front of the work `before`, else at the end.
+function scMoveTo(input, ctx, e, f) {
+  const board = scBoardOf(ctx);
+  const r = scSetColumn(e, input.column, board, { label: f.label });
+  if (r.problem) return r;
+  const before = typeof input.before === 'string' && input.before ? input.before : '';
+  const placed = scPlace(scEntriesOf(ctx), r.entry, r.entry.column, board, before);
+  return { entry: placed.entry, others: placed.others, problem: '' };
 }
 
 const ACTION_HANDLERS = {
@@ -125,8 +137,8 @@ const ACTION_HANDLERS = {
   addNote: (input, ctx) => scAdd('note', input, ctx),
   // The tick moves work with it (scSetDone's board): into the first done column, or out into the first column without the flag.
   setDone: (input, ctx) => scChange(input, ctx, (e, f) => scSetDone(e, input.done, { label: f.label, board: scBoardOf(ctx) })),
-  // Moves work to a column by its id; `done` follows the column's flag, and the milestones' done and progress in the same answer.
-  setColumn: (input, ctx) => scChange(input, ctx, (e, f) => scSetColumn(e, input.column, scBoardOf(ctx), { label: f.label })),
+  // Moves work to a column by its id, in front of the work `before` (a work id) or at the end; `done` follows the column's flag, and the milestones' done and progress in the same answer.
+  setColumn: (input, ctx) => scChange(input, ctx, (e, f) => scMoveTo(input, ctx, e, f)),
   // Only the fields given change. A day sent as "" (the manifest's `clears`) clears it, as emptying it in the editor does; so do
   // the owners and the notes.
   updateEntry: (input, ctx) => scChange(input, ctx, (e, f) => scUpdate(e, input, { datesRequired: f.datesRequired, label: f.label, people: f.people, space: f.space })),
