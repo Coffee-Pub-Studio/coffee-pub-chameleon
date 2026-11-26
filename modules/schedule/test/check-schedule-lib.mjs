@@ -216,6 +216,7 @@ test('the manifest', () => {
     defaultView: ['choice', 'space', 'default', 'timeline'],
     boardColumns: ['choice', 'space', 'default', 'stages'],
     tags: ['list', 'space', 'default', []],
+    githubRepo: ['text', 'space', undefined, ''],
   });
   const [plan] = manifest.refs.produces;
   assert.equal(manifest.refs.produces.length, 1);

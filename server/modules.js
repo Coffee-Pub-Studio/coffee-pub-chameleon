@@ -965,6 +965,12 @@ function cleanSettings(raw) {
       def.scope = 'environment';
       def.maxLength = clamp(r.maxLength, 8, 500, 200);
     } else if (type === 'text') {
+      // `follows: "issues"`: the repository a space's issue pull follows (plan-github-pull.md); the settings form draws the
+      // pull's status and its On and Off beside the box. Only a space's own setting, and only the one service kind there is.
+      if (r.follows !== undefined) {
+        if (r.follows !== 'issues' || def.scope !== 'space') throw new ModuleError(`module.json: setting "${key}" follows must be "issues", on a text setting whose scope is "space"`);
+        def.follows = 'issues';
+      }
       def.maxLength = clamp(r.maxLength, 1, 200, 100);
       def.default = typeof r.default === 'string' ? r.default.slice(0, def.maxLength) : '';
     } else {

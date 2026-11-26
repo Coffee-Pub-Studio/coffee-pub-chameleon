@@ -393,7 +393,7 @@ await live('the gate: only an owner turns it on, the terms first, only into an e
   assert.equal((await call('PUT', P(S.bugs), { token: S.admin, body: { ...on, provider: 'nowhere' } })).status, 400);
   assert.equal((await call('PUT', '/api/spaces/nosuchspace/issues-pull', { token: S.admin, body: on })).status, 404);
   const terms = await call('PUT', P(S.bugs), { token: S.admin, body: on });
-  assert.deepEqual([terms.status, terms.json.error], [409, 'Test stand-in (not an issue service)\'s terms are not accepted on this server.']);
+  assert.deepEqual([terms.status, terms.json.error], [409, 'Test stand-in (not an issue service)\'s terms are not accepted on this server. The administrator accepts them in Manage, Modules, Service terms.']);
   assert.equal(gh.seen.length, 0, 'nothing asked before the terms are accepted');
   const view = ok(await call('GET', '/api/weather/terms', { token: S.admin }), 'the terms list').json;
   assert.deepEqual(view.services.map((s) => [s.id, s.kind]), [['met-norway', 'weather'], ['github', 'issues'], ['issues-standin', 'issues']]);
