@@ -24,17 +24,14 @@ name: Project priority from the board
 #   - variable PROJECT_OWNER   the user who owns the project, e.g. Drowbe
 #   - variable PROJECT_NUMBER  the project's number, from its URL, e.g. 8
 #   - variable PROJECT_FIELD   optional; the single-select field to read, default Status
-# Without the secret or the owner and number, the run (hourly or by hand) ends green with one notice, so an unset
-# secret never fails every hour. A field that is missing, not
+# Without the secret or the owner and number, the run ends green with one notice, so an unset
+# secret never fails the run. A field that is missing, not
 # single-select, or has none of Now, Next and Later fails the run before any label is changed.
 
-# Runs every hour (at minute 17, because GitHub delays or drops scheduled runs at the top of the hour), and when
-# asked: from the Actions tab, or POST repos/{owner}/{repo}/actions/workflows/project-priority-sync.yml/dispatches
+# Runs only when asked: from the Actions tab, or POST repos/{owner}/{repo}/actions/workflows/project-priority-sync.yml/dispatches
 # with ref=main. The result is in the run's notices (one per change, then the total, then one per column for the
 # order; they show as check-run annotations) and in its step summary.
 on:
-  schedule:
-    - cron: '17 * * * *'
   workflow_dispatch:
 
 permissions:
