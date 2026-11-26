@@ -2269,6 +2269,404 @@
     return { inRange, round6, oneLine, coord, parsePoint, coordsText, mapsLink, mapsSearch };
   })());
 
+  // ---- host.ui.board: a board of columns and cards (documentation/plans/plan-projects-kanban.md, "The SDK piece") ----
+  // The pure parts (sliced out by tools/check-board.mjs between the markers): the module's columns made safe, the cards grouped under
+  // them, and where a step goes. The piece never writes: it reports onMove and the module sets the cards again.
+  // board:start
+  function boardColumns(raw) {
+    const out = [];
+    const seen = new Set();
+    for (const c of Array.isArray(raw) ? raw : []) {
+      if (!c || typeof c.id !== 'string' || !c.id || seen.has(c.id)) continue;
+      seen.add(c.id);
+      const count = Number(c.count);
+      out.push({ id: c.id, label: typeof c.label === 'string' && c.label.trim() ? c.label.trim() : c.id, done: c.done === true, count: Number.isFinite(count) && count >= 0 ? Math.floor(count) : null });
+    }
+    return out;
+  }
+  // columns -> Map(column id -> its cards, in the order given). A card with no id, a repeated id or a column the board does not have is not drawn.
+  function boardGroup(columns, cards) {
+    const out = new Map(columns.map((c) => [c.id, []]));
+    const seen = new Set();
+    for (const k of Array.isArray(cards) ? cards : []) {
+      if (!k || typeof k.id !== 'string' || !k.id || seen.has(k.id)) continue;
+      const list = out.get(k.column);
+      if (!list) continue;
+      seen.add(k.id);
+      list.push(k);
+    }
+    return out;
+  }
+  // The column one step from `id` (step -1 or 1), or null at the edge or for an unknown column.
+  function boardStep(columns, id, step) {
+    const at = columns.findIndex((c) => c.id === id);
+    const to = at < 0 ? -1 : at + (step < 0 ? -1 : 1);
+    return to >= 0 && to < columns.length ? columns[to].id : null;
+  }
+  // The card in a column of `length` cards that is nearest to the position `index` in the column left: -1 when the column has none.
+  function boardNearest(length, index) {
+    return length > 0 ? Math.max(0, Math.min(length - 1, Math.floor(Number(index)) || 0)) : -1;
+  }
+  // board:end
+
+  const BOARD_WORDS = {
+    name: 'Board', empty: 'Nothing here.', fold: 'Fold', unfold: 'Unfold', open: 'Open', more: 'More', countsDone: 'Counts as done',
+    add: (column) => `Add to ${column}`, moveTo: (column) => `Move to ${column}`, moved: (title, column) => `Moved "${title}" to ${column}.`,
+  };
+  let boardSeq = 0;
+  // host.ui.board(el, { columns, cards, name?, labels?, card?(card, contentEl), menu?(card), columnMenu?(column), canMove?, canAdd?, foldKey?,
+  //   collapsed?, rows?, onOpen?(card), onAdd?(columnId), onMove({ id, column }), onFold?(id, folded) }) -> { set(cards, columns?), focus(id), destroy() }.
+  // deps: { icon(name) -> Promise<svg>, menu(args) } from the module's host.
+  function createBoard(el, o, deps) {
+    if (!el || el.nodeType !== 1) throw new Error('host.ui.board needs an element');
+    const options = o || {};
+    const doc = el.ownerDocument;
+    const win = doc.defaultView || window;
+    const words = { ...BOARD_WORDS };
+    for (const [k, v] of Object.entries(options.labels || {})) if (k in BOARD_WORDS && typeof v === typeof BOARD_WORDS[k]) words[k] = v;
+    const seq = ++boardSeq;
+    const MIME = `application/x-host-board-${seq}`; // one instance's own drag type: a drag from anywhere else is never its drag
+    let columns = boardColumns(options.columns);
+    let cards = Array.isArray(options.cards) ? options.cards : [];
+    let groups = boardGroup(columns, cards);
+    // Folding is kept per person in the browser under the key the module names; on a phone the done columns start folded and a choice there is not kept.
+    const foldKey = typeof options.foldKey === 'string' && options.foldKey ? options.foldKey : '';
+    const readFolds = () => {
+      if (foldKey) { try { const v = JSON.parse(win.localStorage.getItem(foldKey) || 'null'); if (Array.isArray(v)) return v.filter((x) => typeof x === 'string'); } catch (err) { /* none kept */ } }
+      return Array.isArray(options.collapsed) ? options.collapsed.filter((x) => typeof x === 'string') : [];
+    };
+    const folded = new Set(readFolds());
+    const stackedFolds = new Map(); // column id -> folded, for the stacked layout only
+    const mq = typeof win.matchMedia === 'function' ? win.matchMedia('(max-width: 640px), (pointer: coarse)') : null;
+    const stacked = () => Boolean(mq && mq.matches);
+    const isFolded = (c) => (stacked() ? (stackedFolds.has(c.id) ? stackedFolds.get(c.id) : c.done) : folded.has(c.id));
+    const reads = (v, ...a) => { try { return typeof v === 'function' ? v(...a) : v; } catch (err) { console.error(err); return false; } };
+    const movable = (card) => typeof options.onMove === 'function' && reads(options.canMove === undefined ? true : options.canMove, card) !== false;
+    const addable = (c) => typeof options.onAdd === 'function' && reads(options.canAdd === undefined ? true : options.canAdd, c.id) !== false;
+    let current = ''; // the key of the stop that is the tab stop: "c:<card id>" or "h:<column id>:<fold|add|more>"
+    let said = null; // the move the module was told of, announced once a later set() shows it
+    let drag = null; // { id, card } while this board's own card is being dragged
+    let dropAt = null;
+    let dead = false;
+    const make = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    const stops = new Map(); // key -> element, rebuilt by each draw
+    const keys = new WeakMap(); // an element -> its key (never read back from the page)
+    let layout = []; // [{ column, fold, add, more, cards: [{ card, el }] }]
+    const svg = async (parent, name) => { try { const s = await deps.icon(name); if (s && !dead) parent.innerHTML = s; } catch (err) { /* no icon */ } };
+    const icon = (cls, name) => { const s = make('span', `ic ${cls || ''}`.trim()); s.setAttribute('aria-hidden', 'true'); svg(s, name); return s; };
+    const stopOf = (node) => { const s = node && node.closest ? node.closest('[data-stop]') : null; return s && el.contains(s) ? s : null; };
+
+    el.classList.add('sdk-board');
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-label', typeof options.name === 'string' && options.name ? options.name : words.name);
+    const live = make('div', 'sdk-board-live');
+    live.setAttribute('role', 'status');
+    const body = make('div', 'sdk-board-body');
+    el.replaceChildren(body, live);
+    const say = (text) => { live.textContent = ''; setTimeout(() => { if (!dead) live.textContent = text; }, 30); };
+
+    const titleOf = (card, content) => {
+      let t = typeof card.title === 'string' ? card.title : typeof card.name === 'string' ? card.name : '';
+      if (!t.trim() && content) t = content.textContent || '';
+      return (t.replace(/\s+/g, ' ').trim() || card.id).slice(0, 80);
+    };
+    const colOf = (id) => columns.find((c) => c.id === id);
+    const cardOf = (id) => { for (const list of groups.values()) for (const k of list) if (k.id === id) return k; return null; };
+    const countOf = (c) => (c.count !== null ? c.count : groups.get(c.id).length);
+    const stopKeys = () => [...stops.keys()];
+
+    function card(k, c, i) {
+      const li = make('li', 'sdk-board-item');
+      const box = make('div', 'sdk-board-card');
+      const content = make('div', 'sdk-board-content');
+      content.id = `sdk-board-${seq}-${c.index}-${i}`;
+      let made = false;
+      if (typeof options.card === 'function') { try { options.card(k, content); made = Boolean(content.firstChild); } catch (err) { console.error(err); content.replaceChildren(); } }
+      if (!made) content.textContent = titleOf(k, null);
+      // One tab stop for the whole board: whatever the module drew in a card is reached by the pointer, not by Tab.
+      for (const f of content.querySelectorAll('a, button, input, select, textarea, summary, [tabindex]')) f.tabIndex = -1;
+      const title = titleOf(k, content);
+      const key = `c:${k.id}`;
+      keys.set(box, key);
+      stops.set(key, box);
+      box.dataset.stop = 'card';
+      box.setAttribute('role', 'group');
+      box.setAttribute('aria-labelledby', content.id);
+      box.tabIndex = key === current ? 0 : -1;
+      const can = movable(k);
+      box.draggable = can && !stacked();
+      if (can) box.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+      const more = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-board-more');
+      more.type = 'button';
+      more.tabIndex = -1;
+      more.setAttribute('aria-haspopup', 'menu');
+      more.setAttribute('aria-label', `${words.more}: ${title}`);
+      more.dataset.tip = words.more;
+      more.append(icon('', 'ellipsis-vertical'));
+      box.append(content, more);
+      li.append(box);
+      return { li, box, title };
+    }
+
+    function column(c, index) {
+      const list = groups.get(c.id);
+      const shut = isFolded(c);
+      const narrow = stacked();
+      const sec = make('section', `sdk-board-col${shut ? ' is-folded' : ''}${c.done ? ' is-done' : ''}`);
+      sec.dataset.col = c.id;
+      const head = make('header', 'sdk-board-head');
+      const h = make('h3', 'sdk-board-title');
+      const fold = make('button', 'sdk-board-fold');
+      fold.type = 'button';
+      fold.setAttribute('aria-expanded', String(!shut));
+      fold.append(icon('sdk-board-chevron', 'chevron-right'), make('span', 'sdk-board-label', c.label));
+      if (c.done) { const d = make('span', 'sdk-board-done'); d.dataset.tip = words.countsDone; d.append(icon('', 'check'), make('span', 'sdk-board-sr', words.countsDone)); fold.append(d); }
+      fold.append(make('span', 'sdk-board-count', String(countOf(c))));
+      h.append(fold);
+      head.append(h);
+      const info = { column: c, index, fold, add: null, more: null, cards: [] };
+      const stop = (btn, part) => { const key = `h:${c.id}:${part}`; keys.set(btn, key); stops.set(key, btn); btn.dataset.stop = part; btn.tabIndex = key === current ? 0 : -1; };
+      stop(fold, 'fold');
+      if (!shut || narrow) {
+        if (addable(c)) {
+          const add = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-board-add');
+          add.type = 'button';
+          const w = typeof words.add === 'function' ? words.add(c.label) : String(words.add);
+          add.setAttribute('aria-label', w);
+          add.dataset.tip = w;
+          add.append(icon('', 'plus'));
+          stop(add, 'add');
+          info.add = add;
+          head.append(add);
+        }
+        const more = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-board-colmore');
+        more.type = 'button';
+        more.setAttribute('aria-haspopup', 'menu');
+        more.setAttribute('aria-label', `${words.more}: ${c.label}`);
+        more.dataset.tip = words.more;
+        more.append(icon('', 'ellipsis-vertical'));
+        stop(more, 'more');
+        info.more = more;
+        head.append(more);
+      }
+      sec.append(head);
+      if (!shut) {
+        const ul = make('ul', 'sdk-board-list');
+        ul.setAttribute('role', 'list');
+        ul.setAttribute('aria-label', `${c.label}, ${countOf(c)}`);
+        list.forEach((k, i) => { const made = card(k, { index }, i); ul.append(made.li); info.cards.push({ card: k, el: made.box }); });
+        if (!list.length) ul.append(make('li', 'sdk-board-empty', typeof options.empty === 'string' && options.empty ? options.empty : words.empty));
+        sec.append(ul);
+      }
+      layout.push(info);
+      return sec;
+    }
+
+    function draw() {
+      if (dead) return;
+      const act = (deps.root && deps.root.activeElement) || doc.activeElement;
+      const had = act && el.contains(act) ? keys.get(stopOf(act)) : '';
+      const left = body.scrollLeft;
+      stops.clear();
+      layout = [];
+      const first = groups && columns.length ? [...groups.values()].find((l) => l.length) : null;
+      if (!current || !(current.startsWith('c:') ? cardOf(current.slice(2)) : colOf(current.split(':')[1]))) current = first ? `c:${first[0].id}` : columns.length ? `h:${columns[0].id}:fold` : '';
+      body.replaceChildren(...columns.map((c, i) => column(c, i)));
+      body.scrollLeft = left;
+      if (!stops.has(current)) { const k = stopKeys()[0]; current = k || ''; if (k) stops.get(k).tabIndex = 0; }
+      let target = had && stops.has(had) ? stops.get(had) : null;
+      if (said) { // told only once the board shows the move, and only for a few seconds
+        const k = cardOf(said.id);
+        if (k && k.column === said.column && Date.now() - said.at < 5000) { setCurrent(`c:${k.id}`); target = stops.get(`c:${k.id}`); say(said.text); }
+        said = null;
+      }
+      if (target) target.focus({ preventScroll: false });
+    }
+    function setCurrent(key) {
+      current = key;
+      for (const [k, e] of stops) e.tabIndex = k === key ? 0 : -1;
+    }
+    function toggle(c, to) {
+      const shut = isFolded(c);
+      const next = to === undefined ? !shut : Boolean(to);
+      if (next === shut) return;
+      if (stacked()) stackedFolds.set(c.id, next);
+      else {
+        if (next) folded.add(c.id); else folded.delete(c.id);
+        if (foldKey) { try { win.localStorage.setItem(foldKey, JSON.stringify([...folded])); } catch (err) { /* not kept */ } }
+      }
+      draw();
+      const f = stops.get(`h:${c.id}:fold`); if (f) f.focus();
+      if (typeof options.onFold === 'function') { try { options.onFold(c.id, next); } catch (err) { console.error(err); } }
+    }
+
+    function perform(id, to) {
+      const k = cardOf(id);
+      const c = colOf(to);
+      if (!k || !c || k.column === to || !movable(k)) return;
+      const title = titleOf(k, stops.get(`c:${id}`) && stops.get(`c:${id}`).querySelector('.sdk-board-content'));
+      // A card moved into a folded column opens it, so the card stays where focus is.
+      if (isFolded(c)) { if (stacked()) stackedFolds.set(c.id, false); else folded.delete(c.id); }
+      said = { id, column: to, at: Date.now(), text: typeof words.moved === 'function' ? words.moved(title, c.label) : String(words.moved) };
+      try {
+        const r = options.onMove({ id, column: to });
+        if (r && typeof r.catch === 'function') r.catch((err) => { said = null; console.error(err); });
+      } catch (err) { said = null; console.error(err); }
+    }
+
+    function showCardMenu(id, anchor) {
+      const k = cardOf(id);
+      if (!k) return;
+      const items = [];
+      if (typeof options.onOpen === 'function') items.push({ id: 'open', label: words.open, icon: 'arrow-up-right-from-square', onClick: () => { try { options.onOpen(k); } catch (err) { console.error(err); } } }, { separator: true });
+      if (movable(k)) for (const c of columns) if (c.id !== k.column) items.push({ id: `move-${c.id}`, label: typeof words.moveTo === 'function' ? words.moveTo(c.label) : `${words.moveTo} ${c.label}`, icon: 'arrow-right', onClick: () => perform(id, c.id) });
+      let extra = [];
+      try { extra = typeof options.menu === 'function' ? options.menu(k) : []; } catch (err) { console.error(err); }
+      if (Array.isArray(extra) && extra.length) { if (items.length && !items[items.length - 1].separator) items.push({ separator: true }); items.push(...extra); }
+      while (items.length && items[items.length - 1].separator) items.pop();
+      deps.menu({ id: `sdk-board-card-${seq}-${id}`, anchor, items, onClose: () => { const a = (deps.root && deps.root.activeElement) || doc.activeElement; if (!a || a === doc.body) { const e = stops.get(`c:${id}`); if (e) e.focus(); } } });
+    }
+    function showColumnMenu(c, anchor) {
+      const shut = isFolded(c);
+      const items = [{ id: 'fold', label: shut ? words.unfold : words.fold, icon: 'chevron-right', onClick: () => toggle(c) }];
+      let extra = [];
+      try { extra = typeof options.columnMenu === 'function' ? options.columnMenu({ id: c.id, label: c.label, done: c.done }) : []; } catch (err) { console.error(err); }
+      if (Array.isArray(extra) && extra.length) items.push({ separator: true }, ...extra);
+      deps.menu({ id: `sdk-board-col-${seq}-${c.id}`, anchor, items, onClose: () => { const a = (deps.root && deps.root.activeElement) || doc.activeElement; if (!a || a === doc.body) { const e = stops.get(`h:${c.id}:more`); if (e) e.focus(); } } });
+    }
+
+    // ---- the pointer and the keyboard ----
+    const infoOf = (stop) => {
+      for (const col of layout) {
+        const at = col.cards.findIndex((x) => x.el === stop);
+        if (at >= 0) return { col, at, card: true };
+        if (stop === col.fold || stop === col.add || stop === col.more) return { col, at: -1, card: false };
+      }
+      return null;
+    };
+    const onClick = (e) => {
+      const t = e.target.closest ? e.target.closest('button, .sdk-board-card') : null;
+      if (!t || !el.contains(t)) return;
+      const sec = t.closest('.sdk-board-col');
+      const c = sec ? colOf(sec.dataset.col) : null;
+      if (t.classList.contains('sdk-board-fold') && c) { toggle(c); return; }
+      if (t.classList.contains('sdk-board-add') && c) { setCurrent(keys.get(t)); try { options.onAdd(c.id); } catch (err) { console.error(err); } return; }
+      if (t.classList.contains('sdk-board-colmore') && c) { setCurrent(keys.get(t)); showColumnMenu(c, t); return; }
+      const box = t.closest('.sdk-board-card');
+      if (!box) return;
+      const k = cardOf((keys.get(box) || '').slice(2));
+      if (!k) return;
+      setCurrent(keys.get(box));
+      if (t.classList.contains('sdk-board-more')) { showCardMenu(k.id, t); return; }
+      if (e.target.closest && e.target.closest('a, input, select, textarea, label, [contenteditable]')) return;
+      if (typeof options.onOpen === 'function') { try { options.onOpen(k); } catch (err) { console.error(err); } } else if (stacked() || !box.draggable) showCardMenu(k.id, box.querySelector('.sdk-board-more'));
+    };
+    const onFocusIn = (e) => { const s = stopOf(e.target); if (s && keys.has(s) && keys.get(s) !== current) setCurrent(keys.get(s)); };
+    const onKey = (e) => {
+      // Alt+Left and Alt+Right are the browser's Back and Forward: never while focus is in the board.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && el.contains(e.target)) e.preventDefault();
+      const stop = stopOf(e.target);
+      if (!stop || e.ctrlKey || e.metaKey) return;
+      const at = infoOf(stop);
+      if (!at) return;
+      const { col } = at;
+      const go = (to) => { if (to && to !== stop) { e.preventDefault(); to.focus(); } };
+      const heads = [];
+      for (const l of layout) heads.push(...[l.fold, l.add, l.more].filter(Boolean));
+      const row = stacked();
+      const colAt = (i) => layout[i];
+      const intoCol = (l, idx) => { const n = boardNearest(l.cards.length, idx); return n >= 0 ? l.cards[n].el : l.fold; };
+      if (at.card) {
+        const id = (keys.get(stop) || '').slice(2);
+        if (e.altKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          e.preventDefault();
+          const to = boardStep(columns, col.column.id, e.key === 'ArrowLeft' ? -1 : 1);
+          if (to) perform(id, to);
+          return;
+        }
+        if (e.altKey || e.shiftKey) { if (!(e.shiftKey && e.key === 'F10')) return; }
+        if (e.target !== stop) return; // a key inside something in the card is that thing's own
+        if (e.key === 'ArrowDown') { if (at.at < col.cards.length - 1) go(col.cards[at.at + 1].el); else if (row && colAt(layout.indexOf(col) + 1)) go(colAt(layout.indexOf(col) + 1).fold); else e.preventDefault(); }
+        else if (e.key === 'ArrowUp') { if (at.at > 0) go(col.cards[at.at - 1].el); else go(col.fold); }
+        else if (e.key === 'ArrowRight' && !row) { const n = colAt(layout.indexOf(col) + 1); if (n) go(intoCol(n, at.at)); else e.preventDefault(); }
+        else if (e.key === 'ArrowLeft' && !row) { const n = colAt(layout.indexOf(col) - 1); if (n) go(intoCol(n, at.at)); else e.preventDefault(); }
+        else if (e.key === 'Home') go(col.cards[0].el);
+        else if (e.key === 'End') go(col.cards[col.cards.length - 1].el);
+        else if (e.key === 'Enter') { e.preventDefault(); const k = cardOf(id); if (k && typeof options.onOpen === 'function') { try { options.onOpen(k); } catch (err) { console.error(err); } } else showCardMenu(id, stop.querySelector('.sdk-board-more')); }
+        else if (e.key === ' ' || e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); showCardMenu(id, stop.querySelector('.sdk-board-more')); }
+        return;
+      }
+      if (e.altKey || e.shiftKey) return;
+      const i = heads.indexOf(stop);
+      const li = layout.indexOf(col);
+      if (e.key === 'ArrowRight') go(heads[i + 1]);
+      else if (e.key === 'ArrowLeft') go(heads[i - 1]);
+      else if (e.key === 'Home') go(heads[0]);
+      else if (e.key === 'End') go(heads[heads.length - 1]);
+      else if (e.key === 'ArrowDown') { if (col.cards.length) go(col.cards[0].el); else if (row && layout[li + 1]) go(layout[li + 1].fold); }
+      else if (e.key === 'ArrowUp' && row && li > 0) { const p = layout[li - 1]; go(p.cards.length ? p.cards[p.cards.length - 1].el : p.fold); }
+    };
+    function clearDrop() { if (dropAt) { dropAt.classList.remove('is-drop'); dropAt = null; } }
+    const dragStart = (e) => {
+      const box = e.target.closest ? e.target.closest('.sdk-board-card') : null;
+      if (!box || !el.contains(box) || !box.draggable) return;
+      const id = (keys.get(box) || '').slice(2);
+      const k = cardOf(id);
+      if (!k || !movable(k) || !e.dataTransfer) { e.preventDefault(); return; }
+      drag = { id, box };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(MIME, id);
+      if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(box, 16, 16);
+      box.closest('li').classList.add('dragging');
+    };
+    const mine = (e) => drag && e.dataTransfer && [...(e.dataTransfer.types || [])].includes(MIME);
+    const dragOver = (e) => {
+      if (drag && !(drag.box.isConnected && el.contains(drag.box))) drag = null; // its card is gone: no drag of ours
+      if (!mine(e)) return; // not this board's own drag: left alone
+      const sec = e.target.closest ? e.target.closest('.sdk-board-col') : null;
+      const k = cardOf(drag.id);
+      clearDrop();
+      if (!sec || !el.contains(sec) || !k || sec.dataset.col === k.column) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      sec.classList.add('is-drop');
+      dropAt = sec;
+    };
+    const dragLeave = (e) => { if (!e.relatedTarget || !el.contains(e.relatedTarget)) clearDrop(); };
+    const drop = (e) => {
+      if (!mine(e)) return;
+      const sec = e.target.closest ? e.target.closest('.sdk-board-col') : null;
+      e.preventDefault();
+      clearDrop();
+      const id = drag.id;
+      drag = null;
+      if (sec && el.contains(sec)) perform(id, sec.dataset.col);
+    };
+    const dragEnd = () => { clearDrop(); drag = null; for (const li of el.querySelectorAll('li.dragging')) li.classList.remove('dragging'); };
+    const on = [['click', onClick], ['keydown', onKey], ['focusin', onFocusIn], ['dragstart', dragStart], ['dragover', dragOver], ['dragleave', dragLeave], ['drop', drop], ['dragend', dragEnd]];
+    for (const [t, f] of on) el.addEventListener(t, f);
+    const onMedia = () => draw();
+    if (mq && mq.addEventListener) mq.addEventListener('change', onMedia);
+
+    const api = {
+      set(next, nextColumns) {
+        if (nextColumns !== undefined) columns = boardColumns(nextColumns);
+        cards = Array.isArray(next) ? next : [];
+        groups = boardGroup(columns, cards);
+        draw();
+      },
+      focus(id) { const e = stops.get(`c:${String(id)}`); if (e) { setCurrent(`c:${String(id)}`); e.focus(); } },
+      destroy() {
+        dead = true;
+        for (const [t, f] of on) el.removeEventListener(t, f);
+        if (mq && mq.removeEventListener) mq.removeEventListener('change', onMedia);
+        el.replaceChildren(); el.classList.remove('sdk-board'); el.removeAttribute('role'); el.removeAttribute('aria-label');
+      },
+    };
+    draw();
+    return api;
+  }
+
   // env: { call(method, params) -> Promise, root, rootElement, elementAt({x, y}), localPoint(clientX, clientY),
   // applyTheme(theme) }.
   // Returns { host, emit }: `emit` is how the host pushes an event to the module.
@@ -4339,6 +4737,15 @@
       // Home and End walk the handles, Left and Right fold and unfold. On a phone the handle shows as a "..." and only opens the menu.
       // { set(entries), fold(id, folded?), focus(id), destroy() }. See createOutline above for every option.
       outline: (el, o) => createOutline(el, o, { root: env.root, icon: (name) => menuIcon(name), menu: (args) => showMenu(args) }),
+      // The shared board (plan-projects-kanban.md): columns side by side and the module's cards in them, drawn in `el`. It knows nothing of
+      // the module's data and writes nothing: the module gives columns [{ id, label, done?, count? }] and cards [{ id, column, title? }]
+      // (and `rows`, which the first build accepts and does not draw), draws each card's inside (card(card, contentEl)), and writes a move
+      // itself: onMove({ id, column }), then calls set(cards). A card moves by drag (not on a phone), by its "..." menu (Move to <column>,
+      // then the module's own menu(card) items), or by Alt+Left and Alt+Right; the arrows walk the board, Enter opens, Space or the menu key
+      // opens the menu, and Tab crosses the board in one stop. A column folds (kept in the browser under foldKey), has a "+" (onAdd) and a
+      // "..." (columnMenu(column)). At 640 px and narrower, or with a touch screen, the columns stack and the done ones start folded.
+      // { set(cards, columns?), focus(id), destroy() }. See createBoard above for every option.
+      board: (el, o) => createBoard(el, o, { root: env.root, icon: (name) => menuIcon(name), menu: (args) => showMenu(args) }),
       // A small bar and the words "2 of 4": progress(el, { done, total, label?, words?(done, total) }) -> { set({ done, total }), destroy() }.
       progress: (el, o) => createProgress(el, o),
       // A day's weather in its header (plan-itinerary-weather.md): dayWeather(el, { day, units, credit }) -> { element, set({ day?, units?,

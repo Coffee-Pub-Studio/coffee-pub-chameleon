@@ -61,6 +61,19 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     ],
   });
 
+  // ---- Board (host.ui.board) ----
+  const bdCard = (title, o = {}) => '<li class="sdk-board-item' + (o.cls || '') + '"><div class="sdk-board-card" role="group" tabindex="-1"><div class="sdk-board-content">' + title + '</div><button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-board-more" tabindex="-1" aria-haspopup="menu" aria-label="More: ' + title + '"><span class="ic" aria-hidden="true">' + fa('ellipsis-vertical') + '</span></button></div></li>';
+  const bdCol = (label, count, cards, o = {}) => '<section class="sdk-board-col' + (o.folded ? ' is-folded' : '') + (o.done ? ' is-done' : '') + (o.drop ? ' is-drop' : '') + '"><header class="sdk-board-head"><h3 class="sdk-board-title"><button type="button" class="sdk-board-fold" aria-expanded="' + (o.folded ? 'false' : 'true') + '"><span class="ic sdk-board-chevron" aria-hidden="true">' + fa('chevron-right') + '</span><span class="sdk-board-label">' + label + '</span>' + (o.done ? '<span class="sdk-board-done"><span class="ic" aria-hidden="true">' + fa('check') + '</span><span class="sdk-board-sr">Counts as done</span></span>' : '') + '<span class="sdk-board-count">' + count + '</span></button></h3>' + (o.folded ? '' : '<button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-board-add" aria-label="Add to ' + label + '"><span class="ic" aria-hidden="true">' + fa('plus') + '</span></button><button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-board-colmore" aria-haspopup="menu" aria-label="More: ' + label + '"><span class="ic" aria-hidden="true">' + fa('ellipsis-vertical') + '</span></button>') + '</header>' + (o.folded ? '' : '<ul class="sdk-board-list" role="list" aria-label="' + label + ', ' + count + '">' + cards + '</ul>') + '</section>';
+  F.push({
+    id: 'board', group: 'Content', name: 'Board',
+    desc: 'The shared board (<code>host.ui.board</code>): columns side by side, each a heading with its count, a "+" and a "...", and the module\'s cards. It knows nothing of the module\'s data and writes nothing; it reports a move. A card moves by drag (not on a phone), by its "..." menu, or by Alt with Left or Right; Tab crosses the board in one stop. A folded column is a narrow strip. A drag over a column shows as <code>.is-drop</code>. At 640 px and narrower the columns stack and done ones start folded.',
+    variants: [
+      { wide: true, n: 'Board .sdk-board', ctx: 'host', sel: '.sdk-board', html: '<div class="sdk-board" role="group" aria-label="Plan board"><div class="sdk-board-body">' + bdCol('Now', 2, bdCard('Write the brief') + bdCard('Book the venue')) + bdCol('Next', 1, bdCard('Plan the day')) + bdCol('Later', 0, '<li class="sdk-board-empty">Nothing here.</li>') + bdCol('Done', 1, bdCard('Send the invites'), { done: true }) + '</div></div>' },
+      { wide: true, n: 'A folded column and a drop .is-drop', ctx: 'host', sel: '.sdk-board-col', html: '<div class="sdk-board"><div class="sdk-board-body">' + bdCol('Now', 1, bdCard('Write the brief'), { drop: true }) + bdCol('Next', 1, bdCard('Plan the day') ) + bdCol('Done', 3, '', { done: true, folded: true }) + '</div></div>' },
+    ],
+    notMounted: 'the stacked phone look and the drag itself; the live piece below draws the real thing.',
+  });
+
   // ---- Outline (host.ui.outline, host.ui.progress) ----
   const olItem = (title, o = {}) => '<li class="sdk-outline-item' + (o.cls || '') + '"><div class="sdk-outline-row' + (o.row || '') + '">' + (o.kids ? '<button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-outline-fold" aria-expanded="true" aria-label="Fold: ' + title + '"><span class="ic" aria-hidden="true">' + fa('chevron-right') + '</span></button>' : '<span class="sdk-outline-fold-gap"></span>') + '<div class="sdk-outline-content">' + title + '</div><button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-outline-handle" aria-haspopup="menu" aria-label="Move: ' + title + '"><span class="ic sdk-outline-grip" aria-hidden="true">' + fa('grip-vertical') + '</span><span class="ic sdk-outline-dots" aria-hidden="true">' + fa('ellipsis-vertical') + '</span></button></div>' + (o.kids || '') + '</li>';
   F.push({
@@ -249,6 +262,30 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           onMove: function (m) { data = data.map(function (x) { return x.id === m.id ? Object.assign({}, x, { parent: m.parent || undefined, order: m.order }) : x; }); draw(); } });
         draw();
         host.ui.peoplePicker(document.getElementById('ol-who'), { people: [{ key: 'mia', name: 'Mia' }, { key: 'sam', name: 'Sam' }], value: ['mia'] });`,
+    },
+    {
+      id: 'live-board', block: 'board', name: 'Live: board', height: 520, title: 'Live board',
+      desc: 'host.ui.board mounted by the real SDK. Drag a card to another column, open its "..." menu for Move to, or focus a card and press Alt with Left or Right; fold a column; press the + . This page writes the moves itself, as a module would. Narrow the width to 640 px to see the stacked sections.',
+      body: '<div class="dsf-live"><div id="bd"></div></div>',
+      script: `
+        var cols = [{ id: 'inbox', label: 'Inbox' }, { id: 'now', label: 'Now' }, { id: 'next', label: 'Next' }, { id: 'done', label: 'Done', done: true }];
+        var data = [
+          { id: 'a', column: 'inbox', title: 'Write the brief', day: 'Fri', late: true },
+          { id: 'b', column: 'now', title: 'Plan the day', day: 'Sat' },
+          { id: 'c', column: 'now', title: 'Book the venue and the caterer for the whole weekend', day: 'No date' },
+          { id: 'd', column: 'next', title: 'Send the invites', day: 'Mon' },
+          { id: 'e', column: 'done', title: 'Pick a date', day: 'Done' }];
+        var n = 0;
+        var bd = host.ui.board(document.getElementById('bd'), { columns: cols, cards: data, name: 'Plan board', foldKey: 'ds-board',
+          card: function (k, el) {
+            var t = document.createElement('div'); t.textContent = k.title; el.appendChild(t);
+            var m = document.createElement('div'); m.className = 'sdk-hint'; m.textContent = k.day + (k.late ? ', Late' : ''); el.appendChild(m);
+          },
+          menu: function () { return [{ label: 'Edit', icon: 'pen' }, { label: 'Delete', icon: 'trash', danger: true }]; },
+          columnMenu: function () { return [{ label: 'Rename', icon: 'pen' }]; },
+          onOpen: function () {},
+          onAdd: function (id) { n += 1; data = data.concat([{ id: 'n' + n, column: id, title: 'New card ' + n, day: 'No date' }]); bd.set(data); },
+          onMove: function (m) { data = data.map(function (x) { return x.id === m.id ? Object.assign({}, x, { column: m.column }) : x; }); bd.set(data); } });`,
     },
     {
       id: 'live-weather', block: 'days', name: 'Live: a day\'s weather (host.ui.dayWeather)', height: 470, title: 'Live day weather',

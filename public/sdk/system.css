@@ -5819,6 +5819,185 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 }
 /* outline:end */
 
+/* ================= Board (host.ui.board) =================
+   Columns side by side, each a heading with its count, a "+" and a "...", and a list of the module's cards. The module draws a card's
+   inside (.sdk-board-content); the piece draws the frame, the "..." (.sdk-board-more) and where a drag would land. A folded column is a
+   narrow strip with its name and count. At 640px and narrower, or on a touch screen, the columns stack (each a section), done columns
+   start folded, nothing drags and every target is 44px. Nothing is told by colour alone: a done column carries a check and the words.
+     .sdk-board            the container, .sdk-board-body the row of columns
+     .sdk-board-col        a column (.is-folded, .is-done, .is-drop while a card is dragged over it); .sdk-board-head its heading row
+     .sdk-board-fold       the heading button (.sdk-board-label, .sdk-board-count, .sdk-board-done); .sdk-board-add the "+"; .sdk-board-colmore its "..."
+     .sdk-board-list       a column's list; .sdk-board-item a card's line; .sdk-board-card the card (the tab stop); .sdk-board-empty the empty line
+     .sdk-board-live       the polite line a screen reader hears a move in (not drawn) */
+/* board:start */
+.sdk-board {
+  position: relative;
+  min-width: 0;
+}
+
+.sdk-board-body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.sdk-board-col {
+  flex: 1 1 220px;
+  min-width: 220px;
+  max-width: 340px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--edge-hairline);
+  border-radius: var(--radius-medium);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+}
+.sdk-board-col.is-drop {
+  background: var(--fill-selected);
+  outline: 2px solid var(--accent-fill);
+  outline-offset: -2px;
+}
+
+.sdk-board-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.sdk-board-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-strong);
+}
+.sdk-board-fold {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--btn-h-small);
+  margin: 0;
+  padding: var(--space-0) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sdk-board-fold:hover { background: var(--fill-hover); }
+.sdk-board-fold:focus-visible,
+.sdk-board-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.sdk-board-chevron { flex: none; display: inline-flex; transition: transform var(--motion-fast) var(--ease-out); }
+.sdk-board-fold[aria-expanded="true"] .sdk-board-chevron { transform: rotate(90deg); }
+.sdk-board-label { min-width: 0; overflow-wrap: anywhere; }
+.sdk-board-done { flex: none; display: inline-flex; color: var(--text-muted); }
+.sdk-board-col.is-done .sdk-board-done { color: var(--status-ok-fill); }
+.sdk-board-add,
+.sdk-board-colmore { flex: none; }
+.sdk-board-count {
+  flex: none;
+  margin-inline-start: auto;
+  padding: var(--space-0) var(--space-1);
+  border: 1px solid var(--edge-hairline);
+  border-radius: var(--radius-small);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.sdk-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sdk-board-item { min-width: 0; margin: 0; padding: 0; }
+.sdk-board-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--edge-hairline);
+  border-radius: var(--radius-medium);
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+.sdk-board-card:hover { background: var(--fill-hover); }
+.sdk-board-card[draggable="true"] { cursor: grab; }
+.sdk-board-card[draggable="true"]:active { cursor: grabbing; }
+.sdk-board-item.dragging > .sdk-board-card { opacity: 0.5; }
+.sdk-board-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-14);
+  line-height: var(--leading-body);
+}
+.sdk-board-more { margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) 0 0; }
+.sdk-board-empty {
+  margin: 0;
+  padding: var(--space-3) var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  text-align: center;
+}
+
+/* A folded column on a wide screen: a narrow strip, the name running down it. */
+.sdk-board-col.is-folded { flex: none; min-width: 0; width: 44px; align-items: center; padding: var(--space-1); }
+.sdk-board-col.is-folded .sdk-board-title { flex: none; }
+.sdk-board-col.is-folded .sdk-board-fold { flex-direction: column; width: auto; min-height: 0; padding: var(--space-2) var(--space-1); }
+.sdk-board-col.is-folded .sdk-board-label { writing-mode: vertical-rl; }
+.sdk-board-col.is-folded .sdk-board-count { margin: 0; }
+.sdk-board-col.is-folded .sdk-board-chevron { transform: none; }
+
+.sdk-board-sr,
+.sdk-board-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A phone or a touch screen: the columns stack, nothing drags, and every target is 44px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .sdk-board-body { flex-direction: column; align-items: stretch; overflow-x: visible; }
+  .sdk-board-col,
+  .sdk-board-col.is-folded { flex: none; width: auto; min-width: 0; max-width: none; align-items: stretch; padding: var(--space-2); }
+  .sdk-board-col.is-folded .sdk-board-fold { flex-direction: row; width: 100%; padding: var(--space-0) var(--space-1); }
+  .sdk-board-col.is-folded .sdk-board-label { writing-mode: horizontal-tb; }
+  .sdk-board-col.is-folded .sdk-board-count { margin-inline-start: auto; }
+  .sdk-board-col.is-folded .sdk-board-chevron { transform: none; }
+  .sdk-board-fold,
+  .sdk-board-col.is-folded .sdk-board-fold { min-height: 44px; }
+  .sdk-board .sdk-icon-btn.btn-small { min-width: 44px; min-height: 44px; }
+  .sdk-board-card { min-height: 44px; }
+  .sdk-board-card[draggable] { cursor: pointer; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdk-board-chevron { transition: none; }
+}
+/* board:end */
+
 /* ================= Choice rows (design system step 27) =================
    Source: public/design-system/proposed-choices.css, without the .ds-proposed prefix. This is the row .sdk-check was: a whole-row choice,
    the tick box or radio (the Fields box) on the left, the words, and a description if there is one. The whole row is the target: --check-h high
