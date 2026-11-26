@@ -207,7 +207,8 @@ test('the page\'s shared menu: a row\'s "..." (`more`) flies out beside it, the 
   const css = read('public/style.css');
   assert.match(read('public/sdk/system.css'), /\.host-menu-more:hover, \.host-menu-more\.open \{ background: var\(--menu-hover\)/, 'the "..." keeps its look while its flyout is open');
   // The only user, the Layout menu's saved layouts (space.js), hands its entries over unchanged.
-  assert.ok(read('public/space.js').includes('more: mayFavorite() || mayChangeLayout(isShared) || maySetDefault(isShared) ? (anchor) => layoutRowItems(l.id, anchor) : undefined,'));
+  // Whatever the gate on it is (it changes with who may edit a layout), a saved layout's row keeps its "..." that opens layoutRowItems.
+  assert.match(read('public/space.js'), /more: [^\n]*\? \(anchor\) => layoutRowItems\(l\.id, anchor\) : undefined,/);
 });
 
 // A menu row's accessible name (Thomas, 2026-10-13: the Planner's short rows, "Flight", carry "Add a flight" as `tip`).
