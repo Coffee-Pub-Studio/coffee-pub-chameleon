@@ -186,7 +186,11 @@ const ord = P.outlineOrder;
 {
   const start = sdk.indexOf('// ---- The shared outline pieces');
   const end = sdk.indexOf('// The kind picker (host.ui.kindPicker)');
-  const code = sdk.slice(start, end);
+  // The day's weather piece (host.ui.dayWeather) sits among them and draws its own icon from the host; it is not the outline, so it is left out.
+  const wStart = sdk.indexOf('// host.ui.dayWeather(el');
+  const wEnd = sdk.indexOf('// host.ui.peoplePicker(el');
+  ok(wStart > start && wEnd > wStart && wEnd < end, 'the day weather piece is found between the outline pieces and the kind picker');
+  const code = sdk.slice(start, wStart) + sdk.slice(wEnd, end);
   ok(start > 0 && end > start, 'the outline pieces sit together in public/sdk/host.js');
   for (const word of ['localStorage', 'sessionStorage', 'document.cookie', 'window.parent', 'window.top', 'global.parent', 'postMessage', 'eval(', 'new Function', 'insertAdjacentHTML', 'outerHTML', 'document.write']) {
     ok(!code.includes(word), `the outline pieces do not use ${word}`);
