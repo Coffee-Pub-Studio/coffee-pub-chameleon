@@ -109,10 +109,12 @@ const TOOLS = [
   {
     name: 'read_weather',
     title: 'Read the weather',
-    description: 'The weather on the days of a module that has days, in a space: { configured, credit, units, days: { "YYYY-MM-DD": { state, code, words, high, low, rain } } }. module is the one whose days they are (a module without days answers that it has no weather); from and to default to its first and last day, at most 60 days. { configured: false } means weather is not configured here, so there is none to read. state is forecast, past, outOfRange, noPlace or unavailable; a day beyond the window (more than 13 days ahead or 30 back) or with no place carries only its state. Counts as one read.',
-    inputSchema: object({ space: SPACE, module: MODULE, from: WEATHER_DAY, to: WEATHER_DAY }, ['space', 'module']),
+    description: 'The weather in a space: { configured, credit, units, days: { "YYYY-MM-DD": { state, code, words, high, low, rain } } }. Without module, at the space\'s own place, as { place: { module, name } | null, day, days } for the one day the status line shows (from and to, both, ask other days; at most 60). With module, the days of that module (one without days has no weather); from and to default to its first and last day. { configured: false } means weather is not configured here. A day beyond the window (13 days ahead, 30 back) or with no place carries only its state. Counts as one read.',
+    inputSchema: object({ space: SPACE, module: MODULE, from: WEATHER_DAY, to: WEATHER_DAY }, ['space']),
     annotations: READ_ONLY,
-    plan: (a) => ({ method: 'GET', path: `/api/modules/${seg(a.module)}/weather${query({ scope: 'space', space: a.space, from: a.from, to: a.to })}` }),
+    plan: (a) => (a.module === undefined
+      ? { method: 'GET', path: `/api/spaces/${seg(a.space)}/weather${query({ from: a.from, to: a.to })}` }
+      : { method: 'GET', path: `/api/modules/${seg(a.module)}/weather${query({ scope: 'space', space: a.space, from: a.from, to: a.to })}` }),
   },
   {
     name: 'search_objects',

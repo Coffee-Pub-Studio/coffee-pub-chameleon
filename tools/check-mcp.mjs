@@ -225,7 +225,7 @@ try {
     assert.match(tools.find((t) => t.name === 'me').description, /permissions/, 'me says it carries permissions');
     // plan-itinerary-weather.md, step 5: read_weather names the space and the days only, and says what an empty answer means.
     const weather = tools.find((t) => t.name === 'read_weather');
-    assert.deepEqual([Object.keys(weather.inputSchema.properties), weather.inputSchema.required, weather.annotations.readOnlyHint], [['space', 'module', 'from', 'to'], ['space', 'module'], true]);
+    assert.deepEqual([Object.keys(weather.inputSchema.properties), weather.inputSchema.required, weather.annotations.readOnlyHint], [['space', 'module', 'from', 'to'], ['space'], true]);
     assert.match(weather.description, /configured: false \} means weather is not configured/, 'read_weather says what configured: false means');
     assert.match(weather.description, /beyond the window .* or with no place carries only its state/, 'read_weather says what a day with only a state is');
     assert.match(weather.description, /one read/, 'read_weather says it is one read');

@@ -324,6 +324,7 @@
   {"kind":"route","method":"GET","path":"/api/modules/:id/geocode/stats","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/modules/:id/geocode/purge","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/modules/:id/weather","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/api/spaces/:id/weather","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/weather/terms","name":null,"part":null},
   {"kind":"route","method":"PUT","path":"/api/weather/terms/:service","name":null,"part":null},
   {"kind":"route","method":"DELETE","path":"/api/weather/terms/:service","name":null,"part":null},
