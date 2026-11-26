@@ -69,7 +69,7 @@ await test('setDone ticks a milestone and marks work done; a note has nothing to
   const m = await same('setDone', { ref: ref('ms'), done: true }, world(rows()));
   assert.deepEqual(written(m, 'plan:ms'), { ...MS, ticked: true, done: true, progress: 0 }, 'its progress follows what is under it, in the same write');
   const w = await same('setDone', { ref: ref('wk'), done: true }, world(rows()));
-  assert.deepEqual(written(w, 'plan:wk'), { ...WK, done: true });
+  assert.deepEqual(written(w, 'plan:wk'), { ...WK, done: true, column: 'done' }, 'ticked work moves to the done column');
   await refuses('setDone', { ref: ref('nt'), done: true }, world(rows()), 'A note has nothing to tick off.');
   await refuses('setDone', { ref: ref('zz'), done: true }, world(rows()), 'That is not on the plan.');
   await refuses('setDone', { ref: ref('ms'), done: 'yes' }, world(rows()), 'Say whether it is done: true or false.');
@@ -123,6 +123,70 @@ await test('the template\'s words reach the sentences (ctx.util.label), on a pag
   assert.equal(r.refused, 'The checkpoint needs a day.');
   const p = await onPage('schedule', 'setDone', { ref: ref('zz'), done: true }, world(rows()), { handlers, name: 'Planner - Projects' });
   assert.equal(p.refused, 'That is not on the project.');
+});
+
+const rowsOn = (extra = {}, ws = {}) => ({ 'plan:ms': MS, 'plan:wk': { ...WK, ...ws }, 'plan:nt': NT, ...extra });
+
+await test('setColumn moves work, done follows the column, the same on the page and the server', async () => {
+  const stages = world(rowsOn());
+  const doing = await same('setColumn', { ref: ref('wk'), column: 'doing' }, stages);
+  assert.deepEqual(written(doing, 'plan:wk'), { ...WK, column: 'doing', done: false });
+  assert.deepEqual(written(doing, 'plan:ms'), { ...MS, progress: 0 }, 'the milestone\'s progress is settled in the same answer');
+  const fin = await same('setColumn', { ref: ref('wk'), column: 'done' }, stages);
+  assert.deepEqual(written(fin, 'plan:wk'), { ...WK, column: 'done', done: true });
+  assert.deepEqual(written(fin, 'plan:ms'), { ...MS, done: true, progress: 100 }, 'the milestone follows in the same answer');
+  const back = await same('setColumn', { ref: ref('wk'), column: 'todo' }, world(rowsOn({ 'plan:ms': { ...MS, done: true, progress: 100 } }, { done: true, column: 'done' })));
+  assert.deepEqual(written(back, 'plan:wk'), { ...WK, column: 'todo', done: false });
+  assert.deepEqual(written(back, 'plan:ms'), { ...MS, done: false, progress: 0 });
+  await refuses('setColumn', { ref: ref('wk'), column: 'nowhere' }, stages, 'There is no column called nowhere.');
+  await refuses('setColumn', { ref: ref('ms'), column: 'done' }, stages, 'Only work moves on the board.');
+  await refuses('setColumn', { ref: ref('nt'), column: 'done' }, stages, 'Only work moves on the board.');
+  await refuses('setColumn', { ref: ref('zz'), column: 'done' }, stages, 'That is not on the plan.');
+});
+
+await test('the board is the template\'s default until one is stored, then the stored one wins', async () => {
+  const gaming = world(rowsOn(), { datesRequired: true, boardColumns: 'priority' });
+  const now = await same('setColumn', { ref: ref('wk'), column: 'now' }, gaming);
+  assert.equal(written(now, 'plan:wk').column, 'now');
+  await refuses('setColumn', { ref: ref('wk'), column: 'doing' }, gaming, 'There is no column called doing.');
+  const own = { id: 'main', name: 'Mine', field: 'column', columns: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', done: true }] };
+  const stored = world(rowsOn({ 'board:main': own }), { datesRequired: true, boardColumns: 'priority' });
+  assert.equal(written(await same('setColumn', { ref: ref('wk'), column: 'b' }, stored), 'plan:wk').done, true);
+  await refuses('setColumn', { ref: ref('wk'), column: 'now' }, stored, 'There is no column called now.');
+  const broken = world(rowsOn({ 'board:main': { columns: [] } }), { datesRequired: true });
+  assert.equal(written(await same('setColumn', { ref: ref('wk'), column: 'doing' }, broken), 'plan:wk').column, 'doing', 'a stored board that does not read gives way to the default');
+});
+
+await test('setDone follows the tick rule: ticked into the first done column, unticked into the first without the flag', async () => {
+  const gaming = { datesRequired: true, boardColumns: 'priority' };
+  const up = await same('setDone', { ref: ref('wk'), done: true }, world(rowsOn({}, { column: 'now' }), gaming));
+  assert.deepEqual([written(up, 'plan:wk').column, written(up, 'plan:wk').done], ['done', true]);
+  const down = await same('setDone', { ref: ref('wk'), done: false }, world(rowsOn({}, { column: 'done', done: true }), gaming));
+  assert.deepEqual([written(down, 'plan:wk').column, written(down, 'plan:wk').done], ['inbox', false]);
+  const noColumn = await same('setDone', { ref: ref('wk'), done: false }, world(rowsOn({}, { done: true }), gaming));
+  assert.equal(written(noColumn, 'plan:wk').column, 'inbox', 'work with no column that was done');
+  const m = await same('setDone', { ref: ref('ms'), done: true }, world(rowsOn(), gaming));
+  assert.equal('column' in written(m, 'plan:ms'), false, 'a milestone\'s tick is unchanged');
+});
+
+await test('an agent\'s move is one whole write, so its Undo puts column and done back together', async () => {
+  const before = rowsOn({}, { column: 'doing' });
+  const r = await same('setColumn', { ref: ref('wk'), column: 'done' }, world(before));
+  const w = r.writes.find((x) => x.key === 'plan:wk');
+  assert.deepEqual(Object.keys(w.value).filter((k) => ['column', 'done'].includes(k)).sort(), ['column', 'done'], 'both fields in the one value');
+  // The server holds the whole stored value before an edit (server/delete-path.js) and Undo writes it back whole.
+  const held = JSON.parse(JSON.stringify(before['plan:wk']));
+  const restored = { ...held };
+  assert.deepEqual([restored.column, restored.done], ['doing', false]);
+  assert.notDeepEqual([w.value.column, w.value.done], [restored.column, restored.done]);
+});
+
+await test('setColumn is a library handler the manifest names', async () => {
+  const fs = await import('node:fs');
+  const manifest = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
+  const a = manifest.actions.provides.find((x) => x.name === 'setColumn');
+  assert.deepEqual([a.effect, a.label, a.input], ['write', 'Move it on the plan\'s board', { ref: 'ref:schedule:plan', column: 'string' }]);
+  assert.ok(Object.keys(handlersOf('schedule')).includes('setColumn'));
 });
 
 await test('carried by the server: the manifest says so, and nothing is left for a page', async () => {

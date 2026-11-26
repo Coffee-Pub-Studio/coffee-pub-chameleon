@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = (f) => fs.readFileSync(path.join(dir, 'src', f), 'utf8');
-const NAMES = ['SC_FILE', 'scClean', 'scValue', 'scExportFile', 'scExportName', 'scParseFile', 'scImportEntries', 'scOrdered'];
+const NAMES = ['SC_FILE', 'scClean', 'scValue', 'scExportFile', 'scExportName', 'scParseFile', 'scImportEntries', 'scOrdered', 'scDefaultBoard', 'scCleanBoard'];
 const L = new Function(`${src('schedule-lib.js')}\n${src('schedule-lib-file.js')}\nreturn { ${NAMES.join(', ')} };`)();
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
@@ -158,6 +158,44 @@ test('hostile: a long chain and a lot of text read in one pass', () => {
 test('a plan file the module wrote stays inside the data route\'s limits', () => {
   const big = L.scClean('a', { kind: 'work', title: 't'.repeat(120), notes: 'n'.repeat(2000), start: '2026-01-01', end: '2026-01-02', owners: Array.from({ length: 50 }, (_, i) => `o${i}`.padEnd(200, 'x')), waitsOn: Array.from({ length: 50 }, (_, i) => `id${i}`.padEnd(64, 'x')), tags: Array.from({ length: 50 }, (_, i) => `t${i}`.padEnd(64, 'x')) });
   assert.ok(JSON.stringify(L.scValue(big)).length < 60 * 1024, 'one entry is under 60 KB');
+});
+
+test('the board in the file: Export writes it, Import reads it back, and work\'s column rides along', () => {
+  const board = L.scDefaultBoard('priority');
+  const made = L.scImportEntries(L.scParseFile(file([{ id: 'a', kind: 'work', title: 'A', start: '2026-03-01', end: '2026-03-02', column: 'now' }, { id: 'b', kind: 'work', title: 'B', start: '2026-03-01', end: '2026-03-02', column: 'done', done: false }, { id: 'm', kind: 'milestone', title: 'M', start: '2026-03-01', column: 'now' }]), opts).entries, { ...impl('replace'), board });
+  assert.equal(made[0].column, 'now');
+  assert.equal(made[1].done, true, 'a column the board has gives the work its flag');
+  assert.equal(made[2].column, undefined, 'a milestone never has one');
+  const out = plain(L.scExportFile(made, { module: 'schedule', boards: [board] }));
+  assert.deepEqual(out.boards, [board]);
+  assert.equal(out.entries[0].column, 'now');
+  assert.equal(L.scExportFile(made, {}).boards, undefined, 'no board, no key');
+  const back = L.scParseFile(JSON.stringify(out), opts);
+  assert.equal(back.problem, undefined);
+  assert.deepEqual(back.boards, [board]);
+  assert.deepEqual(L.scParseFile(file([{ kind: 'note', title: 'x' }]), opts).boards, [], 'a file with none leaves the board alone');
+  const unknown = L.scImportEntries([{ kind: 'work', title: 'U', start: '2026-03-01', end: '2026-03-02', column: 'gone', done: true }], { ...impl('add'), board });
+  assert.deepEqual([unknown[0].column, unknown[0].done], ['gone', true], 'a column the board lacks is kept, read as the default, done as it was');
+});
+test('a bad board or column is refused with one sentence', () => {
+  const ok = { id: 'main', name: 'B', columns: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', done: true }] };
+  const f = (b, entries = [{ kind: 'note', title: 'x' }]) => JSON.stringify({ format: 'project-plan', version: 1, entries, boards: b });
+  assert.equal(L.scParseFile(f([ok]), opts).problem, undefined);
+  refused(f({}), 'must be a list');
+  refused(f([ok, { ...ok, id: 'two' }]), 'more than one board');
+  refused(f([5]), 'Board 1 must be written like');
+  refused(f([{ ...ok, id: 'Main' }]), '"id" must be lower case');
+  refused(f([{ ...ok, field: 'status' }]), '"field" must be "column"');
+  refused(f([{ ...ok, rowsBy: 'tag' }]), '"rowsBy" must be');
+  refused(f([{ ...ok, columns: [] }]), '"columns" must be a list');
+  refused(f([{ ...ok, columns: Array.from({ length: 13 }, (_, i) => ({ id: `c${i}`, label: 'C', done: i === 0 })) }]), 'at most 12 columns');
+  refused(f([{ ...ok, columns: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B', done: true }] }]), 'the id "a" is used twice');
+  refused(f([{ ...ok, columns: [{ id: 'a', label: ' ' }, ok.columns[1]] }]), '"label" is needed');
+  refused(f([{ ...ok, columns: [{ id: 'a', label: 'x'.repeat(41) }, ok.columns[1]] }]), 'over 40 characters');
+  refused(f([{ ...ok, columns: [{ id: 'a', label: 'A', done: 'yes' }, ok.columns[1]] }]), '"done" must be true or false');
+  refused(f([{ ...ok, columns: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }]), 'keep at least one column that counts as done and one that does not');
+  refused(f([{ ...ok, columns: [{ id: 'a', label: 'A', done: true }, { id: 'b', label: 'B', done: true }] }]), 'keep at least one column that counts as done and one that does not');
+  refused(f([ok], [{ kind: 'work', title: 'W', start: '2026-03-01', end: '2026-03-01', column: 'Bad Id' }]), '"column" must be lower case');
 });
 
 if (fails.length) { console.error(`check-schedule-file: ${fails.length} failed\n  ${fails.join('\n  ')}`); process.exit(1); }

@@ -15,11 +15,43 @@
       "minItems": 1,
       "maxItems": 500,
       "items": { "$ref": "#/$defs/entry" }
+    },
+    "boards": {
+      "type": ["array", "null"],
+      "maxItems": 1,
+      "items": { "$ref": "#/$defs/board" },
+      "description": "The plan's board, as Export writes it. Optional; at most one for now."
     }
   },
   "$defs": {
     "day": { "type": ["string", "null"], "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$", "description": "YYYY-MM-DD, a real day from 1900 to 2200 (checked by Import, not by this pattern). Empty or null means no day." },
     "idList": { "type": ["array", "null"], "maxItems": 50, "items": { "type": "string" } },
+    "columnId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,40}$", "description": "A column id: lower case letters, digits and dashes, starting with a letter." },
+    "board": {
+      "type": "object",
+      "required": ["id", "columns"],
+      "properties": {
+        "id": { "$ref": "#/$defs/columnId" },
+        "name": { "type": ["string", "null"], "maxLength": 40 },
+        "field": { "const": "column" },
+        "rowsBy": { "enum": ["milestone", "owners", null] },
+        "columns": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "$ref": "#/$defs/columnId" },
+              "label": { "type": "string", "maxLength": 40, "pattern": "\\S" },
+              "done": { "type": ["boolean", "null"], "description": "true: work in this column counts as done." }
+            }
+          }
+        }
+      },
+      "description": "Needs at least one column that counts as done and one that does not, and each column id once (checked by Import, not by this schema)."
+    },
     "entry": {
       "type": "object",
       "required": ["kind", "title"],
@@ -33,6 +65,7 @@
         "waitsOn": { "$ref": "#/$defs/idList", "description": "Ids of milestones or work in the file; at most 50." },
         "owners": { "$ref": "#/$defs/idList", "description": "People's keys; leave out unless the file came from this environment." },
         "tags": { "$ref": "#/$defs/idList", "description": "Tag ids from the plan's Tags setting." },
+        "column": { "type": ["string", "null"], "pattern": "^([a-z][a-z0-9-]{0,40})?$", "description": "Work only: the id of its column on the board. Work whose column the board does not have reads as the first done column if it is done, else the first column that does not count as done." },
         "done": { "type": ["boolean", "null"] },
         "ticked": { "type": ["boolean", "null"] },
         "notes": { "type": ["string", "null"], "maxLength": 2000 },

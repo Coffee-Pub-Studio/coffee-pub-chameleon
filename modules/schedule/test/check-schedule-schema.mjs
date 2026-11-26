@@ -101,6 +101,7 @@ test('what Export writes is valid under the schema', () => {
 const m = (o = {}) => ({ id: 'a', kind: 'milestone', title: 'M', start: '2026-03-01', ...o });
 const w = (o = {}) => ({ id: 'b', kind: 'work', title: 'W', start: '2026-03-01', end: '2026-03-05', ...o });
 const wrap = (entries, head = {}) => ({ format: 'project-plan', version: 1, entries, ...head });
+const BOARD = { id: 'main', name: 'Board', field: 'column', columns: [{ id: 'todo', label: 'To do' }, { id: 'done', label: 'Done', done: true }] };
 const BAD = [
   ['not an object at the top', [], null],
   ['wrong format', wrap([m()], { format: 'goal-plan' }), null],
@@ -151,6 +152,22 @@ const BAD = [
   ['waits on a note', wrap([{ id: 'n', kind: 'note', title: 'N' }, m({ waitsOn: ['n'] })]), 'the kind of the entry named'],
   ['waitsOn loop', wrap([m({ id: 'a', waitsOn: ['b'] }), m({ id: 'b', waitsOn: ['a'] })]), 'loops'],
   ['dates needed, milestone without a day', wrap([{ kind: 'milestone', title: 'M' }]), 'a setting of the plan'],
+  ['column in capitals', wrap([w({ column: 'Doing Now' })]), null],
+  ['column a number', wrap([w({ column: 4 })]), null],
+  ['boards not a list', wrap([m()], { boards: {} }), null],
+  ['two boards', wrap([m()], { boards: [BOARD, { ...BOARD, id: 'second' }] }), null],
+  ['board without columns', wrap([m()], { boards: [{ id: 'main', name: 'B' }] }), null],
+  ['board with one column', wrap([m()], { boards: [{ id: 'main', columns: [{ id: 'done', label: 'Done', done: true }] }] }), null],
+  ['board with 13 columns', wrap([m()], { boards: [{ id: 'main', columns: Array.from({ length: 13 }, (_, i) => ({ id: `c${i}`, label: `C${i}`, done: i === 0 })) }] }), null],
+  ['board id in capitals', wrap([m()], { boards: [{ ...BOARD, id: 'Main' }] }), null],
+  ['board field other', wrap([m()], { boards: [{ ...BOARD, field: 'status' }] }), null],
+  ['board rowsBy other', wrap([m()], { boards: [{ ...BOARD, rowsBy: 'tag' }] }), null],
+  ['column label empty', wrap([m()], { boards: [{ ...BOARD, columns: [{ id: 'a', label: ' ' }, BOARD.columns[1]] }] }), null],
+  ['column label 41', wrap([m()], { boards: [{ ...BOARD, columns: [{ id: 'a', label: 'x'.repeat(41) }, BOARD.columns[1]] }] }), null],
+  ['column done a word', wrap([m()], { boards: [{ ...BOARD, columns: [{ id: 'a', label: 'A', done: 'yes' }, BOARD.columns[1]] }] }), null],
+  ['column id used twice', wrap([m()], { boards: [{ ...BOARD, columns: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B', done: true }] }] }), 'ids that are unique across entries'],
+  ['board with no done column', wrap([m()], { boards: [{ ...BOARD, columns: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }] }), 'a rule across the columns'],
+  ['board with only done columns', wrap([m()], { boards: [{ ...BOARD, columns: [{ id: 'a', label: 'A', done: true }, { id: 'b', label: 'B', done: true }] }] }), 'a rule across the columns'],
   ['dates needed, work without days', wrap([{ kind: 'work', title: 'W' }]), 'a setting of the plan'],
 ];
 test('every bad file: the importer refuses it, and the schema refuses what it can express', () => {
@@ -178,6 +195,8 @@ test('good variants: the schema and the importer agree', () => {
     wrap([w({ start: undefined, end: '2026-03-05' })]),
     wrap([m({ waitsOn: Array.from({ length: 50 }, (_, i) => `x${i}`) })], { exportedAt: 'now', module: 'schedule', extra: 1 }),
     wrap([m({ extra: 'ignored' })]),
+    wrap([w({ column: 'doing' }), w({ id: 'c', column: '' }), w({ id: 'd', column: null })], { boards: [{ ...BOARD, rowsBy: 'milestone' }] }),
+    wrap([m()], { boards: null }),
   ];
   for (const g of GOOD) {
     const text = JSON.stringify(g);
