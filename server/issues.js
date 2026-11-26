@@ -12,6 +12,8 @@
 // etag, `last` when a pull last finished, `tried` when one last started, `fullAt` when every page was last read, `next` when the
 // timer pulls next, `restUntil` until when the service asked to be left alone, `error` the last failure as one sentence or '',
 // `counts` { total, open, done, written, removed } after the last pull, `by` and `at` who turned it on and when. Never the token.
+// With two-way on (documentation/plans/plan-github-two-way.md, step 1) also `write` (changes made here go to the service) and
+// `writeBy`, `writeAt`, who turned writing on and when.
 'use strict';
 
 const fs = require('fs');
@@ -46,6 +48,20 @@ const SAY = Object.freeze({
   silent: (name) => `${name} did not answer.`,
   bad: (name) => `${name}'s answer could not be read.`,
   full: `This plan holds at most ${MAX_ENTRIES} entries; the rest are not pulled.`,
+  // Writing (plan-github-two-way.md, section 5): nothing is changed in the space unless the service accepted the change.
+  noWrite: (name) => `This server may not change ${name} for this repository.`,
+  noToken: 'No token is set on this server.',
+  noWriteOut: (name) => `Only someone allowed to change ${name} can change this.`,
+  writeSilent: (name) => `${name} did not answer. Nothing was changed; try again.`,
+  writeWait: (name, ms) => `${name} asked to wait. Try again in ${ms < 120000 ? `${Math.max(1, Math.ceil(ms / 1000))} seconds` : `${Math.ceil(ms / 60000)} minutes`}.`,
+  writeRefused: (name, message) => `${name} refused the change${message ? `: ${message}` : ''}.`,
+  gone: (name) => `That issue is not on ${name} any more.`,
+  conflict: 'This changed on GitHub a moment ago. It now shows GitHub\'s version.',
+  longTitle: 'This title is longer than the plan holds. Change it on GitHub.',
+  fromGitHub: (name) => `This comes from ${name}. Change it there.`,
+  noLabel: (name) => `GitHub has no label called ${name}.`,
+  badTitle: `Give it a title of at most ${TITLE_MAX} characters.`,
+  badColumn: 'That is not a column an issue can start in.',
 });
 
 class IssuesError extends Error {
@@ -74,6 +90,7 @@ function cleanRecord(r) {
     error: typeof r.error === 'string' ? r.error.slice(0, 200) : '',
     counts: { total: count(c.total), open: count(c.open), done: count(c.done), written: count(c.written), removed: count(c.removed) },
     by: typeof r.by === 'string' ? r.by.slice(0, 80) : '', at: iso(r.at),
+    write: r.write === true, writeBy: typeof r.writeBy === 'string' ? r.writeBy.slice(0, 80) : '', writeAt: iso(r.writeAt),
   };
 }
 
@@ -138,25 +155,35 @@ class IssuePulls {
 
 // --- asking the service ------------------------------------------------------------------------------------------------------
 
-// One GET on the adapter's own origin: { status, header(name), json }. A redirect is followed only on that origin (at most 3);
-// the answer is cut at 2 MB and the whole ask at 6 seconds. Throws an IssuesError. `fetchImpl` is replaced only by the check.
+// One request on the adapter's own origin: { status, header(name), json }. `get(href, headers)` is a GET: a redirect is followed only
+// on that origin (at most 3), a body is read only for a 200. `get.ask(method, href, headers, body)` is any method (a write): never
+// a redirect (the answer is the redirect's status), the body of any answer under 500 is read for its message, and the JSON body
+// sent is only what the adapter built. The answer is cut at 2 MB and the whole ask at 6 seconds. Throws an IssuesError.
+// `fetchImpl` is replaced only by the check.
 function getter(adapter, { fetchImpl = fetch } = {}) {
-  return async function get(href, headers) {
+  const allowed = (u) => u.origin === adapter.origin && (adapter.allowHttp ? /^https?:$/.test(u.protocol) : u.protocol === 'https:') && !u.username && !u.password;
+  async function send(method, href, headers, body) {
     let current;
     try { current = new URL(href); } catch { throw new IssuesError('not an address', 'blocked'); }
-    const allowed = (u) => u.origin === adapter.origin && (adapter.allowHttp ? /^https?:$/.test(u.protocol) : u.protocol === 'https:') && !u.username && !u.password;
     if (!allowed(current)) throw new IssuesError('not the service\'s address', 'blocked');
+    const write = method !== 'GET';
     const signal = AbortSignal.timeout(FETCH_MS);
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       let res;
       try {
-        res = await fetchImpl(current.href, { headers, signal, redirect: 'manual' });
+        const init = { method, headers: body === undefined ? headers : { ...headers, 'Content-Type': 'application/json' }, signal, redirect: 'manual' };
+        if (body !== undefined) init.body = JSON.stringify(body);
+        res = await fetchImpl(current.href, init);
       } catch (err) {
         if (signal.aborted || (err && (err.name === 'TimeoutError' || err.name === 'AbortError'))) throw new IssuesError('too slow', 'timeout');
         throw new IssuesError('unreachable', 'unreachable');
       }
       const header = (name) => res.headers.get(name);
       if (res.status >= 300 && res.status < 400 && res.status !== 304) {
+        if (write) {
+          try { await res.body?.cancel(); } catch { /* nothing to read */ }
+          return { status: res.status, header, json: null };
+        }
         const to = header('location');
         let next = null;
         try { next = to ? new URL(to, current) : null; } catch { next = null; }
@@ -165,24 +192,27 @@ function getter(adapter, { fetchImpl = fetch } = {}) {
         current = next;
         continue;
       }
-      if (res.status !== 200) {
+      if (res.status !== 200 && !(write && res.status < 500 && res.status !== 304)) {
         try { await res.body?.cancel(); } catch { /* nothing to read */ }
         return { status: res.status, header, json: null };
       }
       const declared = Number(header('content-length'));
       if (Number.isFinite(declared) && declared > MAX_BODY) throw new IssuesError('too big', 'big');
-      let body;
-      try { body = await readCapped(res, MAX_BODY); } catch (err) {
+      let text;
+      try { text = await readCapped(res, MAX_BODY); } catch (err) {
         if (err instanceof IssuesError) throw err;
         if (signal.aborted) throw new IssuesError('too slow', 'timeout');
         throw new IssuesError('unreadable', 'unreachable');
       }
       let json = null;
-      try { json = JSON.parse(body); } catch { json = null; }
-      return { status: 200, header, json };
+      try { json = JSON.parse(text); } catch { json = null; }
+      return { status: res.status, header, json };
     }
     throw new IssuesError('too many redirects', 'redirects');
-  };
+  }
+  const get = (href, headers) => send('GET', href, headers);
+  get.ask = send;
+  return get;
 }
 
 async function readCapped(res, max) {
@@ -304,7 +334,7 @@ function workOf(rec, { repo, provider, tagIds }) {
     ...(rec.milestone ? { parent: `ghm-${rec.milestone.number}` } : {}),
     by: SYSTEM_BY,
     column,
-    source: { from: provider, repo, number: rec.number, url: rec.url },
+    source: { from: provider, repo, number: rec.number, url: rec.url, ...(rec.updated ? { updated: rec.updated } : {}) },
   };
   if (!value.notes) delete value.notes;
   return value;
@@ -363,6 +393,117 @@ function sameValue(a, b) {
 // Whether a key of the plan is the pull's own (a piece of work or a milestone it wrote).
 const isPulledKey = (key) => WORK_KEY.test(key) || MILESTONE_KEY.test(key);
 
+
+// --- writing back (documentation/plans/plan-github-two-way.md, step 1) --------------------------------------------------------
+
+// ISSUES_GITHUB_WRITE: the repositories this server may change, `owner/name` comma separated; on a host with several
+// environments each is `<environment slug>:owner/name`. Unset or empty: none. Case does not matter in a repository's name.
+const WRITE_ENTRY = /^(?:([a-z0-9][a-z0-9-]{0,40}):)?([A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100})$/;
+function writeListOf(spec) {
+  return String(spec || '').split(',').map((t) => WRITE_ENTRY.exec(t.trim())).filter(Boolean).map((m) => ({ slug: m[1] || '', repo: m[2].toLowerCase() }));
+}
+// Whether the list `spec` lets the environment `slug` (on a `hosted` server) write to `repo`.
+function writeAllowed(spec, { hosted = false, slug = '', repo = '' } = {}) {
+  const want = String(repo).toLowerCase();
+  return Boolean(want) && writeListOf(spec).some((e) => e.repo === want && (hosted ? e.slug === slug && slug !== '' : e.slug === ''));
+}
+
+// The fields of a piece of work by who owns them when a space writes back: GitHub's own that go out (column and done, title,
+// tags), the space's own that stay here, and everything else (notes, source, kind, parent, id, ...) which is GitHub's and
+// read-only. `by` is set by the write itself.
+const OWN_FIELDS = Object.freeze(['owners', 'waitsOn', 'start', 'end', 'rank', 'fields']);
+const SENT_FIELDS = Object.freeze(['column', 'done', 'title', 'tags']);
+const sortedTags = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => typeof t === 'string'))].sort() : []);
+
+// What a person's new value changes of the stored work: { column, title, tags: { add, remove }, own, foreign }. `column` is the
+// column asked for (only when column or done changed), `title` the new title (only when changed), `tags` the ids added and
+// removed, `own` whether a space's own field changed, `foreign` the names of GitHub-only fields that changed.
+function diffWork(stored, given) {
+  const s = stored && typeof stored === 'object' ? stored : {};
+  const g = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
+  const out = { column: null, title: null, tags: { add: [], remove: [] }, own: false, foreign: [] };
+  for (const k of new Set([...Object.keys(s), ...Object.keys(g)])) {
+    if (k === 'by' || sameValue(s[k], g[k])) continue;
+    if (OWN_FIELDS.includes(k)) out.own = true;
+    else if (!SENT_FIELDS.includes(k)) out.foreign.push(k);
+  }
+  const col = (v) => (v.done === true || v.column === 'done' ? 'done' : typeof v.column === 'string' ? v.column : '');
+  const before = col(s) || 'inbox';
+  const asked = col(g) || (s.column === 'done' ? 'inbox' : before);
+  if (asked !== before) out.column = asked;
+  if (!sameValue(s.title, g.title)) out.title = g.title;
+  const was = sortedTags(s.tags);
+  const now = sortedTags(g.tags);
+  out.tags.add = now.filter((t) => !was.includes(t));
+  out.tags.remove = was.filter((t) => !now.includes(t));
+  return out;
+}
+
+const labelOf = (column) => `priority: ${column}`;
+// The calls that bring `rec` (the issue as GitHub has it now) to column `column`, a new `title`, and the labels named: the
+// service's own sentences are not here, only the plan of calls { patch, remove, add }. Labels are removed and added one at a
+// time (never the whole set replaced), so a label someone added meanwhile stays.
+function changePlan(rec, { column = null, title = null, addNames = [], removeIds = [] }) {
+  const patch = {};
+  const remove = [];
+  const add = [];
+  if (title !== null && title !== rec.title) patch.title = title;
+  if (column !== null) {
+    if (column === 'done') {
+      if (rec.open) { patch.state = 'closed'; patch.stateReason = 'completed'; }
+    } else {
+      if (!rec.open) { patch.state = 'open'; patch.stateReason = 'reopened'; }
+      const want = column === 'inbox' ? '' : labelOf(column);
+      for (const l of rec.labels) if (PRIORITY.test(l.name) && l.name !== want) remove.push(l.name);
+      if (want && !rec.labels.some((l) => l.name === want)) add.push(want);
+    }
+  }
+  for (const l of rec.labels) if (!PRIORITY.test(l.name) && removeIds.includes(tagId(l.name))) remove.push(l.name);
+  for (const name of addNames) if (!rec.labels.some((l) => l.name === name) && !add.includes(name)) add.push(name);
+  return { patch, remove, add };
+}
+
+// The work the pull writes over the stored one in a space that writes back: GitHub's fields from the new record, the space's own
+// (owners, waits, rank, fields, and the days once they exist) and who made the change kept from what is stored; work not stored
+// yet starts and ends on the day the issue was made.
+function keepOwn(stored, fresh) {
+  if (!stored || typeof stored !== 'object') return { ...fresh, end: fresh.start }; // the days start as the day it was made, then are the space's
+  const out = { ...fresh };
+  for (const k of ['owners', 'waitsOn', 'rank', 'fields']) if (stored[k] !== undefined) out[k] = stored[k];
+  if (typeof stored.start === 'string') out.start = stored.start;
+  if (typeof stored.end === 'string') out.end = stored.end;
+  if (typeof stored.by === 'string' && stored.by) out.by = stored.by;
+  return out;
+}
+
+// Whether a pull's record is older than the work already stored (a pull begun before a write must not put older data back).
+function olderThanStored(stored, rec) {
+  const had = stored && stored.source && typeof stored.source.updated === 'string' ? stored.source.updated : '';
+  return Boolean(had && rec.updated && rec.updated < had);
+}
+
+// One write call to the service, its trouble as a refusal: { ok: true, answer } or { ok: false, status, error, restUntil? } where
+// `status` is the one this server answers a person with. `call(ask)` is one adapter member bound to its arguments; `ask` is the
+// guarded one. Never logs or returns the token.
+async function writeCall(adapter, call, { fetchImpl, now = Date.now() } = {}) {
+  const ask = getter(adapter, { fetchImpl }).ask;
+  let a;
+  try { a = await call(ask); } catch (err) {
+    return { ok: false, status: 502, error: err instanceof IssuesError && err.kind === 'big' ? SAY.bad(adapter.name) : SAY.writeSilent(adapter.name) };
+  }
+  if (a.status === 0 && !a.message) return { ok: true, answer: a }; // nothing to send
+  if (a.status === 304) return { ok: true, answer: a }; // a conditional read that has not changed
+  if (a.status === 200 || a.status === 201) return a.bad ? { ok: false, status: 502, error: SAY.bad(adapter.name) } : { ok: true, answer: a };
+  if (a.limited) {
+    const until = restUntil(a.wait, now);
+    return { ok: false, status: 429, restUntil: until, error: SAY.writeWait(adapter.name, Math.max(1000, until - now)) };
+  }
+  if (a.status === 401) return { ok: false, status: 502, error: SAY.token(adapter.name) };
+  if (a.status === 404) return { ok: false, status: 404, notFound: true, error: SAY.gone(adapter.name) };
+  if (a.status >= 500 || a.status === 0) return { ok: false, status: 502, error: SAY.writeSilent(adapter.name) };
+  return { ok: false, status: 502, error: SAY.writeRefused(adapter.name, a.message) };
+}
+
 // The clean "owner/name" from what was typed or pasted (the adapter knows its service's address), or '' when it is not one.
 function cleanRepo(adapter, raw) {
   const repo = adapter ? adapter.repoFrom(raw) : '';
@@ -371,6 +512,6 @@ function cleanRepo(adapter, raw) {
 
 module.exports = {
   IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  isPulledKey, cleanRepo, SAY,
-  FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS,
+  isPulledKey, cleanRepo, SAY, writeListOf, writeAllowed, diffWork, changePlan, keepOwn, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };

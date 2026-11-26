@@ -13,6 +13,15 @@
 // pulls (every page, to find what is gone); `tokenEnv`: the environment variable a token is read from, when the server has
 // one (never logged, never answered, never kept in a space's data); `nowGapMs`: the least time between two pulls a person asks for (default a minute).
 //
+// An adapter may also write (documentation/plans/plan-github-two-way.md); one without these cannot be written through:
+//     get({ repo, number, etag, token }, ask), update({ repo, number, title?, state?, stateReason?, token }, ask),
+//     addLabels({ repo, number, labels, token }, ask), removeLabel({ repo, number, label, token }, ask),
+//     hasLabel({ repo, label, token }, ask), create({ repo, title, labels, token }, ask), and `writeGapMs` (the least time between
+//     two writes). Each answers { status, wait, limited, message, record? }: `limited` when the answer is a limit to wait out (not a
+//     refusal of the token or the change), `message` the service's own sentence on one line, `record` the issue after the write.
+//     `ask(method, url, headers, body?)` is the core's (server/issues.js, getter): this origin only, 6 seconds, 2 MB, a redirect
+//     never followed for a write. Only a title, a state, label names and a new issue's title and labels may be sent.
+//
 // A record, the same for every service (nothing else in the core knows which service it came from):
 //   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open } }
 // `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''. Pull requests, people

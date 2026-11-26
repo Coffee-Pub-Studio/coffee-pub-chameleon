@@ -1,5 +1,14 @@
-// GitHub's REST API, the issues of one repository (GET /repos/{owner}/{repo}/issues), read only
-// (documentation/plans/plan-github-pull.md).
+// GitHub's REST API, the issues of one repository: read (GET /repos/{owner}/{repo}/issues, documentation/plans/plan-github-pull.md)
+// and, only when a space has writing on (documentation/plans/plan-github-two-way.md, step 1), the few calls that change one:
+// PATCH an issue's title and state, POST and DELETE its labels, GET a label (to see it exists, since adding a label GitHub
+// does not have would make it), and POST a new issue. Re-read on 2026-11-26 at docs.github.com ("Update an issue", "Create an
+// issue", "Add labels to an issue", "Remove a label from an issue", "Get a label", "Rate limits for the REST API"): the token
+// needs "Issues" repository permission (write); an update, a label call and a create answer 200 or 201 with JSON, 404 for an
+// issue or label that is not there, 410 when issues are off, 422 for a refusal ("Validation failed, or the endpoint has been
+// spammed"), 403 or 429 for a limit (retry-after, else x-ratelimit-reset when remaining is 0, else wait a minute); a label or
+// assignee change from a token without push access is silently dropped, so the answer is read again after a write; no more
+// than 80 content-generating requests a minute and 500 an hour, 900 points a minute for one endpoint (a write costs 5, a read 1),
+// and at least a second between two requests that create, update or delete.
 //
 // THE RULE (server/issue-providers/index.js): a registered adapter is for a service that costs nothing and allows commercial use.
 // Terms read on 2026-11-26 by the planner, at docs.github.com:
@@ -13,6 +22,8 @@
 //     on an authorized request does not count); one request at a time; a User-Agent naming the application.
 //   - The issues list returns pull requests too (a `pull_request` key): they are skipped.
 // The token, when the server has one (ISSUES_GITHUB_TOKEN), goes only in the Authorization header to this adapter's own origin.
+// What a write may carry is fixed here: a title, a state and its reason, a label's name, and for a new issue its title and
+// labels. Never a body, an assignee, a milestone or anything of the space or the person.
 'use strict';
 
 const { userAgent } = require('../product-name');
@@ -98,8 +109,30 @@ function waitOf(header) {
   };
 }
 
+// What a write's answer says: { status, wait, limited, message, record? }. `limited`: the answer is a limit (429, a wait named, or
+// a message that says so), as opposed to a refusal of this token or this change; `message` GitHub's own sentence, on one line.
+const LIMIT_WORDS = /rate limit|abuse|secondary|too many requests/i;
+function answerOf(got, withRecord) {
+  const wait = waitOf(got.header);
+  const message = text(got.json && typeof got.json === 'object' && !Array.isArray(got.json) ? got.json.message : '', 150).replace(/[.\s]+$/, '');
+  const limited = got.status === 429 || ((got.status === 403) && (wait.retryAfterMs !== undefined || wait.resetAt !== undefined || LIMIT_WORDS.test(message)));
+  const out = { status: got.status, wait, limited, message };
+  if (withRecord && (got.status === 200 || got.status === 201)) {
+    const r = record(got.json);
+    if (r) out.record = r; else out.bad = true;
+  }
+  return out;
+}
+const writeHeaders = (token) => {
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': userAgent(), 'X-GitHub-Api-Version': '2022-11-28' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+};
+const issuePath = (origin, repo, number) => `${origin}/repos/${repo}/issues/${Number(number)}`;
+const labelOk = (n) => typeof n === 'string' && n.length >= 1 && n.length <= 50 && !/[\u0000-\u001f\u007f]/.test(n);
+
 // An adapter for GitHub's REST shape at `origin` (the stand-in reuses it with its own).
-function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullEveryMs }) {
+function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullEveryMs, writeGapMs = 1000 }) {
   return {
     id,
     name,
@@ -110,6 +143,7 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
     tokenEnv: 'ISSUES_GITHUB_TOKEN', // the environment variable the server reads the token from; optional for a public repository
     pollMs,
     fullEveryMs,
+    writeGapMs, // the least time between two requests that create, update or delete
     repoFrom,
     validRepo: (repo) => typeof repo === 'string' && REPO.test(repo) && !/\/\.{1,2}$/.test(repo),
     // One page of the list. `page`: the address `more` gave, or null for the first. `etag` is sent only on the first page.
@@ -137,6 +171,51 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
       if (!Array.isArray(got.json)) return { status: 0, etag: '', records: [], more: null, wait, bad: true };
       const records = got.json.map((r) => record(r)).filter(Boolean);
       return { status: 200, etag: tag, records, more: nextPage(got.header('link'), origin), wait };
+    },
+
+    // The writes (plan-github-two-way.md, section 13). `ask(method, url, headers, body)` is the core's: this origin only, 6 seconds,
+    // 2 MB, no redirect followed for a write. Each answers { status, wait, limited, message, record? }.
+
+    // One issue, as the record. `etag` makes it conditional: a 304 answers { status: 304 } and costs nothing.
+    async get({ repo, number, etag = '', token = '' }, ask) {
+      const headers = writeHeaders(token);
+      if (etag) headers['If-None-Match'] = etag;
+      const got = await ask('GET', issuePath(origin, repo, number), headers);
+      const out = answerOf(got, true);
+      out.etag = text(got.header('etag'), 200);
+      if (got.status === 304) out.etag = out.etag || etag;
+      return out;
+    },
+    // The title and the state (with its reason) of one issue; nothing else can be sent.
+    async update({ repo, number, title, state, stateReason, token = '' }, ask) {
+      const body = {};
+      if (typeof title === 'string' && title) body.title = title.slice(0, 256);
+      if (state === 'open' || state === 'closed') body.state = state;
+      if (body.state && ['completed', 'reopened', 'not_planned'].includes(stateReason)) body.state_reason = stateReason;
+      return answerOf(await ask('PATCH', issuePath(origin, repo, number), writeHeaders(token), body), true);
+    },
+    // Labels to add to one issue (never a replacement of its set).
+    async addLabels({ repo, number, labels, token = '' }, ask) {
+      const names = (Array.isArray(labels) ? labels : []).filter(labelOk).slice(0, 10);
+      if (!names.length) return { status: 0, wait: {}, limited: false, message: '' };
+      return answerOf(await ask('POST', `${issuePath(origin, repo, number)}/labels`, writeHeaders(token), { labels: names }), false);
+    },
+    // One label off one issue. A 404 means it is not on the issue (or not in the repository): nothing to remove.
+    async removeLabel({ repo, number, label, token = '' }, ask) {
+      if (!labelOk(label)) return { status: 0, wait: {}, limited: false, message: '' };
+      return answerOf(await ask('DELETE', `${issuePath(origin, repo, number)}/labels/${encodeURIComponent(label)}`, writeHeaders(token)), false);
+    },
+    // Whether the repository has a label of this name: 200, or 404 when it has not.
+    async hasLabel({ repo, label, token = '' }, ask) {
+      if (!labelOk(label)) return { status: 404, wait: {}, limited: false, message: '' };
+      return answerOf(await ask('GET', `${origin}/repos/${repo}/labels/${encodeURIComponent(label)}`, writeHeaders(token)), false);
+    },
+    // A new issue: its title and its labels, an empty body. Answers the record.
+    async create({ repo, title, labels, token = '' }, ask) {
+      const body = { title: String(title || '').slice(0, 256) };
+      const names = (Array.isArray(labels) ? labels : []).filter(labelOk).slice(0, 5);
+      if (names.length) body.labels = names;
+      return answerOf(await ask('POST', `${origin}/repos/${repo}/issues`, writeHeaders(token), body), true);
     },
   };
 }
