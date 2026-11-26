@@ -1,8 +1,8 @@
 # GitHub App Plan
 
-**Audience:** Thomas decides how a space connects to a GitHub repository through a GitHub App, and the few foundational choices in "For Thomas". server-development builds the app's credentials, the installation tokens, the link flow and the checks; experience-design builds the follow control and the Service terms line; content-manager documents what lands. Thomas alone registers the app on GitHub and sets its environment variables.
+**Audience:** Thomas decided how a space connects to a GitHub repository through a GitHub App (Decisions). server-development builds the app's credentials, the installation tokens, the link flow and the checks; experience-design builds the follow control and the Service terms line; content-manager documents what lands. Thomas alone registers the app on GitHub and sets its environment variables.
 
-**Status:** Draft, 2026-11-26; one decision made, nothing built. Thomas's point, as relayed on 2026-11-26: the one server-wide token and allow list (`ISSUES_GITHUB_TOKEN`, `ISSUES_GITHUB_WRITE`, from [plan-github-two-way](plan-github-two-way.md)) only suits one person; ten people with their own GitHub repositories could not each set up a two-way sync for their own space. He decided, by a clickable answer, to use a GitHub App (Decisions, below). This plan replaces the two-way plan's decision 2 ("Thomas's own fine-grained token now, a GitHub App later") once Thomas approves it. Read against `main` at `db558457` as code and documentation only: `server/issues.js`, `server/issue-providers/` (`index.js`, `github.js`, `test-standin.js`), the issue pull and the write-through in `server/index.js` (from "the issue pull", about line 13876, to `POST /api/spaces/:id/issues-pull/now`), `wireFollows` and the `follows: "issues"` control in `public/module-settings.js`, the door and `PRODUCT_HOST_PATHS` in `server/index.js` and [architecture-environments](../architecture/architecture-environments.md). Nothing was run. GitHub's pages were read on 2026-11-26 at docs.github.com (listed under "GitHub's terms and the app's rules, as read"); no request was made to GitHub's API and no app was registered or installed.
+**Status:** Decided by Thomas, 2026-11-26 (the four decisions, under Decisions); nothing built. Thomas's point, as relayed on 2026-11-26: the one server-wide token and allow list (`ISSUES_GITHUB_TOKEN`, `ISSUES_GITHUB_WRITE`, from [plan-github-two-way](plan-github-two-way.md)) only suits one person; ten people with their own GitHub repositories could not each set up a two-way sync for their own space. He decided, by a clickable answer, to use a GitHub App, and the same day answered the plan's three foundational questions as the planner leaned. This plan supersedes the two-way plan's decision 2 ("Thomas's own fine-grained token now, a GitHub App later") and its section 3 ("The token"). Every other choice here is the planner's lean, taken under his standing rule and marked "taken". Read against `main` at `db558457` as code and documentation only: `server/issues.js`, `server/issue-providers/` (`index.js`, `github.js`, `test-standin.js`), the issue pull and the write-through in `server/index.js` (from "the issue pull", about line 13876, to `POST /api/spaces/:id/issues-pull/now`), `wireFollows` and the `follows: "issues"` control in `public/module-settings.js`, the door and `PRODUCT_HOST_PATHS` in `server/index.js` and [architecture-environments](../architecture/architecture-environments.md). Nothing was run. GitHub's pages were read on 2026-11-26 at docs.github.com (listed under "GitHub's terms and the app's rules, as read"); no request was made to GitHub's API and no app was registered or installed.
 
 ## What it is today
 
@@ -16,6 +16,9 @@
 ## Decisions
 
 1. **A GitHub App** (Thomas, 2026-11-26, a clickable answer). Chameleon is registered once as a GitHub App; each repository's owner installs it on their repository on GitHub (no token to copy) and picks that repository in their space; changes show on GitHub as the app; nobody pastes a secret; the server holds one app key. Reason: one server-wide token and allow list serves one person; an app lets every owner on a server connect their own repository. This replaces the two-way plan's decision 2 and its section 3 ("The token").
+2. **A GitHub sign-in while linking, once** (Thomas, 2026-11-26). The owner authorizes the app on GitHub during linking, so the server can see which installations and repositories that person really reaches; the user token is used for that and revoked. The app's client secret is therefore set on the server beside its key. Reason: GitHub warns that the setup URL's `installation_id` can be forged, so without it any owner on a server could link any repository the app is installed on (section 2).
+3. **Writing needs the linking person's own write access on GitHub** (Thomas, 2026-11-26). Changes here may go to GitHub only when the person who linked the repository can themselves write to it on GitHub. Reason: otherwise someone who can only read a repository on GitHub could change its issues through the app (section 3).
+4. **`ISSUES_GITHUB_TOKEN` and `ISSUES_GITHUB_WRITE` are removed entirely** (Thomas, 2026-11-26). No token is kept for unlinked public repositories: a public repository followed without the app is read with no token; there is no migration; Bug Squash needs one **Connect to GitHub** before it can write again. Reason: the app covers every case the token served, and the product rule allows no compatibility path (section 7).
 
 Thomas's standing rules bind every option: "we NEVER use paid services. EVER." (and never a free tier that forbids commercial use, its terms read first, Thomas, 2026-11-25); configuration in environment variables, never in code; a secret never in chat, a log, an answer, a page or a space's data; the product is unreleased, so no compatibility layers, aliases or data migrations; the Names in CLAUDE.md. The two-way plan's other decisions stand: what flows back (decision 3), writes at once with GitHub winning a conflict (decision 4), and what is sent (its section 13).
 
@@ -43,7 +46,7 @@ Not re-read, and to be checked by server-development before step 2: whether `sta
 
 ## The shape, with the leans
 
-Each lean is a suggestion. Those marked "taken" are small and written down under Thomas's standing rule (CLAUDE.md, "Decisions stick"); those in "For Thomas" are his.
+Sections 2, 3 and 7 are Thomas's decisions 2 to 4; the options are kept to show what was weighed. Everything marked "taken" is the planner's lean, written down under Thomas's standing rule (CLAUDE.md, "Decisions stick").
 
 ### 1. What the app asks for
 
@@ -53,18 +56,18 @@ Taken: **Issues: read and write** and **Metadata: read** (GitHub adds Metadata t
 
 The setup URL's `installation_id` can be forged (GitHub's warning above). On a host where the app is public and installed by many people, any owner who can type a number could otherwise link a space to someone else's repository and write to its issues as the app.
 
-- **(a) A GitHub sign-in during linking** (lean, For Thomas 1). The owner presses **Connect to GitHub**; GitHub asks them once to authorize the app (a click on GitHub, nothing pasted; on later links GitHub sends them straight back). The server exchanges the code for a user token with the client secret and PKCE, reads `GET /user/installations` and each installation's repositories, **revokes the user token at once**, and keeps only the list (installation ids, repository ids and names, private or public, and the person's permission on each) in memory for 15 minutes for that person and that space. Nothing of the user token is stored. Cost: a second secret on the server (the client secret), one more GitHub page in the flow, and GitHub learns which GitHub account linked (it does anyway, as the installer).
+- **(a) A GitHub sign-in during linking** (decided, decision 2). The owner presses **Connect to GitHub**; GitHub asks them once to authorize the app (a click on GitHub, nothing pasted; on later links GitHub sends them straight back). The server exchanges the code for a user token with the client secret and PKCE, reads `GET /user/installations` and each installation's repositories, **revokes the user token at once**, and keeps only the list (installation ids, repository ids and names, private or public, and the person's permission on each) in memory for 15 minutes for that person and that space. Nothing of the user token is stored. Cost: a second secret on the server (the client secret), one more GitHub page in the flow, and GitHub learns which GitHub account linked (it does anyway, as the installer).
 - **(b) Trust the setup URL inside a short window.** Accept an `installation_id` that comes back with a `state` Chameleon issued in the last 10 minutes and whose installation was made or changed in that window (`GET /app/installations/{id}` with the JWT). No client secret. It narrows the forgery but does not close it (an installation changed by its owner in the same minutes can be claimed), it breaks for a repository already installed (nothing new is made), and it cannot tell what the person may do on GitHub.
 - **(c) A private app only.** Register the app "Only on this account", so its installations are all the app owner's own; any owner on that server may then link any of them. Safe only on a server where every owner is trusted with every repository of that account, which is exactly not the ten-people case.
 
-Lean: (a). It is the only option GitHub calls correct, it makes the repository list possible (section 6), and the user token lives for seconds.
+Decided (decision 2): (a). It is the only option GitHub calls correct, it makes the repository list possible (section 6), and the user token lives for seconds.
 
 ### 3. Who may turn writing on
 
-- **(a) The linking person's own GitHub right decides** (lean, For Thomas 2). Writing (`write: true`) may be turned on only when the person who linked has write access on GitHub to that repository (the repository's `permissions` in the list from section 2: `push`, or `triage`, which also allows labels and closing; server-development confirms the field names). Read-only linking needs only explicit read access. Otherwise a GitHub reader with an owner's rights in Chameleon could write to the issues through the app, the escalation GitHub's best practices warn about. Checked once, at linking; if their GitHub access changes later, it holds until the space is linked again.
+- **(a) The linking person's own GitHub right decides** (decided, decision 3). Writing (`write: true`) may be turned on only when the person who linked has write access on GitHub to that repository (the repository's `permissions` in the list from section 2: `push`, or `triage`, which also allows labels and closing; server-development confirms the field names). Read-only linking needs only explicit read access. Otherwise a GitHub reader with an owner's rights in Chameleon could write to the issues through the app, the escalation GitHub's best practices warn about. Checked once, at linking; if their GitHub access changes later, it holds until the space is linked again.
 - **(b) The installation alone decides.** Anyone whose installation list contains the repository may turn writing on. Simpler; lets a GitHub reader write through the app.
 
-Lean: (a). In the space, who may write through stays `write_out` as built (owners always, moderators by default).
+Decided (decision 3): (a). In the space, who may write through stays `write_out` as built (owners always, moderators by default).
 
 ### 4. Installation tokens
 
@@ -78,7 +81,7 @@ Taken:
 
 ### 5. The server configuration
 
-Environment variables, read at start, the host's on a server with environments. Taken, except where For Thomas says:
+Environment variables, read at start, the host's on a server with environments. Taken, except the client secret, which decision 2 requires:
 
 - `ISSUES_GITHUB_APP_CLIENT_ID`: the app's client ID (the JWT's `iss`, and the OAuth `client_id`). No app ID variable: the client ID serves both, as GitHub recommends.
 - `ISSUES_GITHUB_APP_CLIENT_SECRET`: needed only for section 2 (a). Without it, the app is off and the line on Service terms says so.
@@ -103,7 +106,7 @@ Environment variables, read at start, the host's on a server with environments. 
 
 ### 6. The link flow
 
-One flow, for every case. Taken, except the parts named in For Thomas.
+One flow, for every case. Taken, within decisions 2 and 3.
 
 1. In the space's Planner - Projects settings, an owner presses **Connect to GitHub**. The server (`POST /api/spaces/:id/issues-link`) makes a link record in memory: a random `state`, a PKCE verifier, the environment, the space, the person, and when it ends (15 minutes); it answers GitHub's authorize address (`client_id`, `state`, `code_challenge`, `S256`, `redirect_uri`). The page goes there in the same tab.
 2. GitHub asks the person to authorize the app (the first time only) and sends them to the link address with `code` and `state`.
@@ -118,10 +121,10 @@ Agents never link: the route refuses agents and anyone but an owner, as `PUT ...
 ### 7. A public repository with no app, and the old token
 
 - **Reading a public repository without the app still works** (taken): the owner may follow any public repository read only, with no install and no token, as today. Reads then go without a token, at 60 an hour for the server's whole address, which at one read every 10 minutes is about ten such spaces per server. Writing needs the app.
-- **`ISSUES_GITHUB_TOKEN` and `ISSUES_GITHUB_WRITE`** (For Thomas 3):
-  - **(a) Remove both** (lean). The app replaces the token for every linked space; the installation and the linking check replace the allow list. Nothing reads either variable; `tokenEnv` leaves the adapter contract; `SAY.noToken`, `writeListOf`, `writeAllowed` and `issueMayWrite` go; `tools/issues-to-plan.mjs` and its check go too (the pull plan already said to remove the stopgap once the pull existed). A space linked today by the token (Bug Squash) keeps pulling as a public repository without a token and refuses writes ("Connect this repository through the GitHub app to change it from here.") until its owner presses **Connect to GitHub**. No migration: the record simply has no installation.
+- **`ISSUES_GITHUB_TOKEN` and `ISSUES_GITHUB_WRITE`** (decision 4):
+  - **(a) Remove both** (decided). The app replaces the token for every linked space; the installation and the linking check replace the allow list. Nothing reads either variable; `tokenEnv` leaves the adapter contract; `SAY.noToken`, `writeListOf`, `writeAllowed` and `issueMayWrite` go; `tools/issues-to-plan.mjs` and its check go too (the pull plan already said to remove the stopgap once the pull existed). A space linked today by the token (Bug Squash) keeps pulling as a public repository without a token and refuses writes ("Connect this repository through the GitHub app to change it from here.") until its owner presses **Connect to GitHub**. No migration: the record simply has no installation.
   - **(b) Keep the token as a read-only convenience**: `ISSUES_GITHUB_TOKEN` used only to read public repositories not linked through the app, for 5,000 an hour instead of 60; `ISSUES_GITHUB_WRITE` removed. Costs one more path to keep and check, and GitHub's terms forbid sharing a token to pass the limits, which one person's token used for every environment on a host comes close to.
-  - Lean: (a), by the no-compatibility rule and because a server with the app has a better answer for every case the token served.
+  - Decided (decision 4): (a), by the no-compatibility rule and because a server with the app has a better answer for every case the token served.
 
 ### 8. The per-space record
 
@@ -215,11 +218,18 @@ Taken. Under GitHub in the **Service terms** section (`public/service-terms.js`,
 
 Each a try build that leaves `main` green, unless Thomas names another kind. Steps 1 to 3 are core and security-relevant (a key that can write to other people's repositories).
 
-1. **The app's credentials and installation tokens** (server-development, core, medium). `server/issue-app.js` without the link flow: the variables, the key, the JWT, `GET /app`, the mint and its cache, the record's new fields, reads and writes with the installation token for a space whose record has `via: "app"`, section 9's handling, the shared rest; `ISSUES_GITHUB_TOKEN`, `ISSUES_GITHUB_WRITE`, `tokenEnv`, `writeAllowed` and `tools/issues-to-plan.mjs` with its check removed (if For Thomas 3 is (a)); the stand-in's app endpoints; `tools/check-issues.mjs` extended. The check writes a linked record into `issues.json` before the server starts, since the link routes come in step 2.
+1. **The app's credentials and installation tokens** (server-development, core, medium). `server/issue-app.js` without the link flow: the variables, the key, the JWT, `GET /app`, the mint and its cache, the record's new fields, reads and writes with the installation token for a space whose record has `via: "app"`, section 9's handling, the shared rest; `ISSUES_GITHUB_TOKEN`, `ISSUES_GITHUB_WRITE`, `tokenEnv`, `writeAllowed` and `tools/issues-to-plan.mjs` with its check removed (decision 4); the stand-in's app endpoints; `tools/check-issues.mjs` extended. The check writes a linked record into `issues.json` before the server starts, since the link routes come in step 2.
 2. **The link flow** (server-development, core, medium). The link records, `POST` and `GET /api/spaces/:id/issues-link`, `GET /api/issues-link/back` (and `PRODUCT_HOST_PATHS`), the code exchange with PKCE, the lists, the revoke, `PUT .../issues-pull` with `link` and `repositoryId`, `writeOk`, the Service terms answer.
 3. **The follow control and Service terms** (experience-design, core, small to medium). Section 14 and section 15.
 4. **Thomas sets up his server** (no build). Register the app (the checklist in section 5), generate the key and the client secret, set the three variables, restart, check Service terms says the app works, install the app on `Drowbe/coffee-pub-chameleon`, press **Connect to GitHub** in Bug Squash, follow the repository, turn **Changes here go to GitHub** on, and remove `ISSUES_GITHUB_TOKEN` and `ISSUES_GITHUB_WRITE` from the server and revoke the fine-grained token on GitHub.
-5. **Documentation** (content-manager): the setup checklist, the environment variables, the user guide's follow section, the API pages for the routes; [plan-github-two-way](plan-github-two-way.md) and [plan-github-pull](plan-github-pull.md) status lines.
+5. **Documentation** (content-manager), landing with steps 1 to 3, not after. The documents describe the single-token setup today and must be replaced, not added to (no "old way" left beside the new):
+   - [userguide-planner-projects](../userguides/userguide-planner-projects.md): "Follow a GitHub repository" (says a public repository, one way) and "Turn on writing to GitHub" (being written on the branch `claude/docs-two-way`, not yet on `main` when this was read: make a fine-grained token, set `ISSUES_GITHUB_TOKEN` and `ISSUES_GITHUB_WRITE`, then the switch). Replaced by: the administrator's app (a pointer to the setup checklist), **Connect to GitHub**, the list, **Install on GitHub**, a repository someone else owns, reading a public repository with no app, the switch and who GitHub shows.
+   - [userguide-settings-reference](../userguides/userguide-settings-reference.md), "Following a GitHub repository": the `ISSUES_GITHUB_TOKEN` row (and the `ISSUES_GITHUB_WRITE` row on `claude/docs-two-way`) replaced by `ISSUES_GITHUB_APP_CLIENT_ID`, `ISSUES_GITHUB_APP_CLIENT_SECRET` and `ISSUES_GITHUB_APP_KEY_FILE` or `ISSUES_GITHUB_APP_KEY`, with the registration checklist of section 5 (callback and setup address, permissions, webhooks off, Any account or Only on this account).
+   - [api-modules](../api/api-modules.md), the issue pull: "What leaves the server" (adds the link calls of section 10), the routes table (the new `issues-link` routes, `PUT .../issues-pull` with `link` and `repositoryId`, the `GET` answer's new fields), and the write refusals (on `claude/docs-two-way`: "Not in `ISSUES_GITHUB_WRITE`" and "`ISSUES_GITHUB_TOKEN` is empty" replaced by section 13's sentences).
+   - [architecture-modules](../architecture/architecture-modules.md), the issue pull: "The token" (and "What may write" on `claude/docs-two-way`) replaced by the app's credentials, the token cache and the link flow; the line that `tools/issues-to-plan.mjs` is still in the repository removed.
+   - [TODO](../TODO.md): the GitHub pull entry's lines on `ISSUES_GITHUB_TOKEN` (and on `claude/docs-two-way`, showing both variables in `docker-compose.yml`) replaced by the three app variables.
+   - The status lines of [plan-github-two-way](plan-github-two-way.md) and [plan-github-pull](plan-github-pull.md), and `CHANGELOG.md`.
+   - A search for `ISSUES_GITHUB_TOKEN`, `ISSUES_GITHUB_WRITE`, "server's token" and "fine-grained token" across `documentation/`, `README.md` and `docker-compose.yml` finds nothing but this plan and the two-way plan's history.
 
 The two-way plan's own steps (3, the board sync's schedule; 6 to 9, the roadmap fields, the import and removing the board) do not wait on this plan, except that Thomas turns writing on for Bug Squash through the app (step 4 here) rather than the token.
 
@@ -233,15 +243,11 @@ The two-way plan's own steps (3, the board sync's schedule; 6 to 9, the roadmap 
 
 ## For Thomas
 
-Three foundational choices, each with the planner's lean. Everything else is taken on a lean and marked; any of it may be overturned.
-
-1. **A GitHub sign-in while linking** (section 2). Each owner authorizes the app once on GitHub (a click, nothing pasted) so the server can see which installations they really reach; the user token is used for seconds and revoked. It needs the app's client secret on the server as well as the key. Without it, any owner on a server could link any repository the app is installed on. Lean: yes.
-2. **Writing needs the linking person's own write access on GitHub** (section 3), so a GitHub reader cannot write to issues through the app. Lean: yes.
-3. **Remove `ISSUES_GITHUB_TOKEN` and `ISSUES_GITHUB_WRITE`** (section 7): public repositories with no app are read without a token (about ten such spaces a server at the 60-an-hour limit); everything else goes through the app; Bug Squash keeps pulling and is relinked through the app for writing. Or keep the token for reading public repositories only. Lean: remove both.
+Nothing is waiting on Thomas to decide: the App and the three foundational choices are decided (Decisions). Every other choice is the planner's lean, taken and marked; he may overturn any of it. His to do, not to decide: step 4 (register the app, set the variables, install it, connect Bug Squash, remove the old variables and revoke the old token).
 
 ## Open questions
 
-None block step 1 if For Thomas 3 is answered; For Thomas 1 and 2 block step 2.
+None block the build.
 
 - Whether the install address's `state` comes back on the setup URL (recalled as yes; without it, the setup URL starts a fresh link, which costs the person one more press of **Connect to GitHub**). Checked by server-development on GitHub's page before step 2.
 - Which API version to send: today's `2022-11-28`, or `2026-03-10` as GitHub's pages now show. server-development reads GitHub's versioning page before step 1; not changed unasked.
