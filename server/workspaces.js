@@ -33,6 +33,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { cleanShape } = require('./layout-shapes');
+const { word } = require('./words');
 
 const WORKSPACE_LIMITS = Object.freeze({
   added: 10, // workspaces a person may add per space, besides the Workspace
@@ -80,7 +81,7 @@ const cell = (v) => isObject(v) && Object.keys(v).length === 4 && ['col', 'row',
 function recordProblem(id, rec) {
   if (!isObject(rec)) return `The record for ${plain(id)} must be an object.`;
   const extra = Object.keys(rec).find((k) => !RECORD_KEYS.includes(k));
-  if (extra) return `A module's record does not take "${plain(extra)}".`;
+  if (extra) return `${word('module', { a: true, cap: true })}'s record does not take "${plain(extra)}".`;
   const bad = (k) => `The record for ${plain(id)} has a bad "${k}".`;
   if ('mode' in rec && !MODES.includes(rec.mode)) return bad('mode');
   if ('dockW' in rec && !(pixel(rec.dockW) && rec.dockW >= 0)) return bad('dockW');
@@ -98,7 +99,7 @@ function recordProblem(id, rec) {
 }
 
 function stackProblem(st) {
-  const msg = 'Each kept stack is { ids, width, h, folded, ownW } of two or three modules.';
+  const msg = `Each kept stack is { ids, width, h, folded, ownW } of two or three ${word('module', { many: true })}.`;
   if (!isObject(st) || Object.keys(st).some((k) => !['ids', 'width', 'h', 'folded', 'ownW'].includes(k))) return msg;
   if (!Array.isArray(st.ids) || st.ids.length < 2 || st.ids.length > 3 || !st.ids.every((id) => typeof id === 'string' && MODULE_ID.test(id))) return msg;
   const n = st.ids.length;
@@ -119,8 +120,8 @@ function cleanArrangement(input) {
   const extra = Object.keys(input).find((k) => !TOP_KEYS.includes(k));
   if (extra) return { error: `An arrangement does not take "${plain(extra)}".` };
   if ('open' in input) {
-    if (!Array.isArray(input.open) || !input.open.every((id) => typeof id === 'string' && MODULE_ID.test(id))) return { error: 'The open modules must be a list of module ids.' };
-    if (input.open.length > WORKSPACE_LIMITS.open) return { error: `At most ${WORKSPACE_LIMITS.open} modules can be open in a workspace.` };
+    if (!Array.isArray(input.open) || !input.open.every((id) => typeof id === 'string' && MODULE_ID.test(id))) return { error: `The open ${word('module', { many: true })} must be a list of ${word('module')} ids.` };
+    if (input.open.length > WORKSPACE_LIMITS.open) return { error: `At most ${WORKSPACE_LIMITS.open} ${word('module', { many: true })} can be open in a workspace.` };
   }
   if ('placed' in input && typeof input.placed !== 'boolean') return { error: '"placed" must be true or false.' };
   if ('mode' in input && !['panel', 'window'].includes(input.mode)) return { error: 'The mode must be panel or window.' };
@@ -136,11 +137,11 @@ function cleanArrangement(input) {
     for (const st of input.stacks) { const p = stackProblem(st); if (p) return { error: p }; }
   }
   if ('modules' in input) {
-    if (!isObject(input.modules)) return { error: "The modules' records must be an object by module id." };
+    if (!isObject(input.modules)) return { error: `The ${word('module', { many: true })}' records must be an object by ${word('module')} id.` };
     const ids = Object.keys(input.modules);
-    if (ids.length > WORKSPACE_LIMITS.modules) return { error: `At most ${WORKSPACE_LIMITS.modules} module records can be kept.` };
+    if (ids.length > WORKSPACE_LIMITS.modules) return { error: `At most ${WORKSPACE_LIMITS.modules} ${word('module')} records can be kept.` };
     for (const id of ids) {
-      if (!MODULE_ID.test(id)) return { error: `"${plain(id)}" is not a module id.` };
+      if (!MODULE_ID.test(id)) return { error: `"${plain(id)}" is not ${word('module', { a: true })} id.` };
       const p = recordProblem(id, input.modules[id]);
       if (p) return { error: p };
     }

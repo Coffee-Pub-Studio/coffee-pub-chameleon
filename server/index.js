@@ -9683,7 +9683,7 @@ app.post('/api/spaces/:id/action', async (req, res) => {
       const v = Object.hasOwn(given, field) ? given[field] : undefined;
       if (v === undefined || v === null || v === '') continue;
       if (actionOwnKind(provider.found.manifest.id, type)) {
-        if (!pointsHere(v, space.id)) return res.status(403).json({ error: POINTS_OUTSIDE });
+        if (!pointsHere(v, space.id)) return res.status(403).json({ error: pointsOutside() });
         continue;
       }
       if (!agentSeesRef(req.agent.user, v)) return res.status(403).json({ error: AGENT_CANT });
@@ -9707,7 +9707,7 @@ app.post('/api/spaces/:id/action', async (req, res) => {
   // plan-agent-server-actions.md for an uploaded module the admin approved); everything above, the gate before it included,
   // has already held it to what the agent may. A person's request waits for a page, as before.
   const lib = req.agent ? serverCarries(provider.found, def, input, space.id) : null;
-  if (lib === POINTS_OUTSIDE) return res.status(403).json({ error: POINTS_OUTSIDE });
+  if (lib === pointsOutside()) return res.status(403).json({ error: lib });
   if (req.agent && !lib) return res.status(409).json({ error: carriageWhy(carriageFor(provider.found).why || 'none', provider.found.manifest) });
   if (lib && JSON.stringify(input).length > MODULE_ACTION_LIMITS.inputBytes) {
     return res.status(413).json({ error: `That request is too large for ${modules.shownName(provider.found.manifest)} to carry out.` });
@@ -9747,7 +9747,7 @@ const carriageFor = (found) => (found && found.entry && found.manifest ? moduleA
 }) : { why: 'none' });
 // The sentence an agent reads when the server can't carry a module's requests (GET actions' `why`, the 409 of POST action).
 const CARRY_APPROVAL = 'Needs the admin\'s approval to run on the server.';
-const CARRY_WALL = 'This server doesn\'t run uploaded modules\' actions for agents.';
+const CARRY_WALL = `This server doesn't run uploaded ${word('module', { many: true })}' actions for agents.`; // a locked word: the same in every environment
 function carriageWhy(why, manifest) {
   const name = manifest ? modules.shownName(manifest) : `This ${word('module')}`;
   if (why === 'approval') return CARRY_APPROVAL;
@@ -9756,12 +9756,12 @@ function carriageWhy(why, manifest) {
   return `${name} has no actions that run on the server, so it can't do this for an agent.`;
 }
 // The refusal of a pointer a server-carried module can't take: never queued for a page (decision 8 of plan-agent-edit-delete.md).
-const POINTS_OUTSIDE = 'A change here can only point to this space or to things kept for everyone.';
+const pointsOutside = () => `A change here can only point to this ${word('space')} or to things kept for everyone.`;
 // Whether a pointer is into the space `spaceId`, or to an environment object marked for it (the handler reads those with
 // ctx.read(key, 'environment')).
 const pointsHere = (v, spaceId) => Boolean(v && typeof v === 'object' && (v.scope === 'space' ? v.space === spaceId : v.scope === 'environment' && markedForSpace(v, spaceId)));
 // The code for this request, or null when the server can't carry it (the route then refuses it at once): the module's server
-// actions, for a `write` an agent may ask for (never local, asker-only, destructive or a delete). POINTS_OUTSIDE when a
+// actions, for a `write` an agent may ask for (never local, asker-only, destructive or a delete). pointsOutside() when a
 // pointer into the module's own objects is neither in the request's space nor the environment's and marked for it (the
 // route has refused those already; this holds it after busInput too).
 function serverCarries(found, def, input, spaceId) {
@@ -9771,7 +9771,7 @@ function serverCarries(found, def, input, spaceId) {
   for (const [field, type] of Object.entries(def.input || {})) {
     if (!actionOwnKind(found.manifest.id, type)) continue;
     const v = input[field];
-    if (v && !pointsHere(v, spaceId)) return POINTS_OUTSIDE;
+    if (v && !pointsHere(v, spaceId)) return pointsOutside();
   }
   return lib;
 }
