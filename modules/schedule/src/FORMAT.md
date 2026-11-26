@@ -33,7 +33,7 @@ anything is written; if the first problem is found, Import says it in one senten
 | `phase` | no | a phase id of the template: lower case letters, digits and `-` |
 | `tags` | no | a list (up to 50) of tag ids from the plan's Tags setting |
 | `owners` | no | a list (up to 50) of people's keys. Leave it out unless the file was exported from this environment. |
-| `order`, `by`, `ref`, `progress` | no | what Export writes so a file can be put back as it was. Leave them out when you write a file. |
+| `order`, `by`, `ref`, `source`, `progress` | no | what Export writes so a file can be put back as it was. Leave them out when you write a file. |
 
 A note has no dates, no `waitsOn` and no `done`. A milestone has no `end`. When the plan's setting "Dates are needed" is on,
 every milestone needs `start` and all work needs `start` and `end`.

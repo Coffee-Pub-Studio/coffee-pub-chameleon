@@ -75,6 +75,20 @@ function scCleanRef(r) {
   return out;
 }
 
+// Where pulled work came from (plan-github-pull.md): { from, repo, number, url } for an issue, { from, repo, milestone, due? } for a
+// milestone. Kept as the pull wrote it so a save from a page does not drop it; a link is kept only when it is an https address.
+function scCleanSource(r) {
+  if (!r || typeof r !== 'object' || typeof r.from !== 'string' || typeof r.repo !== 'string' || !r.from || !r.repo) return null;
+  const out = { from: r.from.slice(0, 32), repo: r.repo.slice(0, 200) };
+  if (Number.isInteger(r.number) && r.number > 0) out.number = r.number;
+  if (Number.isInteger(r.milestone) && r.milestone > 0) out.milestone = r.milestone;
+  if (typeof r.url === 'string' && /^https:\/\/[^\s]{1,500}$/.test(r.url)) out.url = r.url;
+  if (typeof r.due === 'string' && scIsDay(r.due)) out.due = r.due;
+  return out;
+}
+// What a person is told on a pulled entry while the pull is on.
+const SC_PULLED_SAY = 'This comes from GitHub. Change it there.';
+
 // One entry as the page uses it, from whatever is stored (another version, a template's starter, a hand edit): never throws.
 function scClean(id, raw) {
   const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -105,6 +119,7 @@ function scClean(id, raw) {
     order: typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order) ? v.order : '',
     by: typeof v.by === 'string' ? v.by.slice(0, 200) : '',
     ref: scCleanRef(v.ref),
+    source: scCleanSource(v.source),
   };
   if (kind === 'work' && typeof v.column === 'string' && SC_BOARD_ID.test(v.column)) e.column = v.column;
   if (kind === 'milestone' && e.ticked) e.done = true;
@@ -129,6 +144,7 @@ function scValue(e) {
   if (e.order) out.order = e.order;
   if (e.by) out.by = e.by;
   if (e.ref) out.ref = { ...e.ref };
+  if (e.source) out.source = { ...e.source };
   if (e.kind === 'work' && e.column) out.column = e.column;
   return out;
 }

@@ -111,3 +111,9 @@ button.link-chip:hover { background: var(--fill-selected); }
 .bd-wait { color: var(--text-primary); font-weight: var(--weight-strong); }
 .bd-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 .bd-under { color: var(--text-muted); font-size: var(--text-11); overflow-wrap: anywhere; }
+
+/* ---- pulled work: its number and the link back to where it came from ---- */
+.src-num { color: var(--text-muted); font-size: var(--text-12); font-weight: var(--weight-strong); margin-right: var(--space-1); }
+
+.src-link { display: inline-flex; align-items: center; align-self: flex-start; padding: var(--space-1) 0; color: var(--text-muted); font-size: var(--text-12); }
+.src-link:hover, .src-link:focus-visible { color: var(--accent-fill); }
