@@ -271,9 +271,15 @@ try {
     assert.equal(info.productSiteUrl, null, 'no PRODUCT_SITE_URL, no link');
   });
   await test('hiding a template takes it out of the templates the start page offers; showing it brings it back', async () => {
+    // The expected list comes from the bundled files, in the loader's order (server/templates.js: file names sorted), so a template
+    // added later needs no edit here, and a server that drops or invents one no longer matches.
+    const bundled = fs.readdirSync(path.join(ROOT, 'templates')).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', f), 'utf8')).id);
+    assert.ok(bundled.includes('default') && bundled.includes('travel') && bundled.length > 2, 'the bundled templates were read');
+    const offered = async () => (await call('GET', '', '/api/product')).json.templates.map((t) => t.id);
+    assert.deepEqual(await offered(), bundled, 'before hiding: every bundled template is offered');
     const hide = await call('PATCH', 'admin', '/api/host/templates/travel', { headers: same('admin'), body: { hidden: true } });
     assert.equal(hide.status, 200, hide.text);
-    assert.deepEqual((await call('GET', '', '/api/product')).json.templates.map((t) => t.id), ['default', 'games', 'learning', 'mentoring', 'project']); // every bundled template (templates/*.json) but the hidden travel one
+    assert.deepEqual(await offered(), bundled.filter((id) => id !== 'travel'), 'hidden travel is the only one gone');
     const show = await call('PATCH', 'admin', '/api/host/templates/travel', { headers: same('admin'), body: { hidden: false } });
     assert.equal(show.status, 200, show.text);
     assert.ok((await call('GET', '', '/api/product')).json.templates.some((t) => t.id === 'travel'), 'shown again');
