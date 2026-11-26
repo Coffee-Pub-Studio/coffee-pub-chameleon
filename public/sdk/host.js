@@ -2307,15 +2307,47 @@
   function boardNearest(length, index) {
     return length > 0 ? Math.max(0, Math.min(length - 1, Math.floor(Number(index)) || 0)) : -1;
   }
+  // The rows made safe, as the columns are: an id and a label (the id when there is none), a repeat or an empty id dropped.
+  function boardRows(raw) {
+    const out = [];
+    const seen = new Set();
+    for (const r of Array.isArray(raw) ? raw : []) {
+      if (!r || typeof r.id !== 'string' || !r.id || seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push({ id: r.id, label: typeof r.label === 'string' && r.label.trim() ? r.label.trim() : r.id });
+    }
+    return out;
+  }
+  // The row a card is in: its `row` when the board has that row, else '' (the last row, "No row"; '' is never a row's own id).
+  function boardRowOf(rows, card) {
+    return card && typeof card.row === 'string' && card.row && rows.some((r) => r.id === card.row) ? card.row : '';
+  }
+  // The rows to draw, in order: [{ id, label, count, cells: Map(column id -> cards) }]. A row with no shown cards is not drawn, and the
+  // no-row row ('' , labelled `noRow`) comes last and only when it has cards. The cards are grouped as boardGroup does.
+  function boardGroupRows(columns, rows, cards, noRow) {
+    const groups = boardGroup(columns, cards);
+    const all = rows.concat([{ id: '', label: noRow }]).map((r) => ({ id: r.id, label: r.label, count: 0, cells: new Map(columns.map((c) => [c.id, []])) }));
+    const byId = new Map(all.map((r) => [r.id, r]));
+    for (const [col, list] of groups) for (const k of list) { const r = byId.get(boardRowOf(rows, k)); r.cells.get(col).push(k); r.count += 1; }
+    return all.filter((r) => r.count > 0);
+  }
+  // The column of `cells` (a list of column ids' card lists, in column order) nearest to `from` that has a card, the left one on a tie: -1 when none.
+  function boardNearestCell(counts, from) {
+    let best = -1;
+    for (let i = 0; i < counts.length; i += 1) if (counts[i] > 0 && (best < 0 || Math.abs(i - from) < Math.abs(best - from))) best = i;
+    return best;
+  }
   // board:end
 
   const BOARD_WORDS = {
     name: 'Board', empty: 'Nothing here.', fold: 'Fold', unfold: 'Unfold', open: 'Open', more: 'More', countsDone: 'Counts as done',
+    noRow: 'No row', otherRow: 'A card stays in its row.', cell: (column, row, count) => `${column} in ${row}, ${count}`,
     add: (column) => `Add to ${column}`, moveTo: (column) => `Move to ${column}`, moved: (title, column) => `Moved "${title}" to ${column}.`,
   };
   let boardSeq = 0;
   // host.ui.board(el, { columns, cards, name?, labels?, card?(card, contentEl), menu?(card), columnMenu?(column), canMove?, canAdd?, foldKey?,
-  //   collapsed?, rows?, onOpen?(card), onAdd?(columnId), onMove({ id, column }), onFold?(id, folded) }) -> { set(cards, columns?), focus(id), destroy() }.
+  //   collapsed?, rows?, onOpen?(card), onAdd?(columnId), onMove({ id, column }), onFold?(id, folded) }) -> { set(cards, columns?, rows?), focus(id), destroy() }.
+  // rows: [{ id, label }] draws the board in rows (a card's `row` names its row); without it the board is the columns alone.
   // deps: { icon(name) -> Promise<svg>, menu(args) } from the module's host.
   function createBoard(el, o, deps) {
     if (!el || el.nodeType !== 1) throw new Error('host.ui.board needs an element');
@@ -2327,31 +2359,39 @@
     const seq = ++boardSeq;
     const MIME = `application/x-host-board-${seq}`; // one instance's own drag type: a drag from anywhere else is never its drag
     let columns = boardColumns(options.columns);
+    let rowList = boardRows(options.rows);
     let cards = Array.isArray(options.cards) ? options.cards : [];
     let groups = boardGroup(columns, cards);
-    // Folding is kept per person in the browser under the key the module names; on a phone the done columns start folded and a choice there is not kept.
+    // Folding is kept per person in the browser under the key the module names (rows under `<key>:rows`); on a phone the done columns start folded and a choice there is not kept.
     const foldKey = typeof options.foldKey === 'string' && options.foldKey ? options.foldKey : '';
-    const readFolds = () => {
-      if (foldKey) { try { const v = JSON.parse(win.localStorage.getItem(foldKey) || 'null'); if (Array.isArray(v)) return v.filter((x) => typeof x === 'string'); } catch (err) { /* none kept */ } }
-      return Array.isArray(options.collapsed) ? options.collapsed.filter((x) => typeof x === 'string') : [];
+    const readList = (key) => {
+      if (key) { try { const v = JSON.parse(win.localStorage.getItem(key) || 'null'); if (Array.isArray(v)) return v.filter((x) => typeof x === 'string'); } catch (err) { /* none kept */ } }
+      return null;
     };
-    const folded = new Set(readFolds());
-    const stackedFolds = new Map(); // column id -> folded, for the stacked layout only
+    const folded = new Set(readList(foldKey) || (Array.isArray(options.collapsed) ? options.collapsed.filter((x) => typeof x === 'string') : []));
+    const foldedRows = new Set(readList(foldKey && `${foldKey}:rows`) || []);
+    const stackedFolds = new Map(); // column id (and row id) -> folded, for the stacked layout only
     const mq = typeof win.matchMedia === 'function' ? win.matchMedia('(max-width: 640px), (pointer: coarse)') : null;
     const stacked = () => Boolean(mq && mq.matches);
-    const isFolded = (c) => (stacked() ? (stackedFolds.has(c.id) ? stackedFolds.get(c.id) : c.done) : folded.has(c.id));
+    const hasRows = () => rowList.length > 0;
+    const sfKey = (c, row) => (hasRows() ? `${row === undefined ? '' : row}\u0000${c.id}` : c.id);
+    const isFolded = (c, row) => (stacked() ? (stackedFolds.has(sfKey(c, row)) ? stackedFolds.get(sfKey(c, row)) : c.done) : folded.has(c.id));
     const reads = (v, ...a) => { try { return typeof v === 'function' ? v(...a) : v; } catch (err) { console.error(err); return false; } };
     const movable = (card) => typeof options.onMove === 'function' && reads(options.canMove === undefined ? true : options.canMove, card) !== false;
     const addable = (c) => typeof options.onAdd === 'function' && reads(options.canAdd === undefined ? true : options.canAdd, c.id) !== false;
-    let current = ''; // the key of the stop that is the tab stop: "c:<card id>" or "h:<column id>:<fold|add|more>"
+    let current = ''; // the key of the stop that is the tab stop: "c:<card id>", "h:<column id>:<fold|add|more>", "r:<row id>" or "g:..." (a column inside a stacked row)
     let said = null; // the move the module was told of, announced once a later set() shows it
     let drag = null; // { id, card } while this board's own card is being dragged
     let dropAt = null;
+    let overOther = false; // the drag is over another row's cell: told on release
+    let lastCol = 0; // the column the keyboard last was in, kept while it walks the row headings
     let dead = false;
     const make = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
     const stops = new Map(); // key -> element, rebuilt by each draw
     const keys = new WeakMap(); // an element -> its key (never read back from the page)
-    let layout = []; // [{ column, fold, add, more, cards: [{ card, el }] }]
+    let layout = []; // [{ column, fold, add, more, cards: [{ card, el }], row? }] (wide rows: the column headings, with no cards)
+    let rowLayout = []; // with rows: [{ id, fold, shut, cells: [{ index, cards: [{ card, el }] }] (wide), cols: [column infos] (stacked) }]
+    let headsEl = null;
     const svg = async (parent, name) => { try { const s = await deps.icon(name); if (s && !dead) parent.innerHTML = s; } catch (err) { /* no icon */ } };
     const icon = (cls, name) => { const s = make('span', `ic ${cls || ''}`.trim()); s.setAttribute('aria-hidden', 'true'); svg(s, name); return s; };
     const stopOf = (node) => { const s = node && node.closest ? node.closest('[data-stop]') : null; return s && el.contains(s) ? s : null; };
@@ -2372,14 +2412,18 @@
     };
     const colOf = (id) => columns.find((c) => c.id === id);
     const cardOf = (id) => { for (const list of groups.values()) for (const k of list) if (k.id === id) return k; return null; };
+    const rowKeyOf = (k) => boardRowOf(rowList, k);
     const countOf = (c) => (c.count !== null ? c.count : groups.get(c.id).length);
     const stopKeys = () => [...stops.keys()];
+    const rowLabel = (id) => { const r = rowList.find((x) => x.id === id); return r ? r.label : words.noRow; };
+    const stopFor = (c, row, part) => (row === undefined ? `h:${c.id}:${part}` : `g:${JSON.stringify([row, c.id])}:${part}`);
 
+    let cardN = 0;
     function card(k, c, i) {
       const li = make('li', 'sdk-board-item');
       const box = make('div', 'sdk-board-card');
       const content = make('div', 'sdk-board-content');
-      content.id = `sdk-board-${seq}-${c.index}-${i}`;
+      content.id = `sdk-board-${seq}-${++cardN}`;
       let made = false;
       if (typeof options.card === 'function') { try { options.card(k, content); made = Boolean(content.firstChild); } catch (err) { console.error(err); content.replaceChildren(); } }
       if (!made) content.textContent = titleOf(k, null);
@@ -2407,13 +2451,16 @@
       li.append(box);
       return { li, box, title };
     }
+    const cardList = (list, index, info, label, cls) => {
+      const ul = make('ul', cls || 'sdk-board-list');
+      ul.setAttribute('role', 'list');
+      ul.setAttribute('aria-label', label);
+      list.forEach((k, i) => { const made = card(k, { index }, i); ul.append(made.li); info.cards.push({ card: k, el: made.box }); });
+      return ul;
+    };
 
-    function column(c, index) {
-      const list = groups.get(c.id);
-      const shut = isFolded(c);
-      const narrow = stacked();
-      const sec = make('section', `sdk-board-col${shut ? ' is-folded' : ''}${c.done ? ' is-done' : ''}`);
-      sec.dataset.col = c.id;
+    // A column's heading: the fold button with its count, the "+" and the "...". `row` is the row id inside a stacked row's group, else undefined.
+    function heading(c, info, shut, count, row) {
       const head = make('header', 'sdk-board-head');
       const h = make('h3', 'sdk-board-title');
       const fold = make('button', 'sdk-board-fold');
@@ -2421,13 +2468,13 @@
       fold.setAttribute('aria-expanded', String(!shut));
       fold.append(icon('sdk-board-chevron', 'chevron-right'), make('span', 'sdk-board-label', c.label));
       if (c.done) { const d = make('span', 'sdk-board-done'); d.dataset.tip = words.countsDone; d.append(icon('', 'check'), make('span', 'sdk-board-sr', words.countsDone)); fold.append(d); }
-      fold.append(make('span', 'sdk-board-count', String(countOf(c))));
+      fold.append(make('span', 'sdk-board-count', String(count)));
       h.append(fold);
       head.append(h);
-      const info = { column: c, index, fold, add: null, more: null, cards: [] };
-      const stop = (btn, part) => { const key = `h:${c.id}:${part}`; keys.set(btn, key); stops.set(key, btn); btn.dataset.stop = part; btn.tabIndex = key === current ? 0 : -1; };
+      const stop = (btn, part) => { const key = stopFor(c, row, part); keys.set(btn, key); stops.set(key, btn); btn.dataset.stop = part; btn.tabIndex = key === current ? 0 : -1; };
       stop(fold, 'fold');
-      if (!shut || narrow) {
+      info.fold = fold;
+      if (!shut || stacked()) {
         if (addable(c)) {
           const add = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-board-add');
           add.type = 'button';
@@ -2449,12 +2496,21 @@
         info.more = more;
         head.append(more);
       }
-      sec.append(head);
+      return head;
+    }
+
+    // A column (no rows), or a column inside a stacked row's group (`list` is that row's cards in it, `row` its id).
+    function column(c, index, list, row) {
+      const inRow = row !== undefined;
+      list = list || groups.get(c.id);
+      const shut = isFolded(c, row);
+      const sec = make('section', `sdk-board-col${shut ? ' is-folded' : ''}${c.done ? ' is-done' : ''}`);
+      sec.dataset.col = c.id;
+      const info = { column: c, index, fold: null, add: null, more: null, cards: [], row };
+      const count = inRow ? list.length : countOf(c);
+      sec.append(heading(c, info, shut, count, row));
       if (!shut) {
-        const ul = make('ul', 'sdk-board-list');
-        ul.setAttribute('role', 'list');
-        ul.setAttribute('aria-label', `${c.label}, ${countOf(c)}`);
-        list.forEach((k, i) => { const made = card(k, { index }, i); ul.append(made.li); info.cards.push({ card: k, el: made.box }); });
+        const ul = cardList(list, index, info, inRow && typeof words.cell === 'function' ? words.cell(c.label, rowLabel(row), count) : `${c.label}, ${count}`);
         if (!list.length) ul.append(make('li', 'sdk-board-empty', typeof options.empty === 'string' && options.empty ? options.empty : words.empty));
         sec.append(ul);
       }
@@ -2462,17 +2518,108 @@
       return sec;
     }
 
+    // With rows, wide: a column's heading in the held row of headings (a folded column is a narrow strip) ...
+    function columnHead(c, index) {
+      const shut = isFolded(c);
+      const cell = make('div', `sdk-board-col sdk-board-colhead${shut ? ' is-folded' : ''}${c.done ? ' is-done' : ''}`);
+      cell.dataset.col = c.id;
+      const info = { column: c, index, fold: null, add: null, more: null, cards: [] };
+      cell.append(heading(c, info, shut, countOf(c)));
+      layout.push(info);
+      return cell;
+    }
+    // ... and a column's cell in a row: the row's cards in that column. A folded column's cell is a strip with only its own count.
+    function cell(c, index, r, info) {
+      const shut = isFolded(c);
+      const n = r.cells.get(c.id).length;
+      const e = make('div', `sdk-board-cell${shut ? ' is-folded' : ''}${c.done ? ' is-done' : ''}`);
+      e.dataset.col = c.id;
+      e.dataset.row = r.id;
+      const name = typeof words.cell === 'function' ? words.cell(c.label, r.label, n) : `${c.label}, ${n}`;
+      if (shut) {
+        e.setAttribute('role', 'group');
+        e.setAttribute('aria-label', name);
+        e.append(make('span', 'sdk-board-count', String(n)));
+        return e;
+      }
+      e.append(cardList(r.cells.get(c.id), index, info, name));
+      return e;
+    }
+
+    function rowHead(r, shut, group) {
+      const h = make('h3', 'sdk-board-rowhead');
+      const btn = make('button', 'sdk-board-rowfold');
+      btn.type = 'button';
+      btn.setAttribute('aria-expanded', String(!shut));
+      btn.setAttribute('aria-label', `${shut ? words.unfold : words.fold}: ${r.label}, ${r.count}`);
+      btn.append(icon('sdk-board-chevron', 'chevron-right'), make('span', 'sdk-board-label', r.label), make('span', 'sdk-board-count', String(r.count)));
+      const key = `r:${r.id}`;
+      keys.set(btn, key); stops.set(key, btn); btn.dataset.stop = 'row'; btn.tabIndex = key === current ? 0 : -1;
+      h.append(btn);
+      group.setAttribute('aria-label', `${r.label}, ${r.count}`);
+      return { h, btn };
+    }
+
+    function drawRows(shown) {
+      const narrow = stacked();
+      const grid = make('div', 'sdk-board-grid');
+      if (!narrow) {
+        const widths = columns.map((c) => (isFolded(c) ? '44px' : 'minmax(220px, 340px)'));
+        grid.style.setProperty('--board-cols', widths.join(' '));
+        grid.style.setProperty('--board-min', `calc(${columns.reduce((t, c) => t + (isFolded(c) ? 44 : 220), 0)}px + ${Math.max(0, columns.length - 1)} * var(--space-3))`);
+        headsEl = make('div', 'sdk-board-heads');
+        headsEl.append(...columns.map((c, i) => columnHead(c, i)));
+        grid.append(headsEl);
+      }
+      for (const r of shown) {
+        const shut = foldedRows.has(r.id);
+        const group = make('div', `sdk-board-row${shut ? ' is-folded' : ''}`);
+        group.setAttribute('role', 'group');
+        group.dataset.row = r.id;
+        const rh = rowHead(r, shut, group);
+        group.append(rh.h);
+        const info = { id: r.id, label: r.label, fold: rh.btn, shut, cells: [], cols: [] };
+        rowLayout.push(info);
+        if (!shut) {
+          const inner = make('div', narrow ? 'sdk-board-rowbody' : 'sdk-board-cells');
+          if (narrow) {
+            const before = layout.length;
+            columns.forEach((c, i) => inner.append(column(c, i, r.cells.get(c.id), r.id)));
+            info.cols = layout.slice(before);
+          } else {
+            columns.forEach((c, i) => { const ci = { cards: [] }; inner.append(cell(c, i, r, ci)); info.cells.push({ index: i, cards: ci.cards }); });
+          }
+          group.append(inner);
+        }
+        grid.append(group);
+      }
+      if (!shown.length) grid.append(make('p', 'sdk-board-empty', typeof options.empty === 'string' && options.empty ? options.empty : words.empty));
+      body.classList.add('has-rows');
+      body.replaceChildren(grid);
+    }
+
     function draw() {
       if (dead) return;
       const act = (deps.root && deps.root.activeElement) || doc.activeElement;
       const had = act && el.contains(act) ? keys.get(stopOf(act)) : '';
       const left = body.scrollLeft;
+      const top = body.scrollTop;
       stops.clear();
       layout = [];
-      const first = groups && columns.length ? [...groups.values()].find((l) => l.length) : null;
-      if (!current || !(current.startsWith('c:') ? cardOf(current.slice(2)) : colOf(current.split(':')[1]))) current = first ? `c:${first[0].id}` : columns.length ? `h:${columns[0].id}:fold` : '';
-      body.replaceChildren(...columns.map((c, i) => column(c, i)));
+      rowLayout = [];
+      headsEl = null;
+      const rowsOn = hasRows();
+      const shown = rowsOn ? boardGroupRows(columns, rowList, cards, words.noRow) : null;
+      let first = null;
+      if (rowsOn) { for (const r of shown) for (const c of columns) if (!first && r.cells.get(c.id).length) first = r.cells.get(c.id); }
+      else first = groups && columns.length ? [...groups.values()].find((l) => l.length) : null;
+      const valid = current.startsWith('c:') ? cardOf(current.slice(2)) : current.startsWith('h:') ? colOf(current.split(':')[1]) : current.startsWith('r:') ? Boolean(shown && shown.some((r) => `r:${r.id}` === current)) : current.startsWith('g:');
+      if (!current || !valid) current = first ? `c:${first[0].id}` : columns.length ? `h:${columns[0].id}:fold` : '';
+      if (rowsOn) drawRows(shown);
+      else { body.classList.remove('has-rows'); body.replaceChildren(...columns.map((c, i) => column(c, i))); }
       body.scrollLeft = left;
+      body.scrollTop = rowsOn ? top : 0;
+      body.style.scrollPaddingTop = headsEl ? `${headsEl.offsetHeight}px` : '';
       if (!stops.has(current)) { const k = stopKeys()[0]; current = k || ''; if (k) stops.get(k).tabIndex = 0; }
       let target = had && stops.has(had) ? stops.get(had) : null;
       if (said) { // told only once the board shows the move, and only for a few seconds
@@ -2486,18 +2633,27 @@
       current = key;
       for (const [k, e] of stops) e.tabIndex = k === key ? 0 : -1;
     }
-    function toggle(c, to) {
-      const shut = isFolded(c);
+    function toggle(c, to, row) {
+      const shut = isFolded(c, row);
       const next = to === undefined ? !shut : Boolean(to);
       if (next === shut) return;
-      if (stacked()) stackedFolds.set(c.id, next);
+      if (stacked()) stackedFolds.set(sfKey(c, row), next);
       else {
         if (next) folded.add(c.id); else folded.delete(c.id);
         if (foldKey) { try { win.localStorage.setItem(foldKey, JSON.stringify([...folded])); } catch (err) { /* not kept */ } }
       }
       draw();
-      const f = stops.get(`h:${c.id}:fold`); if (f) f.focus();
+      const f = stops.get(stopFor(c, row, 'fold')); if (f) f.focus();
       if (typeof options.onFold === 'function') { try { options.onFold(c.id, next); } catch (err) { console.error(err); } }
+    }
+    function toggleRow(id, to) {
+      const shut = foldedRows.has(id);
+      const next = to === undefined ? !shut : Boolean(to);
+      if (next === shut) return;
+      if (next) foldedRows.add(id); else foldedRows.delete(id);
+      if (foldKey) { try { win.localStorage.setItem(`${foldKey}:rows`, JSON.stringify([...foldedRows])); } catch (err) { /* not kept */ } }
+      draw();
+      const f = stops.get(`r:${id}`); if (f) f.focus();
     }
 
     function perform(id, to) {
@@ -2506,7 +2662,7 @@
       if (!k || !c || k.column === to || !movable(k)) return;
       const title = titleOf(k, stops.get(`c:${id}`) && stops.get(`c:${id}`).querySelector('.sdk-board-content'));
       // A card moved into a folded column opens it, so the card stays where focus is.
-      if (isFolded(c)) { if (stacked()) stackedFolds.set(c.id, false); else folded.delete(c.id); }
+      if (isFolded(c, rowKeyOf(k))) { if (stacked()) stackedFolds.set(sfKey(c, rowKeyOf(k)), false); else folded.delete(c.id); }
       said = { id, column: to, at: Date.now(), text: typeof words.moved === 'function' ? words.moved(title, c.label) : String(words.moved) };
       try {
         const r = options.onMove({ id, column: to });
@@ -2526,32 +2682,44 @@
       while (items.length && items[items.length - 1].separator) items.pop();
       deps.menu({ id: `sdk-board-card-${seq}-${id}`, anchor, items, onClose: () => { const a = (deps.root && deps.root.activeElement) || doc.activeElement; if (!a || a === doc.body) { const e = stops.get(`c:${id}`); if (e) e.focus(); } } });
     }
-    function showColumnMenu(c, anchor) {
-      const shut = isFolded(c);
-      const items = [{ id: 'fold', label: shut ? words.unfold : words.fold, icon: 'chevron-right', onClick: () => toggle(c) }];
+    function showColumnMenu(c, anchor, row) {
+      const shut = isFolded(c, row);
+      const items = [{ id: 'fold', label: shut ? words.unfold : words.fold, icon: 'chevron-right', onClick: () => toggle(c, undefined, row) }];
       let extra = [];
       try { extra = typeof options.columnMenu === 'function' ? options.columnMenu({ id: c.id, label: c.label, done: c.done }) : []; } catch (err) { console.error(err); }
       if (Array.isArray(extra) && extra.length) items.push({ separator: true }, ...extra);
-      deps.menu({ id: `sdk-board-col-${seq}-${c.id}`, anchor, items, onClose: () => { const a = (deps.root && deps.root.activeElement) || doc.activeElement; if (!a || a === doc.body) { const e = stops.get(`h:${c.id}:more`); if (e) e.focus(); } } });
+      deps.menu({ id: `sdk-board-col-${seq}-${c.id}`, anchor, items, onClose: () => { const a = (deps.root && deps.root.activeElement) || doc.activeElement; if (!a || a === doc.body) { const e = stops.get(stopFor(c, row, 'more')); if (e) e.focus(); } } });
     }
 
     // ---- the pointer and the keyboard ----
+    // What a stop is: { col, at, card } for a card or a column heading button (wide rows: col is the column's heading, `row` the row's layout,
+    // `cell` the cell's cards), or { rowHead } for a row heading.
     const infoOf = (stop) => {
+      for (const r of rowLayout) {
+        if (stop === r.fold) return { rowHead: r, col: null, at: -1, card: false };
+        for (const c of r.cells) {
+          const at = c.cards.findIndex((x) => x.el === stop);
+          if (at >= 0) return { col: layout[c.index], at, card: true, row: r, cell: c };
+        }
+      }
       for (const col of layout) {
         const at = col.cards.findIndex((x) => x.el === stop);
-        if (at >= 0) return { col, at, card: true };
-        if (stop === col.fold || stop === col.add || stop === col.more) return { col, at: -1, card: false };
+        if (at >= 0) return { col, at, card: true, row: rowLayout.find((r) => r.cols.includes(col)) };
+        if (stop === col.fold || stop === col.add || stop === col.more) return { col, at: -1, card: false, row: rowLayout.find((r) => r.cols.includes(col)) };
       }
       return null;
     };
     const onClick = (e) => {
       const t = e.target.closest ? e.target.closest('button, .sdk-board-card') : null;
       if (!t || !el.contains(t)) return;
+      if (t.classList.contains('sdk-board-rowfold')) { setCurrent(keys.get(t)); toggleRow(t.closest('.sdk-board-row').dataset.row); return; }
       const sec = t.closest('.sdk-board-col');
       const c = sec ? colOf(sec.dataset.col) : null;
-      if (t.classList.contains('sdk-board-fold') && c) { toggle(c); return; }
+      const rowEl = sec ? sec.closest('.sdk-board-row') : null;
+      const row = rowEl ? rowEl.dataset.row : undefined;
+      if (t.classList.contains('sdk-board-fold') && c) { toggle(c, undefined, row); return; }
       if (t.classList.contains('sdk-board-add') && c) { setCurrent(keys.get(t)); try { options.onAdd(c.id); } catch (err) { console.error(err); } return; }
-      if (t.classList.contains('sdk-board-colmore') && c) { setCurrent(keys.get(t)); showColumnMenu(c, t); return; }
+      if (t.classList.contains('sdk-board-colmore') && c) { setCurrent(keys.get(t)); showColumnMenu(c, t, row); return; }
       const box = t.closest('.sdk-board-card');
       if (!box) return;
       const k = cardOf((keys.get(box) || '').slice(2));
@@ -2561,7 +2729,71 @@
       if (e.target.closest && e.target.closest('a, input, select, textarea, label, [contenteditable]')) return;
       if (typeof options.onOpen === 'function') { try { options.onOpen(k); } catch (err) { console.error(err); } } else if (stacked() || !box.draggable) showCardMenu(k.id, box.querySelector('.sdk-board-more'));
     };
-    const onFocusIn = (e) => { const s = stopOf(e.target); if (s && keys.has(s) && keys.get(s) !== current) setCurrent(keys.get(s)); };
+    const onFocusIn = (e) => {
+      const s = stopOf(e.target);
+      if (!s || !keys.has(s)) return;
+      if (keys.get(s) !== current) setCurrent(keys.get(s));
+      if (hasRows() && !stacked()) { const at = infoOf(s); if (at && at.col) lastCol = at.col.index; }
+    };
+    // Wide rows: the arrows through the row headings and the cells. Returns true when it took the key.
+    function keyRows(e, stop, at) {
+      const go = (to) => { e.preventDefault(); if (to && to !== stop) to.focus(); return true; };
+      const ri = at.rowHead ? rowLayout.indexOf(at.rowHead) : at.card ? rowLayout.indexOf(at.row) : -1;
+      const counts = (r) => r.cells.map((c) => (c.cards.length));
+      // the card to land on in row r, coming from column `col`: its nearest cell with a card, the card nearest `idx`; null if none (or folded)
+      const into = (r, col, idx, last) => {
+        const n = boardNearestCell(counts(r), col);
+        if (n < 0) return null;
+        const list = r.cells[n].cards;
+        return list[last ? list.length - 1 : boardNearest(list.length, idx)].el;
+      };
+      const key = e.key;
+      if (at.rowHead) {
+        const r = at.rowHead;
+        if (key === 'ArrowLeft') { e.preventDefault(); toggleRow(r.id, true); return true; }
+        if (key === 'ArrowRight') { e.preventDefault(); toggleRow(r.id, false); return true; }
+        if (key === 'ArrowDown') { const c = !r.shut ? into(r, lastCol, 0, false) : null; const n = rowLayout[ri + 1]; return go(c || (n && n.fold)); }
+        if (key === 'ArrowUp') {
+          if (ri === 0) { const h = layout[lastCol]; return go(h && h.fold); }
+          const p = rowLayout[ri - 1];
+          return go((!p.shut && into(p, lastCol, 0, true)) || p.fold);
+        }
+        if (key === 'Home') return go(rowLayout[0].fold);
+        if (key === 'End') return go(rowLayout[rowLayout.length - 1].fold);
+        return false;
+      }
+      if (at.card) {
+        const list = at.cell.cards;
+        if (key === 'ArrowDown') { if (at.at < list.length - 1) return go(list[at.at + 1].el); const n = rowLayout[ri + 1]; return go(n && n.fold); }
+        if (key === 'ArrowUp') return go(at.at > 0 ? list[at.at - 1].el : at.row.fold);
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+          const step = key === 'ArrowLeft' ? -1 : 1;
+          for (let i = at.col.index + step; i >= 0 && i < at.row.cells.length; i += step) {
+            const c = at.row.cells[i];
+            if (c.cards.length) return go(c.cards[boardNearest(c.cards.length, at.at)].el);
+          }
+          return go(null); // the row's end: focus stays
+        }
+        if (key === 'Home') return go(list[0].el);
+        if (key === 'End') return go(list[list.length - 1].el);
+        return false;
+      }
+      // a column heading: Down goes to the first row heading
+      if (key === 'ArrowDown') return go(rowLayout[0] && rowLayout[0].fold);
+      return false;
+    }
+    // Stacked rows: Up and Down walk one line of row headings, column headings and cards.
+    function keyStacked(e, stop, at) {
+      const seq = [];
+      for (const r of rowLayout) { seq.push(r.fold); if (!r.shut) for (const c of r.cols) { seq.push(c.fold); for (const x of c.cards) seq.push(x.el); } }
+      const i = seq.indexOf(stop);
+      if (i < 0) return false;
+      const go = (to) => { e.preventDefault(); if (to && to !== stop) to.focus(); return true; };
+      if (e.key === 'ArrowDown') return go(seq[i + 1]);
+      if (e.key === 'ArrowUp') return go(seq[i - 1]);
+      if (at.rowHead && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); toggleRow(at.rowHead.id, e.key === 'ArrowLeft'); return true; }
+      return false;
+    }
     const onKey = (e) => {
       // Alt+Left and Alt+Right are the browser's Back and Forward: never while focus is in the board.
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && el.contains(e.target)) e.preventDefault();
@@ -2571,9 +2803,12 @@
       if (!at) return;
       const { col } = at;
       const go = (to) => { if (to && to !== stop) { e.preventDefault(); to.focus(); } };
+      const narrow = stacked();
+      const rowsOn = hasRows();
+      if (at.rowHead) { if (!e.altKey && !e.shiftKey && !e.target.closest('.sdk-board-card')) { if (narrow ? keyStacked(e, stop, at) : keyRows(e, stop, at)) return; } return; }
+      // the heads a Left or Right walks: all the columns' (wide), or this column's own (stacked)
       const heads = [];
-      for (const l of layout) heads.push(...[l.fold, l.add, l.more].filter(Boolean));
-      const row = stacked();
+      for (const l of (rowsOn && narrow ? [col] : layout)) heads.push(...[l.fold, l.add, l.more].filter(Boolean));
       const colAt = (i) => layout[i];
       const intoCol = (l, idx) => { const n = boardNearest(l.cards.length, idx); return n >= 0 ? l.cards[n].el : l.fold; };
       if (at.card) {
@@ -2586,10 +2821,11 @@
         }
         if (e.altKey || e.shiftKey) { if (!(e.shiftKey && e.key === 'F10')) return; }
         if (e.target !== stop) return; // a key inside something in the card is that thing's own
-        if (e.key === 'ArrowDown') { if (at.at < col.cards.length - 1) go(col.cards[at.at + 1].el); else if (row && colAt(layout.indexOf(col) + 1)) go(colAt(layout.indexOf(col) + 1).fold); else e.preventDefault(); }
+        if (rowsOn && (narrow ? keyStacked(e, stop, at) : keyRows(e, stop, at))) return;
+        if (e.key === 'ArrowDown') { if (at.at < col.cards.length - 1) go(col.cards[at.at + 1].el); else if (narrow && colAt(layout.indexOf(col) + 1)) go(colAt(layout.indexOf(col) + 1).fold); else e.preventDefault(); }
         else if (e.key === 'ArrowUp') { if (at.at > 0) go(col.cards[at.at - 1].el); else go(col.fold); }
-        else if (e.key === 'ArrowRight' && !row) { const n = colAt(layout.indexOf(col) + 1); if (n) go(intoCol(n, at.at)); else e.preventDefault(); }
-        else if (e.key === 'ArrowLeft' && !row) { const n = colAt(layout.indexOf(col) - 1); if (n) go(intoCol(n, at.at)); else e.preventDefault(); }
+        else if (e.key === 'ArrowRight' && !narrow) { const n = colAt(layout.indexOf(col) + 1); if (n) go(intoCol(n, at.at)); else e.preventDefault(); }
+        else if (e.key === 'ArrowLeft' && !narrow) { const n = colAt(layout.indexOf(col) - 1); if (n) go(intoCol(n, at.at)); else e.preventDefault(); }
         else if (e.key === 'Home') go(col.cards[0].el);
         else if (e.key === 'End') go(col.cards[col.cards.length - 1].el);
         else if (e.key === 'Enter') { e.preventDefault(); const k = cardOf(id); if (k && typeof options.onOpen === 'function') { try { options.onOpen(k); } catch (err) { console.error(err); } } else showCardMenu(id, stop.querySelector('.sdk-board-more')); }
@@ -2597,14 +2833,15 @@
         return;
       }
       if (e.altKey || e.shiftKey) return;
+      if (rowsOn && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (narrow ? keyStacked(e, stop, at) : keyRows(e, stop, at))) return;
       const i = heads.indexOf(stop);
       const li = layout.indexOf(col);
       if (e.key === 'ArrowRight') go(heads[i + 1]);
       else if (e.key === 'ArrowLeft') go(heads[i - 1]);
       else if (e.key === 'Home') go(heads[0]);
       else if (e.key === 'End') go(heads[heads.length - 1]);
-      else if (e.key === 'ArrowDown') { if (col.cards.length) go(col.cards[0].el); else if (row && layout[li + 1]) go(layout[li + 1].fold); }
-      else if (e.key === 'ArrowUp' && row && li > 0) { const p = layout[li - 1]; go(p.cards.length ? p.cards[p.cards.length - 1].el : p.fold); }
+      else if (e.key === 'ArrowDown') { if (col.cards.length) go(col.cards[0].el); else if (narrow && layout[li + 1]) go(layout[li + 1].fold); }
+      else if (e.key === 'ArrowUp' && narrow && li > 0) { const p = layout[li - 1]; go(p.cards.length ? p.cards[p.cards.length - 1].el : p.fold); }
     };
     function clearDrop() { if (dropAt) { dropAt.classList.remove('is-drop'); dropAt = null; } }
     const dragStart = (e) => {
@@ -2614,43 +2851,58 @@
       const k = cardOf(id);
       if (!k || !movable(k) || !e.dataTransfer) { e.preventDefault(); return; }
       drag = { id, box };
+      overOther = false;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData(MIME, id);
       if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(box, 16, 16);
       box.closest('li').classList.add('dragging');
     };
     const mine = (e) => drag && e.dataTransfer && [...(e.dataTransfer.types || [])].includes(MIME);
+    // With rows, a card lands only in a cell of its own row; without, in any column.
+    const targetOf = (e) => (e.target.closest ? e.target.closest(hasRows() ? '.sdk-board-cell' : '.sdk-board-col') : null);
     const dragOver = (e) => {
       if (drag && !(drag.box.isConnected && el.contains(drag.box))) drag = null; // its card is gone: no drag of ours
       if (!mine(e)) return; // not this board's own drag: left alone
-      const sec = e.target.closest ? e.target.closest('.sdk-board-col') : null;
+      const sec = targetOf(e);
       const k = cardOf(drag.id);
       clearDrop();
-      if (!sec || !el.contains(sec) || !k || sec.dataset.col === k.column) { e.dataTransfer.dropEffect = 'none'; return; }
+      overOther = Boolean(sec && el.contains(sec) && k && hasRows() && sec.dataset.row !== rowKeyOf(k));
+      if (!sec || !el.contains(sec) || !k || overOther || sec.dataset.col === k.column) { e.dataTransfer.dropEffect = 'none'; return; }
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       sec.classList.add('is-drop');
       dropAt = sec;
     };
-    const dragLeave = (e) => { if (!e.relatedTarget || !el.contains(e.relatedTarget)) clearDrop(); };
+    const dragLeave = (e) => { if (!e.relatedTarget || !el.contains(e.relatedTarget)) { clearDrop(); overOther = false; } };
     const drop = (e) => {
       if (!mine(e)) return;
-      const sec = e.target.closest ? e.target.closest('.sdk-board-col') : null;
+      const sec = targetOf(e);
       e.preventDefault();
       clearDrop();
       const id = drag.id;
+      const k = cardOf(id);
       drag = null;
-      if (sec && el.contains(sec)) perform(id, sec.dataset.col);
+      overOther = false;
+      if (!sec || !el.contains(sec)) return;
+      if (hasRows() && k && sec.dataset.row !== rowKeyOf(k)) { say(words.otherRow); return; } // a card stays in its row: nothing moves
+      perform(id, sec.dataset.col);
     };
-    const dragEnd = () => { clearDrop(); drag = null; for (const li of el.querySelectorAll('li.dragging')) li.classList.remove('dragging'); };
+    const dragEnd = () => {
+      clearDrop();
+      if (overOther && drag) say(words.otherRow); // let go over another row's cell (the browser does not drop there)
+      overOther = false;
+      drag = null;
+      for (const li of el.querySelectorAll('li.dragging')) li.classList.remove('dragging');
+    };
     const on = [['click', onClick], ['keydown', onKey], ['focusin', onFocusIn], ['dragstart', dragStart], ['dragover', dragOver], ['dragleave', dragLeave], ['drop', drop], ['dragend', dragEnd]];
     for (const [t, f] of on) el.addEventListener(t, f);
     const onMedia = () => draw();
     if (mq && mq.addEventListener) mq.addEventListener('change', onMedia);
 
     const api = {
-      set(next, nextColumns) {
+      set(next, nextColumns, nextRows) {
         if (nextColumns !== undefined) columns = boardColumns(nextColumns);
+        if (nextRows !== undefined) rowList = boardRows(nextRows);
         cards = Array.isArray(next) ? next : [];
         groups = boardGroup(columns, cards);
         draw();
