@@ -7,7 +7,7 @@
  *   - the Gaming template sets boardColumns: priority;
  *   - the page: the view switch, the Board section, the card inside as text (no innerHTML from a person's words), the tick and the
  *     editor's Done box go through scSetDone with the board, a move runs the setColumn handler, the import writes the file's board
- *     and hands it to scImportEntries, and the column "..." menu is the shared Fold only (the editor is step 4).
+ *     and hands it to scImportEntries, and the column "..." menu is given to the board (its items are check-schedule-board-editor.mjs, step 4).
  * The live part (drag, menus, the List agreeing, the member, the agent, the phone) is tools/check-schedule-board.mjs.
  * Usage: node modules/schedule/test/check-schedule-board-view.mjs. Exits 1 on any failure.
  */
@@ -76,7 +76,7 @@ await test('the page: the Board is a view, drawn by host.ui.board, a card is tex
   const cards = page.slice(page.indexOf('function boardCards'), page.indexOf('// What a card says inside'));
   assert.match(cards, /e\.kind === 'work'/, 'cards are work only');
   assert.match(page, /onAdd: \(columnId\) => openEditor\(null, \{ kind: 'work', column: columnId \}\)/, 'a "+" adds work in its column');
-  assert.doesNotMatch(page, /columnMenu:/, 'the column menu is the shared Fold only until step 4');
+  assert.match(page, /columnMenu,/, 'the column menu carries the module\'s items (the editor, step 4)');
 });
 await test('the page: the tick and the Done box go through scSetDone with the board; a move runs setColumn', () => {
   const tick = page.slice(page.indexOf('async function toggleDone'), page.indexOf('async function moveEntry'));

@@ -44,9 +44,23 @@
 
     <!-- Board: the work as cards in columns (host.ui.board) -->
     <section id="view-board" class="view" aria-label="Board" hidden>
+      <div class="board-bar" id="board-bar" hidden><button class="btn btn-quiet btn-small" type="button" id="col-add"><span class="ic" data-icon="plus"></span> Add a column</button></div>
       <div id="board"></div>
     </section>
   </main>
+
+  <!-- deleting a column: which column takes its work -->
+  <dialog id="col-delete" class="sdk-editor">
+    <form id="col-form" class="sdk-form" novalidate>
+      <h3 id="col-delete-title">Delete the column</h3>
+      <label class="sdk-field"><span class="sdk-label" id="col-to-label">Move its work to</span><select id="col-to" name="to"></select><span class="sdk-hint" id="col-to-hint"></span></label>
+      <div class="sdk-form-error" id="col-error" role="alert" hidden></div>
+      <div class="sdk-editor-actions">
+        <button class="btn btn-quiet" type="button" id="col-cancel">Cancel</button>
+        <button class="btn btn-danger" type="submit" id="col-go">Delete the column</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- an entry, in the editor window (host.ui.editor): a form for someone who may edit, read-only for anyone else -->
   <dialog id="editor" class="sdk-editor">

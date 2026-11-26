@@ -97,6 +97,8 @@ button.link-chip:hover { background: var(--fill-selected); }
 
 /* ---- the Board: host.ui.board draws the columns; this is what a card says inside ---- */
 #view-board { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding: var(--mf-inset); }
+.board-bar { display: flex; justify-content: flex-end; padding-bottom: var(--space-2); }
+.app.narrow .board-bar .btn { --btn-h: 44px; }
 #board { flex: 1 1 auto; min-height: 0; }
 .bd { display: grid; gap: var(--space-1); min-width: 0; }
 .bd-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: var(--text-primary); font-size: var(--text-14); font-weight: var(--weight-strong); }
