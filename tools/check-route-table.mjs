@@ -35,6 +35,16 @@ function rowOf(e) {
 const show = (r) => `${r.kind === 'route' ? r.method : 'USE'} ${r.path}${r.name ? ` (${r.name})` : ''}${r.part ? ` [${r.part}]` : ''}`;
 const key = (r) => JSON.stringify([r.kind, r.method, r.path, r.name, r.part]);
 
+// Ends the child and resolves once the process has exited: SIGTERM, then SIGKILL if it has not gone in 10 seconds.
+function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const kill = setTimeout(() => child.kill('SIGKILL'), 10000);
+    child.once('exit', () => { clearTimeout(kill); resolve(); });
+    child.kill('SIGTERM');
+  });
+}
+
 async function walkServer() {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'check-route-table-'));
   const out = path.join(work, 'walk.json');
@@ -58,9 +68,12 @@ async function walkServer() {
     if (unknown.length) throw new Error(`The walk could not read the path of: ${unknown.map((u) => u.name).join(', ')}.`);
     return walk.map(rowOf);
   } finally {
+    // The server is still running here and may be writing into its data folder: stop it, wait for the process to be gone, and only
+    // then remove the folder. (Removing it under a live server failed once in CI with ENOTEMPTY.)
     child.removeAllListeners('exit');
-    child.kill('SIGTERM');
-    fs.rmSync(work, { recursive: true, force: true });
+    await stopChild(child);
+    // Only a backstop (a slow disk); the wait above is the fix.
+    fs.rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
