@@ -602,8 +602,10 @@
 
   // --- the Board ----------------------------------------------------------------------------------------------------------------
   // The work as cards in the board's columns (host.ui.board; plan-projects-kanban.md). A card is work only. Inside a column the
-  // order is not stored: the end day (none last), then the place in the outline. A move runs the setColumn handler of the actions
-  // library in the page (carried below), the same one the server runs for an agent, so both give the same writes and refusals.
+  // order is the work's `rank`, else the end day (none last), then the place in the outline (scCardOrder, schedule-lib.js, where how
+  // ranks are made and kept is written). A move, with where it landed (`before`), runs the setColumn handler of the actions library
+  // in the page (carried below), the same one the server runs for an agent, so both give the same writes and refusals. On the phone's
+  // stacked layout a card moves by its menu (Move up, Move down, Move to top, Move to bottom) and the keys, as on a wide one.
   let board = null;
   let boardOpts = null;
   let boardRowsBy = '';
@@ -682,14 +684,7 @@
     return true;
   }
   function boardCards(b, shown, rowOf) {
-    const order = new Map(scOrdered(list()).map((x, i) => [x.entry.id, i]));
-    const day = (e) => e.end || e.start || '';
-    return shown.slice().sort((x, y) => {
-      const a = day(x);
-      const c = day(y);
-      if (a !== c) return !a ? 1 : !c ? -1 : a < c ? -1 : 1;
-      return (order.get(x.id) || 0) - (order.get(y.id) || 0);
-    }).map((e) => ({ id: e.id, column: scColumnOf(e, b).id, title: e.title, row: rowOf.get(e.id) || '' }));
+    return shown.slice().sort(scCardOrder(list())).map((e) => ({ id: e.id, column: scColumnOf(e, b).id, title: e.title, row: rowOf.get(e.id) || '' }));
   }
   // What a card says inside, as plain text and spans: the title, the end day with "Late" and who is doing it, up to two tags, the
   // milestone it is under, and a "Waits on" mark when something it waits on is not done.
@@ -809,12 +804,20 @@
     if (!canEdit || !carried) return;
     if (locked(entry(m.id))) { sayLocked(); render(); return; }
     if (pulled(entry(m.id))) {
-      // Column and done go together (scSetColumn); GitHub takes the move first, and the card stays where it was if it does not.
-      await sendPulled(m.id, (e) => scSetColumn(e, m.column, currentBoard(), { label: (k) => kindWord(k) }).entry);
+      // Column and done go together (scSetColumn); GitHub takes the move first, and the card stays where it was if it does not. The
+      // rank is the space's own and goes with it; a move inside a column changes nothing on GitHub (the server sends only what GitHub holds).
+      const b = currentBoard();
+      const here = entry(m.id);
+      const moved = scSetColumn(here, m.column, b, { label: (k) => kindWord(k) });
+      if (!moved.entry) return;
+      const placed = scPlace(list(), moved.entry, moved.entry.column, b, m.before || '');
+      // The work above it that needs a rank goes first (the rank alone, so the column never shows the card half way), then the card.
+      for (const o of placed.others) await sendPulled(o.id, (e) => (e.rank === o.rank ? null : { ...e, rank: o.rank }));
+      await sendPulled(m.id, (e) => { const r = scSetColumn(e, m.column, b, { label: (k) => kindWord(k) }); return r.entry ? { ...r.entry, rank: placed.entry.rank } : null; });
       return;
     }
     const ask = ++boardAsk;
-    try { await carried.setColumn({ ref: pointer(m.id), column: m.column }, {}); } catch (err) {
+    try { await carried.setColumn({ ref: pointer(m.id), column: m.column, ...(m.before ? { before: m.before } : {}) }, {}); } catch (err) {
       say(err && err.message ? err.message : 'It could not be moved.', 'danger');
       if (ask === boardAsk) render();
     }

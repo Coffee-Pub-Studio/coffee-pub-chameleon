@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -178,11 +178,13 @@
         "effect": "write",
         "inputHints": {
           "ref": "The piece of work to move, as a pointer.",
-          "column": "A column id from the board, such as todo, doing or done."
+          "column": "A column id from the board, such as todo, doing or done.",
+          "before": "The id of the piece of work (its pointer's id) to put it in front of in that column; missing puts it at the end."
         },
         "input": {
           "ref": "ref:schedule:plan",
-          "column": "string"
+          "column": "string",
+          "before": "string?"
         }
       },
       {

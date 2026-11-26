@@ -200,7 +200,7 @@ test('the manifest declares both, as writes that name a plan entry', () => {
   assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', owners: 'text?', notes: 'text?' });
   assert.ok(['addMilestone', 'addWork', 'addNote'].every((n) => by[n]), 'the adds are still there');
   assert.equal(by.setColumn.effect, 'write');
-  assert.deepEqual(by.setColumn.input, { ref: 'ref:schedule:plan', column: 'string' });
+  assert.deepEqual(by.setColumn.input, { ref: 'ref:schedule:plan', column: 'string', before: 'string?' });
   assert.ok(!by.setColumn.takes || !by.setColumn.takes.length, 'it makes no object');
   assert.ok(by.setColumn.inputHints.column.includes('column id'));
   const cols = m.settings.find((s) => s.key === 'boardColumns');

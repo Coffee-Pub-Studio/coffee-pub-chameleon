@@ -123,7 +123,7 @@ function scClean(id, raw) {
     by: typeof v.by === 'string' ? v.by.slice(0, 200) : '',
     ref: scCleanRef(v.ref),
     source: scCleanSource(v.source),
-    rank: typeof v.rank === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.rank) ? v.rank : '', // the order inside a board column (kept as stored; nothing sorts by it yet)
+    rank: typeof v.rank === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.rank) ? v.rank : '', // the order inside a board column (kept as stored; the order of a column: scCardOrder)
   };
   if (kind === 'work' && typeof v.column === 'string' && SC_BOARD_ID.test(v.column)) e.column = v.column;
   if (kind === 'milestone' && e.ticked) e.done = true;
@@ -448,6 +448,97 @@ function scSetColumn(e, columnId, board, o) {
   const col = typeof columnId === 'string' ? board.columns.find((c) => c.id === columnId.trim()) : null;
   if (!col) return { entry: null, problem: `There is no column called ${scLine(typeof columnId === 'string' ? columnId : '', SC_COLUMN_LABEL_MAX) || 'that'}.` };
   return { entry: { ...e, column: col.id, done: Boolean(col.done) }, problem: '' };
+}
+// --- the order inside a column (plan-github-two-way.md, build order step 5) ---------------------------------------------------------
+// The space's own, never sent to GitHub: each piece of work may hold a `rank`, a short string of digits and letters that sorts as plain
+// text (0-9, then A-Z, then a-z), so a move between two cards writes one value.
+//  - Order in a column: ranked work first by rank (a tie by id), then work with no rank by the plan's order before ranks: the end day
+//    (none last), then its place in the outline. So work nobody has ordered (everything made before, and an issue on its first pull) keeps
+//    its old order, and sits below the ranked work, which is the bottom of its column.
+//  - A pull gives no rank: it writes none and keeps the one stored (server/issues.js), so a pull never reorders a column or writes for it.
+//  - A move puts a card between two (scRankBetween): a rank no longer than SC_RANK_SHORT. A card that has none, above where a card
+//    lands, is ranked first, in order, so ranked work always comes first. A column that has run out of room (ranks too long, or two the
+//    same) is spread again: every card in it gets an even three-or-four-digit rank (scSpreadRanks). Both are rare and are the only time
+//    a move writes more than the one card, and a write of rank alone changes nothing on GitHub.
+//  - Into another column: where it was dropped, else (the keyboard, the menu, the tick, setColumn without `before`) the bottom.
+const SC_RANK_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const SC_RANK_SHORT = 24;
+// A rank after `a` and before `b` ('' for no lower end, null for no upper end); never ends in the lowest digit, so there is always room.
+function scRankBetween(a, b) {
+  const lo = typeof a === 'string' ? a : '';
+  const hi = typeof b === 'string' && b ? b : null;
+  if (hi !== null && lo >= hi) return '';
+  let n = 0;
+  if (hi !== null) { while ((lo[n] || '0') === hi[n]) n += 1; if (n > 0) return hi.slice(0, n) + scRankBetween(lo.slice(n), hi.slice(n)); }
+  const da = lo ? SC_RANK_DIGITS.indexOf(lo[0]) : 0;
+  const db = hi !== null ? SC_RANK_DIGITS.indexOf(hi[0]) : SC_RANK_DIGITS.length;
+  if (da < 0 || db < 0) return '';
+  if (db - da > 1) return SC_RANK_DIGITS[Math.round((da + db) / 2)];
+  if (hi !== null && hi.length > 1) return hi.slice(0, 1);
+  return SC_RANK_DIGITS[da] + scRankBetween(lo.slice(1), null);
+}
+// n evenly spaced ranks, in order, none ending in the lowest digit.
+function scSpreadRanks(n) {
+  const out = [];
+  const base = SC_RANK_DIGITS.length;
+  let width = 3;
+  while (Math.pow(base, width) / (n + 1) < base && width < 6) width += 1;
+  const step = Math.floor(Math.pow(base, width) / (n + 1));
+  for (let i = 1; i <= n; i += 1) {
+    let v = i * step;
+    if (v % base === 0) v += 1;
+    let t = '';
+    for (let k = 0; k < width; k += 1) { t = SC_RANK_DIGITS[v % base] + t; v = Math.floor(v / base); }
+    out.push(t);
+  }
+  return out;
+}
+// The order of work in cards: the compare function of `entries` (ranked first, then the end day, then the outline), the same everywhere.
+function scCardOrder(entries) {
+  const place = new Map(scOrdered(entries).map((x, i) => [x.entry.id, i]));
+  const day = (e) => e.end || e.start || '';
+  return (x, y) => {
+    if (x.rank || y.rank) {
+      if (!x.rank) return 1;
+      if (!y.rank) return -1;
+      if (x.rank !== y.rank) return x.rank < y.rank ? -1 : 1;
+      return x.id < y.id ? -1 : x.id > y.id ? 1 : 0;
+    }
+    const a = day(x);
+    const c = day(y);
+    if (a !== c) return !a ? 1 : !c ? -1 : a < c ? -1 : 1;
+    return (place.get(x.id) || 0) - (place.get(y.id) || 0);
+  };
+}
+// Where work `e` (already set to column `columnId`) goes in that column: at the end, or in front of the work `beforeId`. Answers
+// { entry, others }: `e` with its rank, and the other work that needed one or a new one (written with it).
+function scPlace(entries, e, columnId, board, beforeId) {
+  const cmp = scCardOrder(entries);
+  const list = entries.filter((x) => x.kind === 'work' && x.id !== e.id && scColumnOf(x, board).id === columnId).sort(cmp);
+  const found = beforeId ? list.findIndex((x) => x.id === beforeId) : -1;
+  const at = found >= 0 ? found : list.length;
+  const before = list.slice(0, at);
+  const unranked = before.filter((x) => !x.rank);
+  const lower = before.filter((x) => x.rank).map((x) => x.rank).pop() || '';
+  const next = list[at];
+  const upper = !unranked.length && next && next.rank ? next.rank : null;
+  const ranks = [];
+  let last = lower;
+  for (let i = 0; i <= unranked.length; i += 1) {
+    const r = scRankBetween(last, upper);
+    if (!r || r.length > SC_RANK_SHORT || r <= last || (upper !== null && r >= upper)) { ranks.length = 0; break; }
+    ranks.push(r);
+    last = r;
+  }
+  if (ranks.length) {
+    const others = unranked.map((x, i) => ({ ...x, rank: ranks[i] }));
+    return { entry: { ...e, rank: ranks[unranked.length] }, others };
+  }
+  // No room: every card in the column is ranked again, evenly, with this one at its place.
+  const all = list.slice(0, at).concat([e], list.slice(at));
+  const spread = scSpreadRanks(all.length);
+  const out = all.map((x, i) => (x.rank === spread[i] ? x : { ...x, rank: spread[i] }));
+  return { entry: out[at], others: out.filter((x, i) => i !== at && x !== all[i]) };
 }
 const SC_KEEP_DONE = 'Keep at least one column that counts as done.';
 const SC_KEEP_OPEN = 'Keep at least one column that does not count as done.';

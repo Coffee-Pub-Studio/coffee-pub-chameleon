@@ -130,13 +130,13 @@ const rowsOn = (extra = {}, ws = {}) => ({ 'plan:ms': MS, 'plan:wk': { ...WK, ..
 await test('setColumn moves work, done follows the column, the same on the page and the server', async () => {
   const stages = world(rowsOn());
   const doing = await same('setColumn', { ref: ref('wk'), column: 'doing' }, stages);
-  assert.deepEqual(written(doing, 'plan:wk'), { ...WK, column: 'doing', done: false });
+  assert.deepEqual(written(doing, 'plan:wk'), { ...WK, column: 'doing', done: false, rank: 'V' });
   assert.deepEqual(written(doing, 'plan:ms'), { ...MS, progress: 0 }, 'the milestone\'s progress is settled in the same answer');
   const fin = await same('setColumn', { ref: ref('wk'), column: 'done' }, stages);
-  assert.deepEqual(written(fin, 'plan:wk'), { ...WK, column: 'done', done: true });
+  assert.deepEqual(written(fin, 'plan:wk'), { ...WK, column: 'done', done: true, rank: 'V' });
   assert.deepEqual(written(fin, 'plan:ms'), { ...MS, done: true, progress: 100 }, 'the milestone follows in the same answer');
   const back = await same('setColumn', { ref: ref('wk'), column: 'todo' }, world(rowsOn({ 'plan:ms': { ...MS, done: true, progress: 100 } }, { done: true, column: 'done' })));
-  assert.deepEqual(written(back, 'plan:wk'), { ...WK, column: 'todo', done: false });
+  assert.deepEqual(written(back, 'plan:wk'), { ...WK, column: 'todo', done: false, rank: 'V' });
   assert.deepEqual(written(back, 'plan:ms'), { ...MS, done: false, progress: 0 });
   await refuses('setColumn', { ref: ref('wk'), column: 'nowhere' }, stages, 'There is no column called nowhere.');
   await refuses('setColumn', { ref: ref('ms'), column: 'done' }, stages, 'Only work moves on the board.');
@@ -185,7 +185,7 @@ await test('setColumn is a library handler the manifest names', async () => {
   const fs = await import('node:fs');
   const manifest = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
   const a = manifest.actions.provides.find((x) => x.name === 'setColumn');
-  assert.deepEqual([a.effect, a.label, a.input], ['write', 'Move it on the plan\'s board', { ref: 'ref:schedule:plan', column: 'string' }]);
+  assert.deepEqual([a.effect, a.label, a.input], ['write', 'Move it on the plan\'s board', { ref: 'ref:schedule:plan', column: 'string', before: 'string?' }]);
   assert.ok(Object.keys(handlersOf('schedule')).includes('setColumn'));
 });
 
