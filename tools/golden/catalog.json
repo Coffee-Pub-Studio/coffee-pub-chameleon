@@ -796,7 +796,7 @@
     "module": "schedule",
     "action": "updateEntry",
     "label": "Change it on the plan",
-    "description": "Change a plan entry's title, day, start, end, who is doing it or notes; only the fields given change.",
+    "description": "Change a plan entry's title, day, start, end, who is doing it, fields or notes; only the fields given change.",
     "effect": "write",
     "input": {
       "ref": "ref:schedule:plan",
@@ -805,6 +805,7 @@
       "start": "date?",
       "end": "date?",
       "owners": "text?",
+      "fields": "text?",
       "notes": "text?"
     },
     "clears": [
@@ -812,6 +813,7 @@
       "start",
       "end",
       "owners",
+      "fields",
       "notes"
     ],
     "schema": {
@@ -862,6 +864,14 @@
           "maxLength": 8000,
           "description": "Send \"\" to clear it."
         },
+        "fields": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 8000,
+          "description": "Send \"\" to clear it."
+        },
         "notes": {
           "type": [
             "string",
@@ -878,6 +888,7 @@
         "start",
         "end",
         "owners",
+        "fields",
         "notes"
       ],
       "additionalProperties": false

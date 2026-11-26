@@ -76,7 +76,7 @@ await test('the page: the column menu, its right, the Add control, one write wit
   assert.match(menu, /if \(!canColumns\(\)\) return \[\]/, 'no items without the columns right');
   for (const w of ["'Rename'", "'Move left'", "'Move right'", "'Counts as done'", "'Delete'"]) assert.ok(menu.includes(w), w);
   assert.match(page, /const canColumns = \(\) => host\.can\('columns'\)/);
-  assert.match(page, /hide\(\$\('board-bar'\), !canColumns\(\)\)/, 'Add a column is hidden without the right');
+  assert.match(page, /hide\(\$\('col-add'\), !canColumns\(\)\)/, 'Add a column is hidden without the right');
   const change = page.slice(page.indexOf('async function changeColumns'), page.indexOf('const rollup ='));
   assert.ok(change.indexOf('writeBoard(scBoardValue(next))') < change.indexOf('await write(e,'), 'the board is written first, then the work');
   assert.match(change, /offerUndo\(plan, text\)/, 'Undo is offered');

@@ -11,6 +11,7 @@ anything is written; if the first problem is found, Import says it in one senten
 
 - `format` must be `"project-plan"`. `version` must be `1`. `entries` is a list of 1 to 500 entries.
 - `boards` is an optional list of at most 1 board (see "The board" below).
+- `fields` is an optional list of at most 8 fields, each with up to 30 choices (see "The fields" below).
 - `exportedAt` and `module` are written by Export and are not needed when you write a file.
 - A file is at most 1 MB. A plan holds at most 1000 entries, so Add refuses a file that would go past that.
 - Fields that are not listed here are ignored.
@@ -33,6 +34,7 @@ anything is written; if the first problem is found, Import says it in one senten
 | `phase` | no | a phase id of the template: lower case letters, digits and `-` |
 | `tags` | no | a list (up to 50) of tag ids from the plan's Tags setting |
 | `owners` | no | a list (up to 50) of people's keys. Leave it out unless the file was exported from this environment. |
+| `fields` | work | the work's choice in each field, written `{ "area": "core", "phase": "first" }`: the field's id, then the id of one of its choices. The field must be in the plan or in the file's `fields`. An empty text means no choice. Notes and milestones have none. |
 | `order`, `rank`, `by`, `ref`, `source`, `progress` | no | what Export writes so a file can be put back as it was. Leave them out when you write a file. |
 
 A note has no dates, no `waitsOn` and no `done`. A milestone has no `end`. When the plan's setting "Dates are needed" is on,
@@ -47,8 +49,21 @@ every milestone needs `start` and all work needs `start` and `end`.
 - `id` and each column's `id`: lower case letters, digits and `-`, starting with a letter, up to 41 characters; each used once. `field` is `"column"`.
 - 2 to 12 columns, each with a `label` of up to 40 characters. `done: true` marks a column whose work counts as done. At least one column
   counts as done and at least one does not.
-- `rowsBy` is `"milestone"` or `"owners"`, or left out. It is kept and not used yet.
+- `rowsBy` is `"milestone"`, `"owners"`, `"field:"` and a field's id (a row for each choice of that field), or left out.
 - Work with a `column` the board has takes that column's `done`. A file with no `boards` leaves the plan's board as it is.
+
+## The fields
+
+```
+"fields": [ { "id": "phase", "label": "Phase", "options": [ { "id": "first", "label": "First" }, { "id": "second", "label": "Second" } ] } ]
+```
+
+- A field is a short list of choices, such as Area, Release status or Phase. Work holds one choice from each field (the entry's `fields`).
+  They are the plan's own: a plan that follows an issue service never sends them to it.
+- `id` and each choice's `id`: lower case letters, digits and `-`, starting with a letter, up to 41 characters; each used once in its list.
+  `label`: up to 40 characters. At most 8 fields and 30 choices in a field. A field's place in the list is its place in the plan.
+- A file's fields are added to the plan's by id. A field the plan already has keeps its words and gains the choices it lacks.
+- Defining fields needs the right to change the board's columns and fields. A file with `fields` is refused for someone without it.
 
 ## Check a file before you import it
 
@@ -70,6 +85,7 @@ The schema cannot say these; only Check file and Import do:
 ## Add and Replace
 
 - **Add to the plan** gives every entry a new id and puts the entries after what is there. `parent` and `waitsOn` follow.
+- **Update by id** (see above) changes only what the file carries on the entries it names.
 - **Replace the plan** (needs the right to clear the plan) takes everything out and puts the file's entries in, keeping their
   ids and order. Undo is offered for 30 seconds, as it is for Clear.
 - Entries come in the order the file lists them; a `parent` may come before or after its children.
@@ -92,3 +108,26 @@ The schema cannot say these; only Check file and Import do:
   ]
 }
 ```
+
+## Update by id
+
+A third way to bring a file in, beside Add and Replace. It changes entries that are already in the plan, by `id`, and sets only what the
+space owns: `fields`, `start`, `end`, `owners` and `rank`. It never changes a title, a column, a note or anything a followed service owns:
+a file whose entry names one of those is refused. It is for filling in fields and days in bulk, in a plan that follows GitHub or not.
+
+```
+{
+  "format": "project-plan",
+  "version": 1,
+  "fields": [ { "id": "phase", "label": "Phase", "options": [ { "id": "first", "label": "First" } ] } ],
+  "entries": [
+    { "id": "gh-12", "fields": { "phase": "first" }, "start": "2026-12-01", "end": "2026-12-15" },
+    { "id": "gh-15", "fields": { "phase": "first" } }
+  ]
+}
+```
+
+- Each entry needs an `id`, the id of an entry in the plan (a followed issue is `gh-` and its number). An id the plan does not have is skipped.
+- `fields` sets those fields' choices and leaves the work's other fields as they are; an empty text clears one. `start` and `end` are days; an
+  empty or missing one changes nothing. `owners` replaces who is doing it. `rank` is the order in its column.
+- It needs the right to edit. Undo is offered for 30 seconds. **Check file** reads such a file too, and says how many entries it would change.

@@ -13952,6 +13952,11 @@ function ensureIssueTags(ctx, list) {
   return tagIds;
 }
 
+// The plan's Area field (`field:area`), for the Area a new piece of work takes from its title; null when there is none.
+function issueAreaField(ctx) {
+  try { const row = moduleData.get(ctx.manifest.id, ctx.scopeKey, 'field:area'); return row && row.value && typeof row.value === 'object' ? row.value : null; } catch (err) { return null; }
+}
+
 // The records of one pull written into the plan: the tags the labels need, one piece of work per issue (in place, under its
 // number), the milestones, and with `full` (every page read) whatever is no longer there removed. A record older than what is
 // stored (a pull begun before a write of ours) is not written over it. In a space that writes back, the space's own fields and
@@ -13965,6 +13970,7 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
   const known = new Map();
   for (const r of byNumber.values()) if (r.milestone) known.set(r.milestone.number, r.milestone);
   const at = { repo: rec.repo, provider: adapter.id, tagIds };
+  const area = rec.write ? issueAreaField(ctx) : null;
   let written = 0;
   let removed = 0;
   let error = '';
@@ -13975,7 +13981,7 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
     if (!stored.has(key)) size += 1;
     if (issuesLib.olderThanStored(stored.get(key), r)) continue;
     const work = issuesLib.workOf(r, at);
-    if (issueWrite(ctx, key, rec.write ? issuesLib.keepOwn(stored.get(key), work) : work, stored)) written += 1;
+    if (issueWrite(ctx, key, rec.write ? issuesLib.keepOwn(stored.get(key), work, { area }) : work, stored)) written += 1;
   }
   if (full) {
     for (const key of [...stored.keys()]) {
@@ -14125,7 +14131,7 @@ function issueStore(ctx, key, record, { by = '', given = null, rec, adapter, exp
   let value;
   if (record) {
     const tagIds = ensureIssueTags(sys, [record]);
-    value = issuesLib.keepOwn(had ? had.value : null, issuesLib.workOf(record, { repo: rec.repo, provider: adapter.id, tagIds }));
+    value = issuesLib.keepOwn(had ? had.value : null, issuesLib.workOf(record, { repo: rec.repo, provider: adapter.id, tagIds }), { area: issueAreaField(ctx) });
   } else value = { ...(had ? had.value : {}) };
   if (given) for (const k of issuesLib.OWN_FIELDS) { if (given[k] !== undefined) value[k] = given[k]; else delete value[k]; }
   if (by) value.by = by;
@@ -14150,13 +14156,17 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
   if (!adapter) return { status: 409, error: 'This server has no such service.' };
   const name = adapter.name;
   const fromService = { status: 403, error: issuesLib.SAY.fromGitHub(name) };
-  if (!ctx.perms[`module.${ctx.manifest.id}.write_out`]) return ctx.who && ctx.who.user && ctx.who.user.agent ? { status: 403, error: issuesLib.SAY.noWriteOut(name) } : fromService;
+  const mayWriteOut = Boolean(ctx.perms[`module.${ctx.manifest.id}.write_out`]);
+  const noRight = ctx.who && ctx.who.user && ctx.who.user.agent ? { status: 403, error: issuesLib.SAY.noWriteOut(name) } : fromService;
   const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
-  if (!had || !given || typeof given !== 'object' || Array.isArray(given)) return fromService;
-  if (expected !== null && expected !== had.version) return { status: 409, error: SOMEONE_CHANGED, current: had };
+  if (!had || !given || typeof given !== 'object' || Array.isArray(given)) return mayWriteOut ? fromService : noRight;
+  if (expected !== null && expected !== had.version) return mayWriteOut ? { status: 409, error: SOMEONE_CHANGED, current: had } : noRight;
   const d = issuesLib.diffWork(had.value, given);
-  if (d.foreign.length) return fromService;
   const sends = d.column !== null || d.title !== null || d.tags.add.length > 0 || d.tags.remove.length > 0;
+  // Only the space's own fields (the days, owners, order, the fields) change nothing on the service, so the right to change the
+  // service is not asked for them (plan-github-two-way.md: setting a field needs `edit` only).
+  if (!mayWriteOut && !(d.own && !sends && !d.foreign.length)) return noRight;
+  if (d.foreign.length) return fromService;
   if (!sends && !d.own) return { item: had };
   if (sends) {
     if (!issueCanWrite(adapter) || !issueMayWrite(rec.repo)) return { status: 403, error: issuesLib.SAY.noWrite(name) };

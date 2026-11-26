@@ -197,15 +197,17 @@ test('the manifest', () => {
   assert.deepEqual(manifest.permissions.map((p) => [p.key, p.label, p.default.member, p.default.guest, p.default.moderator]), [
     ['view', 'See the plan', true, true, true],
     ['edit', 'Add and change the plan', true, false, true],
-    ['columns', "Change the board's columns", false, false, true],
+    ['columns', "Change the board's columns and fields", false, false, true],
     ['write_out', 'Change it on GitHub', false, false, true],
     ['clear', 'Clear the whole plan', false, false, true],
   ]);
   assert.deepEqual(manifest.access, { read: 'view', write: 'edit' });
   assert.equal(manifest.guards.clear, 'clear');
-  assert.equal(manifest.guards.keys.length, 1, 'one rule: the board');
+  assert.equal(manifest.guards.keys.length, 2, 'two rules: the board and the fields');
   assert.equal(manifest.guards.keys[0].key, 'board:{id}');
   assert.equal(manifest.guards.keys[0].need, 'columns', 'a board is written only by whoever has the columns right');
+  assert.equal(manifest.guards.keys[1].key, 'field:{id}');
+  assert.equal(manifest.guards.keys[1].need, 'columns', 'a field is defined only by whoever has the columns right');
   assert.equal(manifest.uploads, undefined, 'no uploads');
   assert.equal(manifest.starter, true);
   assert.deepEqual(Object.keys(manifest.labels), ['plan', 'milestone', 'work', 'note', 'owner', 'tag', 'board-inbox', 'board-now', 'board-next', 'board-later', 'board-done', 'board-todo', 'board-doing']);

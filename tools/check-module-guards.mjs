@@ -98,7 +98,7 @@ await test('manifest: every bundled module reads, guards and all; Polls, Budget,
     if (['polls', 'budget', 'research'].includes(id)) assert.ok(m.guards && m.guards.clear && m.guards.keys.length, `${id} has guards with keys`);
     else if (id === 'schedule') {
       assert.equal(m.guards.clear, 'clear');
-      assert.deepEqual(m.guards.keys.map((r) => [r.key, r.need]), [['board:{id}', 'columns']], 'schedule guards its Clear, and a board by the columns right');
+      assert.deepEqual(m.guards.keys.map((r) => [r.key, r.need]), [['board:{id}', 'columns'], ['field:{id}', 'columns']], 'schedule guards its Clear, and a board and its fields by the columns right');
       assert.deepEqual([m.guards.hidden, m.guards.exclusive, m.guards.only], [[], null, false]);
     }
     else if (id === 'goals') assert.deepEqual(m.guards, { clear: 'clear', hidden: [], keys: [], exclusive: null, only: false }, 'goals guards its Clear only');
@@ -532,6 +532,18 @@ try {
     }
     assert.equal((await call('PUT', at('board:main'), { value: { ...board, name: 'Again' } }, 'sam')).status, 403, 'a member without it again');
     assert.equal((await call('PUT', at('Board:x'), { value: {} }, 'sam')).status, 400, 'a key that looks like the board\'s is not stored');
+    // A field (step 6 of two-way sync) is defined by the columns right too, and a choice on work is the plan's: edit is enough.
+    const phase = { id: 'phase', label: 'Phase', order: 0, options: [{ id: 'first', label: 'First' }, { id: 'second', label: 'Second' }] };
+    const fieldRefused = await call('PUT', at('field:phase'), { value: phase }, 'sam');
+    assert.deepEqual([fieldRefused.status, fieldRefused.json.error], [403, 'Your role can\'t do that in this module.'], 'a member defining a field');
+    assert.equal((await call('PUT', at('field:phase'), { value: { ...phase, options: 'none' } })).status, 400, 'options that are not a list');
+    assert.equal((await call('PUT', at('field:phase'), { value: { ...phase, options: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] } })).status, 400, 'a choice id twice');
+    assert.equal((await call('PUT', at('field:phase'), { value: { ...phase, label: 'x'.repeat(41) } })).status, 400, 'a label over 40 characters');
+    assert.equal((await call('PUT', at('field:phase'), { value: phase })).status, 200, 'the owner defines it');
+    assert.equal((await call('PUT', at('plan:k1'), { value: { ...plan, fields: { phase: 'first' } } }, 'sam')).status, 200, 'a member sets a choice on work');
+    assert.equal((await call('DELETE', at('field:phase'), undefined, 'sam')).status, 403, 'a member deleting the field');
+    assert.equal((await call('DELETE', at('field:phase'))).status, 200, 'the owner deleting it');
+    assert.equal((await call('PUT', at('Field:x'), { value: {} }, 'sam')).status, 400, 'a key that looks like a field\'s is not stored');
   });
 
   await test('live: a cost\'s amounts are checked (PB-02)', async () => {

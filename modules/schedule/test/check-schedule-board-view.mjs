@@ -90,7 +90,7 @@ await test('the page: the tick and the Done box go through scSetDone with the bo
 await test('the page: Import stores the file\'s board first and gives it to scImportEntries; Export carries the board', () => {
   assert.match(page, /parsed\.boards && parsed\.boards\[0\]/);
   assert.match(page, /board: newBoard \|\| currentBoard\(\)/);
-  assert.match(page, /scExportFile\(list\(\), \{ module: info\.module\.id, boards: \[currentBoard\(\)\] \}\)/);
+  assert.match(page, /scExportFile\(list\(\), \{ module: info\.module\.id, boards: \[currentBoard\(\)\], fields: state\.fields \}\)/);
   const apply = page.slice(page.indexOf('async function applyImport'), page.indexOf('function offerUndo'));
   assert.ok(apply.indexOf('writeBoard(scBoardValue(newBoard))') < apply.indexOf('await write(e,'), 'the board is written before any entry');
   assert.match(page, /plan\.board\.was/, 'Undo puts the board back too');

@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -46,7 +46,7 @@
     },
     {
       "key": "columns",
-      "label": "Change the board's columns",
+      "label": "Change the board's columns and fields",
       "default": {
         "member": false,
         "guest": false,
@@ -87,7 +87,17 @@
           "name": { "type": "string", "maxLength": 40 },
           "field": { "type": "string", "maxLength": 20 },
           "columns": { "type": "array", "of": "object", "required": true, "maxLength": 12, "unique": "id" },
-          "rowsBy": { "type": "string", "maxLength": 20 }
+          "rowsBy": { "type": "string", "maxLength": 48 }
+        }
+      },
+      {
+        "key": "field:{id}",
+        "need": "columns",
+        "fields": {
+          "id": { "type": "string", "required": true, "maxLength": 41 },
+          "label": { "type": "string", "required": true, "maxLength": 40 },
+          "options": { "type": "array", "of": "object", "maxLength": 30, "unique": "id" },
+          "order": { "type": "number", "min": 0, "max": 999 }
         }
       }
     ]
@@ -126,6 +136,7 @@
           "start": "First day, as YYYY-MM-DD; with only an end, it is a one-day span. The plan may need at least one day.",
           "end": "Last day, as YYYY-MM-DD, on or after the start.",
           "owners": "Who is doing it: keys or names as list_members shows them, separated by commas.",
+          "fields": "Choices from the plan's fields: name=choice, separated by semicolons, such as area=planner; phase=first.",
           "ref": "A pointer to something this entry is about.",
           "object": "A full description to add instead of the flat fields; its own days and words are used.",
           "notes": "The notes. Line breaks are allowed."
@@ -135,6 +146,7 @@
           "start": "date?",
           "end": "date?",
           "owners": "text?",
+          "fields": "text?",
           "notes": "text?",
           "ref": "ref?",
           "object": "object?"
@@ -190,15 +202,16 @@
       {
         "name": "updateEntry",
         "label": "Change it on the plan",
-        "description": "Change a plan entry's title, day, start, end, who is doing it or notes; only the fields given change.",
+        "description": "Change a plan entry's title, day, start, end, who is doing it, fields or notes; only the fields given change.",
         "effect": "write",
-        "clears": ["date", "start", "end", "owners", "notes"],
+        "clears": ["date", "start", "end", "owners", "fields", "notes"],
         "inputHints": {
           "ref": "The plan entry to change, as a pointer.",
           "date": "A milestone's day, as YYYY-MM-DD; empty clears it.",
           "start": "Work's first day, as YYYY-MM-DD; empty clears it.",
           "end": "Work's last day, as YYYY-MM-DD, on or after the start; empty clears it.",
           "owners": "Work only. Replaces who is doing it: keys or names as list_members shows them, separated by commas; empty clears.",
+          "fields": "Work only. Choices from the plan's fields: name=choice, separated by semicolons. Only those named change; name= clears one; empty clears all.",
           "notes": "The notes, which replace the old ones. Line breaks are allowed; empty clears them."
         },
         "input": {
@@ -208,6 +221,7 @@
           "start": "date?",
           "end": "date?",
           "owners": "text?",
+          "fields": "text?",
           "notes": "text?"
         }
       },

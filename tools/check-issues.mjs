@@ -359,6 +359,17 @@ await test('the pull keeps the space\'s own fields, and never writes older data 
   const fresh = { kind: 'work', title: 'New', start: '2026-10-01', end: '2026-10-01', by: 'system:issues', column: 'now', source: { updated: '2026-11-03T00:00:00.000Z' } };
   assert.deepEqual(I.keepOwn(stored, fresh), { ...fresh, owners: ['k1'], rank: 'm', fields: { phase: 'a' }, start: '2026-10-02', end: '2026-10-09', by: 'k9' });
   assert.equal(I.keepOwn(undefined, { ...fresh, end: '2026-10-05' }).end, '2026-10-01', 'new work: made and ended the day it was made');
+  // Area comes once from the title's words before the colon, when new work is made and the plan has an Area field with that choice.
+  const area = { id: 'area', options: [{ id: 'to-do', label: 'To-do' }, { id: 'server', label: 'Server' }] };
+  assert.equal(I.areaOf('Server: it breaks', area), 'server');
+  assert.equal(I.areaOf('to-do: a thing', area), 'to-do', 'by id or by words, any case');
+  assert.equal(I.areaOf('Chat: nope', area), '', 'no such choice');
+  assert.equal(I.areaOf('No colon here', area), '');
+  assert.equal(I.areaOf(': leading', area), '');
+  assert.equal(I.areaOf('Server: x', null), '', 'no Area field');
+  assert.deepEqual(I.keepOwn(undefined, { ...fresh, title: 'Server: x' }, { area }).fields, { area: 'server' });
+  assert.equal(I.keepOwn(undefined, { ...fresh, title: 'Chat: x' }, { area }).fields, undefined);
+  assert.deepEqual(I.keepOwn({ ...stored, fields: undefined }, { ...fresh, title: 'Server: x' }, { area }).fields, undefined, 'work already there keeps its own: Area is not set again');
   assert.equal(I.olderThanStored(stored, { updated: '2026-11-01T00:00:00.000Z' }), true);
   assert.equal(I.olderThanStored(stored, { updated: '2026-11-02T00:00:00.000Z' }), false);
   assert.equal(I.olderThanStored(undefined, { updated: '2026-11-01T00:00:00.000Z' }), false);
@@ -443,7 +454,7 @@ await test('the gate is read from the code, and each part of it matters', () => 
       // Writing back: nothing goes out unless the space has it on, the server names the repository, the person holds write_out,
       // the field is one that may go, and the service is read first.
       /if \(pull && pull\.on && pull\.write\) \{\n      const out = await issueWriteThrough\(/.test(routeOf(text, "app.put('/api/modules/:id/data/:key'")),
-      /\.write_out`\]\) return ctx\.who && ctx\.who\.user && ctx\.who\.user\.agent \? \{ status: 403, error: issuesLib\.SAY\.noWriteOut\(name\) \} : fromService;/.test(fnOf(text, 'async function issueWriteThrough(')),
+      /if \(!mayWriteOut && !\(d\.own && !sends && !d\.foreign\.length\)\) return noRight;/.test(fnOf(text, 'async function issueWriteThrough(')) && /const mayWriteOut = Boolean\(ctx\.perms\[`module\.\$\{ctx\.manifest\.id\}\.write_out`\]\);/.test(fnOf(text, 'async function issueWriteThrough(')),
       /if \(d\.foreign\.length\) return fromService;/.test(fnOf(text, 'async function issueWriteThrough(')),
       /if \(!issueCanWrite\(adapter\) \|\| !issueMayWrite\(rec\.repo\)\) return \{ status: 403/.test(fnOf(text, 'async function issueWriteThrough(')),
       /const read = await issueRead\(rec, adapter, number\);/.test(fnOf(text, 'async function issueWriteThrough(')),
@@ -473,7 +484,8 @@ await test('the gate is read from the code, and each part of it matters', () => 
     ['the refusal of a delete', null, (t) => t.replace('const pulled = d.pulledRefusal(ctx, key);\n    if (pulled) return pulled;', '')],
     ['the refusal of a Clear', (t) => t.replace('const pulled = pulledRefusal(ctx, null);', 'const pulled = null;')],
     ['the write-through for a space that writes', (t) => t.replace('if (pull && pull.on && pull.write) {\n      const out = await issueWriteThrough(', 'if (false) {\n      const out = await issueWriteThrough(')],
-    ['write_out', inPull((t) => t.replace('.write_out`]) return ctx.who &&', '.write_out`] === 1) return ctx.who &&'))],
+    ['write_out', inPull((t) => t.replace('if (!mayWriteOut && !(d.own && !sends && !d.foreign.length)) return noRight;', ''))],
+    ['write_out, for more than the space\'s own', inPull((t) => t.replace('if (!mayWriteOut && !(d.own && !sends && !d.foreign.length)) return noRight;', 'if (!mayWriteOut && !d.own) return noRight;'))],
     ['the agent\'s one write', (t) => t.replace('if (via.other.length || e.links.length', 'if (false && (via.other.length || e.links.length').replace('|| e.phaseEnd) return end(422', '|| e.phaseEnd)) return end(422')],
     ['the agent\'s write-through', (t) => t.replace('const out = await issueWriteThrough(ctx, via.first.key, via.first.value, { expected: versions.get(via.first.key) || 0 });', 'const out = { item: null };')],
     ['the agent\'s undo through the service', (t) => t.replace('const out = await issueWriteThrough(at.ctx, c.object.key, back, { expected: c.versionAfter });', 'const out = {};')],
@@ -1155,6 +1167,61 @@ await live('an agent: Undo is another write that obeys the same rule', async () 
   assert.deepEqual([off.status, off.json.error], [403, FROM_GITHUB]);
   assert.deepEqual(mutations(at), []);
   ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: true } }), 'writing on again');
+});
+
+await live('the roadmap fields: defining one and setting a choice make no request to GitHub; Area comes once from the title', async () => {
+  const at = gh.seen.length;
+  const AREA = { id: 'area', label: 'Area', order: 0, options: [{ id: 'server', label: 'Server' }, { id: 'chat', label: 'Chat' }, { id: 'to-do', label: 'To-do' }] };
+  const PHASE = { id: 'phase', label: 'Phase', order: 1, options: [{ id: 'first', label: 'First' }, { id: 'second', label: 'After first release (Thomas, 2026-11-15)' }] };
+  // Defining a field is the space's own record: not a key the pull holds, so it is allowed in a followed plan and needs `columns`.
+  assert.equal((await putKey(S.bugs, 'field:area', AREA, S.mia)).status, 403, 'a member does not have the columns right');
+  ok(await putKey(S.bugs, 'field:area', AREA, S.mod), 'a moderator defines Area');
+  ok(await putKey(S.bugs, 'field:phase', PHASE, S.admin), 'the owner defines Phase');
+  assert.equal((await putKey(S.bugs, 'field:Bad Id', AREA, S.admin)).status >= 400, true, 'a key that is not a field id is refused');
+  assert.equal((await putKey(S.bugs, 'field:big', { ...AREA, id: 'big', label: 'x'.repeat(41) }, S.admin)).status, 400, 'a label over 40 characters');
+  assert.equal(gh.seen.length, at, 'defining fields sent nothing');
+  const had = await plan(S.bugs);
+  assert.ok(had['field:area'] && had['field:phase'], 'both are stored beside the plan');
+  // A choice on pulled work: the right to edit is enough (a member without write_out), and nothing goes to GitHub.
+  const set = ok(await edit('plan:gh-11', { fields: { area: 'chat', phase: 'first' } }, S.mia), 'a member sets the choices');
+  assert.deepEqual(set.json.item.value.fields, { area: 'chat', phase: 'first' });
+  assert.equal(gh.seen.length, at, 'a field edit made no request of any kind');
+  const mixed = await edit('plan:gh-11', { title: 'mine', fields: { area: 'server' } }, S.mia);
+  assert.deepEqual([mixed.status, mixed.json.error], [403, FROM_GITHUB], 'a title still needs write_out');
+  assert.equal((await edit('plan:gh-11', { column: 'now' }, S.mia)).status, 403, 'and so does a move');
+  assert.deepEqual((await plan(S.bugs))['plan:gh-11'].value.fields, { area: 'chat', phase: 'first' }, 'the refused change did not touch the choices');
+  assert.equal(gh.seen.length, at, 'still no request');
+  const clear = ok(await edit('plan:gh-11', { fields: undefined }, S.mod), 'the moderator clears them');
+  assert.equal('fields' in clear.json.item.value, false);
+  ok(await edit('plan:gh-11', { fields: { phase: 'second' } }, S.mod), 'and sets one');
+  assert.equal(gh.seen.length, at, 'a moderator\'s field edit made no request either');
+  // An agent: updateEntry takes `fields` and sends nothing (its write_out is not needed for them).
+  const a = ok(await ask('updateEntry', { ref: refOf(11), fields: 'area=to-do; phase=First' }), 'the agent sets them by name');
+  assert.equal(a.json.ok, true);
+  assert.deepEqual((await plan(S.bugs))['plan:gh-11'].value.fields, { area: 'to-do', phase: 'first' });
+  assert.equal(gh.seen.length, at, 'the agent\'s field edit made no request of any kind');
+  const bad = await ask('updateEntry', { ref: refOf(11), fields: 'area=nowhere' });
+  assert.equal(bad.status, 422);
+  assert.match(bad.json.error, /Area has no choice called nowhere\. Its choices are server, chat, to-do\./);
+  assert.equal(gh.seen.length, at);
+  // New work takes its Area from the title, once; after that Area is the space's own and a pull keeps it.
+  gh.issue(30, { title: 'Server: thirty', labels: [] });
+  gh.issue(31, { title: 'to-do: thirty-one', labels: [] });
+  gh.issue(32, { title: 'Nothing like an area here', labels: [] });
+  gh.issue(33, { title: 'Elsewhere: thirty-three', labels: [] });
+  ok(await pullNow(S.bugs), 'a pull');
+  let p = await plan(S.bugs);
+  assert.deepEqual([30, 31, 32, 33].map((n) => p[`plan:gh-${n}`].value.fields), [{ area: 'server' }, { area: 'to-do' }, undefined, undefined], 'Area from the words before the colon, by id or name, none when it names no choice');
+  ok(await edit('plan:gh-30', { fields: { area: 'chat', phase: 'second' } }, S.mod), 'then it is the space\'s own');
+  gh.issue(30, { title: 'Server: thirty, retitled on GitHub' });
+  ok(await pullNow(S.bugs), 'a pull');
+  p = await plan(S.bugs);
+  assert.deepEqual([p['plan:gh-30'].value.title, p['plan:gh-30'].value.fields], ['Server: thirty, retitled on GitHub', { area: 'chat', phase: 'second' }], 'the pull keeps the choices and the title is GitHub\'s');
+  assert.ok(p['field:area'] && p['field:phase'], 'a pull never removes a field');
+  const full = gh.seen.length;
+  // Nothing about a field was ever sent: every request since the start of this test was a read of issues or labels.
+  assert.ok(gh.seen.slice(at, full).every((x) => x.method === 'GET'), 'only reads, for the pulls');
+  assert.ok(gh.seen.slice(at, full).every((x) => !/field|area|phase/i.test(`${x.url} ${x.raw || ''}`)), 'no word of a field in any request');
 });
 
 await live('what GitHub was sent holds only what the plan allows, and no one\'s name', async () => {

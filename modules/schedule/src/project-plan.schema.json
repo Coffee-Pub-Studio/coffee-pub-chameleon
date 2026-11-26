@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Planner - Projects plan file",
-  "description": "A project plan file, as Export writes it and Import reads it (format \"project-plan\", version 1). This schema says what a JSON Schema can say. Import also checks what it cannot: a day must be a real day from 1900 to 2200 (2026-02-30 and 2300-01-01 match the pattern but are refused); work's end is not before its start; every `parent` and `waitsOn` names an `id` in the file, no entry is part of itself, `parent` is a milestone, `waitsOn` is a milestone or work, and nothing waits on itself in a loop; each `id` is used once; when the plan's \"Dates are needed\" setting is on, a milestone needs a `start` and work a `start` and an `end`; text lengths count after trimming. Use the Check file entry in the Export and import menu for those.",
+  "description": "A project plan file, as Export writes it and Import reads it (format \"project-plan\", version 1). This schema says what a JSON Schema can say. Import also checks what it cannot: a day must be a real day from 1900 to 2200 (2026-02-30 and 2300-01-01 match the pattern but are refused); work's end is not before its start; every `parent` and `waitsOn` names an `id` in the file, no entry is part of itself, `parent` is a milestone, `waitsOn` is a milestone or work, and nothing waits on itself in a loop; each `id` is used once; when the plan's \"Dates are needed\" setting is on, a milestone needs a `start` and work a `start` and an `end`; text lengths count after trimming. Use the Check file entry in the Export and import menu for those. A file for Update by id has entries that carry only an `id` and `fields`, `start`, `end`, `owners` or `rank` (the `updateEntry` definition).",
   "$comment": "The format is written out in FORMAT.md beside this file. Fields that are not listed are ignored by Import, so additionalProperties is left open.",
   "type": "object",
   "required": ["format", "version", "entries"],
@@ -14,14 +14,15 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 500,
-      "items": { "$ref": "#/$defs/entry" }
+      "items": { "if": { "required": ["kind"] }, "then": { "$ref": "#/$defs/entry" }, "else": { "$ref": "#/$defs/updateEntry" } }
     },
     "boards": {
       "type": ["array", "null"],
       "maxItems": 1,
       "items": { "$ref": "#/$defs/board" },
       "description": "The plan's board, as Export writes it. Optional; at most one for now."
-    }
+    },
+    "fields": {"type": ["array", "null"], "maxItems": 8, "items": {"$ref": "#/$defs/field"}, "description": "The plan's fields (Area, Phase and the like), as Export writes them. Optional; at most 8. A file's fields are added to the plan's by id."}
   },
   "$defs": {
     "day": { "type": ["string", "null"], "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$", "description": "YYYY-MM-DD, a real day from 1900 to 2200 (checked by Import, not by this pattern). Empty or null means no day." },
@@ -34,7 +35,7 @@
         "id": { "$ref": "#/$defs/columnId" },
         "name": { "type": ["string", "null"], "maxLength": 40 },
         "field": { "const": "column" },
-        "rowsBy": { "enum": ["milestone", "owners", null] },
+        "rowsBy": {"anyOf": [{"enum": ["milestone", "owners", null]}, {"type": "string", "pattern": "^field:[a-z][a-z0-9-]{0,40}$"}]},
         "columns": {
           "type": "array",
           "minItems": 2,
@@ -52,6 +53,8 @@
       },
       "description": "Needs at least one column that counts as done and one that does not, and each column id once (checked by Import, not by this schema)."
     },
+    "field": {"type": "object", "required": ["id", "label"], "properties": {"id": {"$ref": "#/$defs/columnId"}, "label": {"type": "string", "maxLength": 40, "pattern": "\\S"}, "options": {"type": ["array", "null"], "maxItems": 30, "items": {"type": "object", "required": ["id", "label"], "properties": {"id": {"$ref": "#/$defs/columnId"}, "label": {"type": "string", "maxLength": 40, "pattern": "\\S"}}}}}, "description": "A field: a short list of choices. Each id is used once in its list (checked by Import, not by this schema)."},
+    "updateEntry": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}, "fields": {"type": ["object", "null"], "additionalProperties": {"type": ["string", "null"], "pattern": "^([a-z][a-z0-9-]{0,40})?$"}, "description": "Work only: its choice in each field, { fieldId: choiceId }. The field and choice must be in the plan or in the file's `fields`."}, "start": {"$ref": "#/$defs/day"}, "end": {"$ref": "#/$defs/day"}, "owners": {"$ref": "#/$defs/idList"}, "rank": {"type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$", "description": "The order inside a board column."}}, "description": "An entry of a file for Update by id (an entry with no `kind`): the id of an entry in the plan and only what the space owns. Import refuses one that also names a title, a column or anything else the space does not own; a schema cannot say that."},
     "entry": {
       "type": "object",
       "required": ["kind", "title"],
@@ -73,6 +76,7 @@
         "order": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$" },
         "rank": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$", "description": "The order inside a board column, as Export writes it. Leave it out when you write a file." },
         "by": { "type": ["string", "null"] },
+        "fields": {"type": ["object", "null"], "additionalProperties": {"type": ["string", "null"], "pattern": "^([a-z][a-z0-9-]{0,40})?$"}, "description": "Work only: its choice in each field, { fieldId: choiceId }. The field and choice must be in the plan or in the file's `fields`."},
         "progress": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
         "source": {
           "type": ["object", "null"],
