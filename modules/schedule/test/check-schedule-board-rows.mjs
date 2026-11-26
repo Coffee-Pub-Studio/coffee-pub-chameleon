@@ -134,8 +134,8 @@ await test('the page: the Rows switch is the shared one, in the bar the columns 
   assert.match(html, /id="rows-switch"[^>]*role="radiogroup"/);
   assert.match(html, /class="mf-switch-btn"[^>]*data-rows="milestone"/);
   assert.match(html, /data-rows="owners"/);
-  assert.match(page, /hide\(\$\('board-bar'\), !canColumns\(\)\)/, 'the bar, and so the switch, is for the columns right');
-  assert.match(page, /async function setRows\(value\)\s*\{\s*if \(!canColumns\(\)\) return;/);
+  assert.match(page, /const rowsAsk = canColumns\(\) \|\| \(pullOn\(\) && canEdit\);\s*hide\(\$\('rows-wrap'\), !rowsAsk\)/, 'the switch is for the columns right (or, in a followed plan, this person\'s own rows)');
+  assert.match(page, /if \(!canColumns\(\) \|\| next === \(b\.rowsBy \|\| ''\)\) return;/, 'only the columns right writes the board');
   assert.match(page, /changeColumns\(board2, \[\], /, 'rows change through the column changes\' one write and Undo');
   assert.match(page, /rowsBy = next/);
   assert.match(page, /delete board2\.rowsBy/, 'None stores nothing');
@@ -145,7 +145,7 @@ await test('the page: rows and the words people read go to the board', () => {
   assert.match(page, /noRow: 'No one', otherRow: 'Change who is doing it in Edit\.'/);
   assert.match(page, /noRow: `No \$\{kindWord\('milestone'\)\}`, otherRow: `Change the \$\{kindWord\('milestone'\)\} in Edit\.`/);
   assert.match(page, /board\.set\(cards, columns, rows\)/);
-  assert.match(page, /boardRowsBy !== rowsBy\) \{ board\.destroy\(\)/, 'a change of rows draws the board again: its words are given when it is made');
+  assert.match(page, /boardRowsBy !== rowsKey\) \{ board\.destroy\(\)/, 'a change of rows draws the board again: its words are given when it is made');
   assert.doesNotMatch(page, /No milestone|Every milestone/, 'the level words go through labels');
 });
 await test('the page: the Filters groups, on the Board only, kept per person', () => {

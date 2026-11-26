@@ -22,15 +22,26 @@
 //   by       who added it
 //   ref      a pointer to the object it was made from, or absent
 //   column   work only: the id of its column on the board (see the board below), or absent
+//   fields   work only: { <fieldId>: <optionId> }, one choice from each field the work has set (see the fields below), or absent
 //
 // A board, stored under `board:<id>` (the first and only one is `main`): { id, name, field: 'column', columns: [{ id, label, done? }],
 // rowsBy? }. `done` stays stored as it always was and always equals the flag on the work's column (plan-projects-kanban.md).
+//
+// A field, stored under `field:<id>` (plan-github-two-way.md, "The roadmap fields in the space"): { id, label, options: [{ id, label }], order }.
+// One choice each, like a board's columns. The space's own: never sent to a service that follows the plan (Area, Release status, Phase).
 const SC_PREFIX = 'plan:';
 const SC_BOARD_PREFIX = 'board:';
+const SC_FIELD_PREFIX = 'field:';
+const SC_FIELDS_MAX = 8;
+const SC_FIELD_OPTIONS_MAX = 30;
+const SC_FIELD_LABEL_MAX = 40;
+const SC_ROWS_FIELD = /^field:[a-z][a-z0-9-]{0,40}$/;
 const SC_BOARD_ID = /^[a-z][a-z0-9-]{0,40}$/;
 const SC_COLUMN_LABEL_MAX = 40;
 const SC_COLUMNS_MAX = 12;
 const SC_ROWS_BY = ['milestone', 'owners'];
+// What a board's `rowsBy` may be: a word above, or `field:<id>` (a row for each choice of that field).
+const scRowsByOk = (v) => typeof v === 'string' && (SC_ROWS_BY.includes(v) || SC_ROWS_FIELD.test(v));
 // The template's default columns (the `boardColumns` setting). Only `done` carries the flag in either set.
 const SC_BOARD_SETS = Object.freeze({
   priority: Object.freeze([['inbox', 'Inbox'], ['now', 'Now'], ['next', 'Next'], ['later', 'Later'], ['done', 'Done', true]]),
@@ -92,6 +103,17 @@ const SC_PULLED_SAY = 'This comes from GitHub. Change it there.';
 // What a person is told on pulled work in a space that writes back, for what GitHub cannot delete or change from here.
 const SC_NO_DELETE_SAY = "GitHub issues can't be deleted from here. Close it, or delete it on GitHub.";
 
+// The choices a piece of work carries, as { fieldId: optionId }: ids only, at most SC_FIELDS_MAX, anything else dropped.
+function scCleanFieldValues(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const k of Object.keys(raw)) {
+    if (Object.keys(out).length >= SC_FIELDS_MAX) break;
+    if (SC_BOARD_ID.test(k) && typeof raw[k] === 'string' && SC_BOARD_ID.test(raw[k])) out[k] = raw[k];
+  }
+  return out;
+}
+
 // One entry as the page uses it, from whatever is stored (another version, a template's starter, a hand edit): never throws.
 function scClean(id, raw) {
   const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -124,6 +146,7 @@ function scClean(id, raw) {
     ref: scCleanRef(v.ref),
     source: scCleanSource(v.source),
     rank: typeof v.rank === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.rank) ? v.rank : '', // the order inside a board column (kept as stored; the order of a column: scCardOrder)
+    fields: kind === 'work' ? scCleanFieldValues(v.fields) : {}, // { fieldId: optionId }, kept as stored (a choice the field no longer has is simply not shown)
   };
   if (kind === 'work' && typeof v.column === 'string' && SC_BOARD_ID.test(v.column)) e.column = v.column;
   if (kind === 'milestone' && e.ticked) e.done = true;
@@ -151,6 +174,7 @@ function scValue(e) {
   if (e.source) out.source = { ...e.source };
   if (e.rank) out.rank = e.rank;
   if (e.kind === 'work' && e.column) out.column = e.column;
+  if (e.kind === 'work' && e.fields && Object.keys(e.fields).length) out.fields = { ...e.fields };
   return out;
 }
 
@@ -406,7 +430,7 @@ function scCleanBoard(id, raw) {
   }
   if (!columns.some((c) => c.done) || !columns.some((c) => !c.done)) return null;
   const board = { id: String(id), name: scLine(v.name, SC_COLUMN_LABEL_MAX) || 'Board', field: 'column', columns };
-  if (SC_ROWS_BY.includes(v.rowsBy)) board.rowsBy = v.rowsBy;
+  if (scRowsByOk(v.rowsBy)) board.rowsBy = v.rowsBy;
   return board;
 }
 // What is stored for a board: nothing empty.
@@ -621,6 +645,193 @@ function scMoveColumn(board, columnId, by) {
   return { board: { ...board, columns } };
 }
 
+// --- the fields (plan-github-two-way.md, "The roadmap fields in the space") -------------------------------------------------------
+// Area, Release status and Phase, or whatever a plan needs: each a `field:<id>` record with choices, and each piece of work holds one
+// choice per field in `fields`. The space's own, never sent anywhere: in a space that follows a service, a field is not a label.
+// Defining one needs the `columns` right (the server's guard on `field:`); setting a choice on work needs `edit`.
+
+// A field as stored, cleaned, or null when it can't be used. `order` places it among the fields.
+function scCleanField(id, raw) {
+  const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  if (!v || typeof id !== 'string' || !SC_BOARD_ID.test(id)) return null;
+  const label = scLine(v.label, SC_FIELD_LABEL_MAX);
+  if (!label) return null;
+  const seen = new Set();
+  const options = [];
+  for (const o of Array.isArray(v.options) ? v.options : []) {
+    if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !SC_BOARD_ID.test(o.id) || seen.has(o.id)) continue;
+    const text = scLine(o.label, SC_FIELD_LABEL_MAX);
+    if (!text || options.length >= SC_FIELD_OPTIONS_MAX) continue;
+    seen.add(o.id);
+    options.push({ id: o.id, label: text });
+  }
+  return { id, label, options, order: Number.isInteger(v.order) && v.order >= 0 && v.order < 1000 ? v.order : 0 };
+}
+// What is stored for a field.
+function scFieldValue(f) {
+  return { id: f.id, label: f.label, options: f.options.map((o) => ({ id: o.id, label: o.label })), order: f.order || 0 };
+}
+// The fields the space has, in order, from the rows under `field:` ([{ key, value }]).
+function scFieldsFrom(rows) {
+  const out = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || typeof r.key !== 'string' || !r.key.startsWith(SC_FIELD_PREFIX)) continue;
+    const f = scCleanField(r.key.slice(SC_FIELD_PREFIX.length), r.value);
+    if (f) out.push(f);
+  }
+  out.sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out.slice(0, SC_FIELDS_MAX);
+}
+// A fresh id from a name: lower case letters, digits and dashes, a number added when taken.
+function scSlug(label, taken) {
+  let base = scLine(label, SC_FIELD_LABEL_MAX).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!/^[a-z]/.test(base)) base = `f-${base}`.replace(/-$/, '');
+  base = base.slice(0, 36).replace(/-$/, '') || 'field';
+  let id = base;
+  for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
+  return id;
+}
+const scFieldName = (text) => {
+  const t = scLine(text, 10000);
+  if (!t) return { problem: 'Give it a name.' };
+  if ([...t].length > SC_FIELD_LABEL_MAX) return { problem: `A name is at most ${SC_FIELD_LABEL_MAX} characters.` };
+  return { text: t };
+};
+// The editing rules, on a list of fields; each answers { fields, ... } or { problem }. Values on work are not touched here: the page
+// writes the work these changes leave with a choice that is gone (scFieldsRewrite).
+function scAddField(fields, label) {
+  const n = scFieldName(label);
+  if (n.problem) return n;
+  if (fields.length >= SC_FIELDS_MAX) return { problem: `A plan has at most ${SC_FIELDS_MAX} fields.` };
+  const field = { id: scSlug(n.text, new Set(fields.map((f) => f.id))), label: n.text, options: [], order: fields.length };
+  return { fields: [...fields, field], field };
+}
+function scRenameField(fields, id, label) {
+  if (!fields.some((f) => f.id === id)) return { problem: 'That field is not there.' };
+  const n = scFieldName(label);
+  if (n.problem) return n;
+  return { fields: fields.map((f) => (f.id === id ? { ...f, label: n.text } : f)) };
+}
+function scDeleteField(fields, id) {
+  if (!fields.some((f) => f.id === id)) return { problem: 'That field is not there.' };
+  return { fields: fields.filter((f) => f.id !== id).map((f, i) => ({ ...f, order: i })) };
+}
+function scMoveField(fields, id, by) {
+  const from = fields.findIndex((f) => f.id === id);
+  if (from < 0) return { problem: 'That field is not there.' };
+  const to = from + (by < 0 ? -1 : 1);
+  if (to < 0 || to >= fields.length) return { fields };
+  const list = fields.slice();
+  [list[from], list[to]] = [list[to], list[from]];
+  return { fields: list.map((f, i) => ({ ...f, order: i })) };
+}
+function scAddOption(fields, id, label) {
+  const f = fields.find((x) => x.id === id);
+  if (!f) return { problem: 'That field is not there.' };
+  const n = scFieldName(label);
+  if (n.problem) return n;
+  if (f.options.length >= SC_FIELD_OPTIONS_MAX) return { problem: `A field has at most ${SC_FIELD_OPTIONS_MAX} choices.` };
+  const option = { id: scSlug(n.text, new Set(f.options.map((o) => o.id))), label: n.text };
+  return { fields: fields.map((x) => (x.id === id ? { ...x, options: [...x.options, option] } : x)), option };
+}
+function scRenameOption(fields, id, optionId, label) {
+  const f = fields.find((x) => x.id === id);
+  if (!f || !f.options.some((o) => o.id === optionId)) return { problem: 'That choice is not there.' };
+  const n = scFieldName(label);
+  if (n.problem) return n;
+  return { fields: fields.map((x) => (x.id === id ? { ...x, options: x.options.map((o) => (o.id === optionId ? { ...o, label: n.text } : o)) } : x)) };
+}
+function scDeleteOption(fields, id, optionId) {
+  const f = fields.find((x) => x.id === id);
+  if (!f || !f.options.some((o) => o.id === optionId)) return { problem: 'That choice is not there.' };
+  return { fields: fields.map((x) => (x.id === id ? { ...x, options: x.options.filter((o) => o.id !== optionId) } : x)) };
+}
+function scMoveOption(fields, id, optionId, by) {
+  const f = fields.find((x) => x.id === id);
+  const from = f ? f.options.findIndex((o) => o.id === optionId) : -1;
+  if (from < 0) return { problem: 'That choice is not there.' };
+  const to = from + (by < 0 ? -1 : 1);
+  if (to < 0 || to >= f.options.length) return { fields };
+  const options = f.options.slice();
+  [options[from], options[to]] = [options[to], options[from]];
+  return { fields: fields.map((x) => (x.id === id ? { ...x, options } : x)) };
+}
+// What changes in the store when the fields go from `was` to `now`: { write: [fields to store], remove: [ids to delete] }. Every
+// field is written with its place (`order`), so the order is whatever `now` lists.
+function scFieldsDiff(was, now) {
+  const placed = now.map((f, i) => ({ ...f, order: i }));
+  const old = new Map(was.map((f) => [f.id, scFieldValue(f)]));
+  const write = placed.filter((f) => JSON.stringify(old.get(f.id) || null) !== JSON.stringify(scFieldValue(f)));
+  const remove = was.filter((f) => !now.some((x) => x.id === f.id)).map((f) => f.id);
+  return { write, remove };
+}
+// The work that has to change because a choice or a whole field is gone from `now` (it was in `was`): the work with that value
+// taken off, as it would be saved. A value for a field `was` never had is left as it is.
+function scFieldsRewrite(entries, was, now) {
+  const out = [];
+  for (const e of entries) {
+    if (e.kind !== 'work' || !e.fields) continue;
+    let next = null;
+    for (const [fid, oid] of Object.entries(e.fields)) {
+      const before = was.find((f) => f.id === fid);
+      if (!before) continue;
+      const after = now.find((f) => f.id === fid);
+      if (after && after.options.some((o) => o.id === oid)) continue;
+      next = next || { ...e, fields: { ...e.fields } };
+      delete next.fields[fid];
+    }
+    if (next) out.push(next);
+  }
+  return out;
+}
+// The choice of a field a person or an agent names: by id or by its words, ignoring case. null when there is none.
+function scFieldOf(fields, name) {
+  const key = scKey(name);
+  return key ? fields.find((f) => f.id === key || scKey(f.label) === key) || null : null;
+}
+function scOptionOf(field, name) {
+  const key = scKey(name);
+  return key ? field.options.find((o) => o.id === key || scKey(o.label) === key) || null : null;
+}
+// What a `fields` input says, as text: "area=core; phase=first" (separated by semicolons or line breaks, so a choice with a comma in
+// its name is fine). `field=` clears that field; an empty input clears every field. Answers { values: { fieldId: optionId | '' }, all } or { problem }.
+function scFieldsParse(text, defs) {
+  const fields = Array.isArray(defs) ? defs : [];
+  if (typeof text !== 'string') return { problem: 'The fields must be text, such as area=core; phase=first.' };
+  const parts = text.split(/[;\n]/).map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return { values: {}, all: true };
+  const values = {};
+  for (const part of parts) {
+    const at = part.indexOf('=');
+    if (at < 1) return { problem: `Write each field as name=choice, such as area=core. "${scLine(part, 40)}" is not.` };
+    const f = scFieldOf(fields, part.slice(0, at));
+    if (!f) return { problem: `There is no field called ${scLine(part.slice(0, at), 40)}.${fields.length ? ` The fields are ${fields.map((x) => x.id).join(', ')}.` : ' This plan has no fields yet.'}` };
+    const raw = part.slice(at + 1).trim();
+    if (!raw) { values[f.id] = ''; continue; }
+    const o = scOptionOf(f, raw);
+    if (!o) return { problem: `${f.label} has no choice called ${scLine(raw, 40)}.${f.options.length ? ` Its choices are ${f.options.map((x) => x.id).join(', ')}.` : ''}` };
+    values[f.id] = o.id;
+  }
+  return { values, all: false };
+}
+// The work's choices with `parsed` (scFieldsParse's answer) applied.
+function scFieldsApplied(current, parsed) {
+  if (parsed.all) return {};
+  const out = { ...(current || {}) };
+  for (const [k, v] of Object.entries(parsed.values)) { if (v) out[k] = v; else delete out[k]; }
+  return out;
+}
+// What a person reads for each field the work has a choice in: [{ id, field, label }] in the fields' order, only choices the field still has.
+function scFieldWords(e, fields) {
+  const out = [];
+  for (const f of fields) {
+    const oid = e && e.fields ? e.fields[f.id] : '';
+    const o = oid ? f.options.find((x) => x.id === oid) : null;
+    if (o) out.push({ id: f.id, field: f.label, label: o.label });
+  }
+  return out;
+}
+
 // --- the actions on an entry that is there (setDone, updateEntry) ------------------------------------------------------------------
 // Each answers { entry, problem }: the entry as it would be saved (from the one stored, `e`, as scClean made it), or the one plain
 // sentence it is refused with. Nothing is saved here. They check what the editor and the done tick check (scProblem and the
@@ -644,7 +855,7 @@ function scSetDone(e, done, o) {
   return { entry: next, problem: '' };
 }
 
-// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes }. A day written ''
+// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes, owners, fields }. A day written ''
 // clears it. The editor's sentences are used where it has them: a day outside 1900 to 2200, an end before its start, a title, and the
 // plan's "dates are needed". Text is cut to nothing, never silently shortened: past its length after trimming, it is refused.
 function scUpdate(e, input, o) {
@@ -653,7 +864,7 @@ function scUpdate(e, input, o) {
   const no = (problem) => ({ entry: null, problem });
   if (!e) return no('That is not there.');
   const given = (k) => i[k] !== undefined && i[k] !== null;
-  const fields = ['title', 'date', 'start', 'end', 'notes', 'owners'].filter(given);
+  const fields = ['title', 'date', 'start', 'end', 'notes', 'owners', 'fields'].filter(given);
   if (!fields.length) return no('Say what to change: a title, a day, notes.');
   for (const k of ['title', 'date', 'start', 'end', 'notes']) if (given(k) && typeof i[k] !== 'string') return no(`The ${k} must be text.`);
   let owners = null;
@@ -662,6 +873,13 @@ function scUpdate(e, input, o) {
     const r = scOwnersFor(i.owners, o && o.people, o);
     if (r.problem) return no(r.problem);
     owners = r.owners;
+  }
+  let choices = null;
+  if (given('fields')) {
+    if (e.kind !== 'work') return no(`A ${label(e.kind)} has no fields.`);
+    const r = scFieldsParse(i.fields, o && o.fieldDefs);
+    if (r.problem) return no(r.problem);
+    choices = scFieldsApplied(e.fields, r);
   }
   if (e.kind === 'note' && fields.some((k) => ['date', 'start', 'end'].includes(k))) return no(`A ${label('note')} has no day.`);
   if (e.kind === 'milestone' && (given('start') || given('end'))) return no(`The ${label('milestone')} has a day, not a start and an end.`);
@@ -679,6 +897,7 @@ function scUpdate(e, input, o) {
     if (notes) raw.notes = notes; else delete raw.notes;
   }
   if (owners) { if (owners.length) raw.owners = owners; else delete raw.owners; }
+  if (choices) { if (Object.keys(choices).length) raw.fields = choices; else delete raw.fields; }
   const first = e.kind === 'milestone' ? 'date' : 'start';
   const days = { start: e.start || '', end: e.end || '' };
   if (given(first)) days.start = i[first].trim();
@@ -764,12 +983,15 @@ function scMilestoneOf(e, byId) {
 function scRowOf(e, rowsBy, byId) {
   if (rowsBy === 'milestone') return scMilestoneOf(e, byId);
   if (rowsBy === 'owners') return e && e.owners && e.owners.length ? e.owners[0] : '';
+  if (SC_ROWS_FIELD.test(String(rowsBy))) return e && e.fields ? e.fields[rowsBy.slice(6)] || '' : '';
   return '';
 }
-// The rows for the work shown: [{ id, label }] (milestones in outline order, people by name) for the rows that have work, and
-// `of[workId]` its row id ('' for the last row). `nameOf(key)` is a person's name ('' for one who left).
-function scBoardRows(shown, rowsBy, all, nameOf, goneWord) {
-  if (rowsBy !== 'milestone' && rowsBy !== 'owners') return { rows: [], of: new Map() };
+// The rows for the work shown: [{ id, label }] (milestones in outline order, people by name, a field's choices in its order) for the rows
+// that have work, and `of[workId]` its row id ('' for the last row). `nameOf(key)` is a person's name ('' for one who left); `fields`
+// the plan's fields, for rows by a field.
+function scBoardRows(shown, rowsBy, all, nameOf, goneWord, fields) {
+  const field = SC_ROWS_FIELD.test(String(rowsBy)) ? (Array.isArray(fields) ? fields : []).find((f) => f.id === rowsBy.slice(6)) : null;
+  if (rowsBy !== 'milestone' && rowsBy !== 'owners' && !field) return { rows: [], of: new Map() };
   const byId = new Map(all.map((e) => [e.id, e]));
   const of = new Map(shown.map((e) => [e.id, scRowOf(e, rowsBy, byId)]));
   const used = new Set(of.values());
@@ -777,6 +999,8 @@ function scBoardRows(shown, rowsBy, all, nameOf, goneWord) {
   let rows;
   if (rowsBy === 'milestone') {
     rows = scOrdered(all).map((x) => x.entry).filter((m) => m.kind === 'milestone' && used.has(m.id)).map((m) => ({ id: m.id, label: m.title }));
+  } else if (field) {
+    rows = field.options.filter((o) => used.has(o.id)).map((o) => ({ id: o.id, label: o.label }));
   } else {
     rows = [...used].map((k) => ({ id: k, label: nameOf(k) || goneWord || 'Someone who left' }));
     rows.sort((a, b) => a.label.localeCompare(b.label) || (a.id < b.id ? -1 : 1));
@@ -786,11 +1010,13 @@ function scBoardRows(shown, rowsBy, all, nameOf, goneWord) {
   return { rows, of };
 }
 
-// The filters, a person's own view of the Board. { who: [keys, and SC_NONE for no one], tags: [ids], phase: id | SC_NONE | '', milestone: same }.
+// The filters, a person's own view of the Board. { who: [keys, and SC_NONE for no one], tags: [ids], phase: id | SC_NONE | '', milestone: same,
+// fields: { <fieldId>: optionId | SC_NONE } }.
 const SC_NONE = '_none';
-function scFilterEmpty() { return { who: [], tags: [], phase: '', milestone: '' }; }
-function scFilterOn(f) { return Boolean(f && (f.who.length || f.tags.length || f.phase || f.milestone)); }
-// A kept value, read: anything that is not the shape is dropped; `have` ({ who:Set, tags:Set, phases:Set, milestones:Set }) drops what is gone.
+function scFilterEmpty() { return { who: [], tags: [], phase: '', milestone: '', fields: {} }; }
+function scFilterOn(f) { return Boolean(f && (f.who.length || f.tags.length || f.phase || f.milestone || Object.keys(f.fields || {}).length)); }
+// A kept value, read: anything that is not the shape is dropped; `have` ({ who:Set, tags:Set, phases:Set, milestones:Set, fields: Map of
+// field id to the Set of its choices }) drops what is gone.
 function scFilterClean(raw, have) {
   const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const list = (a, ok) => [...new Set((Array.isArray(a) ? a : []).filter((x) => typeof x === 'string' && ok(x)))];
@@ -801,19 +1027,31 @@ function scFilterClean(raw, have) {
     tags: list(v.tags, (x) => !h || h.tags.has(x)),
     phase: one(v.phase, (x) => !h || x === SC_NONE || h.phases.has(x)),
     milestone: one(v.milestone, (x) => !h || x === SC_NONE || h.milestones.has(x)),
+    fields: (() => {
+      const out = {};
+      const raw = v.fields && typeof v.fields === 'object' && !Array.isArray(v.fields) ? v.fields : {};
+      for (const k of Object.keys(raw)) {
+        const x = raw[k];
+        if (typeof x !== 'string' || !x || !SC_BOARD_ID.test(k) || (x !== SC_NONE && !SC_BOARD_ID.test(x))) continue;
+        if (h && !(x === SC_NONE ? h.fields && h.fields.has(k) : h.fields && h.fields.has(k) && h.fields.get(k).has(x))) continue;
+        out[k] = x;
+      }
+      return out;
+    })(),
   };
 }
-// Does work pass the filter? Groups combine with "and": who (any chosen, or no one), tags (has all), phase, milestone.
+// Does work pass the filter? Groups combine with "and": who (any chosen, or no one), tags (has all), phase, milestone, each field.
 function scFilterMatch(e, f, byId) {
   if (!scFilterOn(f)) return true;
   if (f.who.length && !(e.owners.length ? e.owners.some((k) => f.who.includes(k)) : f.who.includes(SC_NONE))) return false;
   if (f.tags.length && !f.tags.every((t) => e.tags.includes(t))) return false;
   if (f.phase && (f.phase === SC_NONE ? e.phase : e.phase !== f.phase)) return false;
   if (f.milestone) { const m = scMilestoneOf(e, byId); if (f.milestone === SC_NONE ? m : m !== f.milestone) return false; }
+  for (const [fid, want] of Object.entries(f.fields || {})) { const has = e.fields ? e.fields[fid] : ''; if (want === SC_NONE ? has : has !== want) return false; }
   return true;
 }
 // What a new piece of work starts with while the filter is on: the chosen milestone and phase, the one person when exactly one is
-// chosen, and the tags.
+// chosen, the tags, and the choice of each field that has one.
 function scFilterSeed(f) {
   const out = {};
   if (!scFilterOn(f)) return out;
@@ -822,5 +1060,7 @@ function scFilterSeed(f) {
   const people = f.who.filter((k) => k !== SC_NONE);
   if (people.length === 1 && f.who.length === 1) out.owners = people;
   if (f.tags.length) out.tags = f.tags.slice();
+  const chosen = Object.entries(f.fields || {}).filter(([, v]) => v !== SC_NONE);
+  if (chosen.length) out.fields = Object.fromEntries(chosen);
   return out;
 }

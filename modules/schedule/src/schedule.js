@@ -67,8 +67,13 @@
   const pulled = (e) => Boolean(e && e.source && pullOn());
   const locked = (e) => pulled(e) && !(through() && isIssue(e));
   const canAdd = () => canEdit && !pullOn();
-  const pageLate = (e) => !e.source && scLate(e, today()); // pulled work has one day, so it is never "late"
+  // Pulled work has one day while a space only follows the service, so it is never "late"; where changes go back, the days are the space's own.
+  const pageLate = (e) => !(e.source && !writeOn()) && scLate(e, today());
   const canChange = (e) => canEdit && !locked(e);
+  // The fields are the space's own and never go to the service, so someone who may edit sets them on pulled issues too while changes go
+  // back (the server takes a change of the space's own fields without the right to change GitHub). Defining one needs `columns`.
+  const canSetFields = (e) => canEdit && (!pulled(e) || (writeOn() && isIssue(e)));
+  const canFields = () => host.can('columns');
   const sayLocked = () => say(SC_PULLED_SAY, 'danger');
   const label = (key, o) => host.util.label(key, o);
   const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -79,12 +84,15 @@
     entries: new Map(), // id -> { e, version }
     boardRaw: null, // the stored `board:main` (null: the template's default columns), and its version
     boardVersion: undefined,
+    fields: [], // the plan's fields (scFieldsFrom), in order
+    fieldRows: new Map(), // key -> { value, version }: what is stored under `field:`
     people: [],
     settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', boardColumns: 'stages', tags: [] },
     phases: [],
     links: new Map(), // id -> [summary] (what links to each entry: To-do's tasks and the rest)
     view: '',
     filter: scFilterEmpty(), // this person's Board filters (kept in this browser)
+    rows: '', // where changes can't be stored in the board (a followed plan), this person's own rows for the Board (kept in this browser)
     loaded: false,
     pull: { on: false, name: 'GitHub', last: '', next: '', error: '', write: false }, // the space's issue pull (host.issues.status)
     sent: '', // the last refused change to GitHub, as the server said it (shown in the status line for a while)
@@ -98,6 +106,7 @@
   const today = () => host.util.ymd(new Date());
   const tagOf = (id) => state.settings.tags.find((t) => t.id === id) || null;
   const phaseOf = (id) => state.phases.find((p) => p.id === id) || null;
+  const fieldOf = (id) => state.fields.find((f) => f.id === id) || null;
   const kindWord = (kind, o) => label(kind, o);
 
   // --- small helpers ---------------------------------------------------------------------------------------------------
@@ -147,9 +156,11 @@
     state.entries.clear();
     state.boardRaw = null;
     state.boardVersion = undefined;
-    const [rows, boards] = await Promise.all([host.storage.list(SC_PREFIX), host.storage.list(SC_BOARD_PREFIX)]);
+    state.fieldRows.clear();
+    const [rows, boards, fields] = await Promise.all([host.storage.list(SC_PREFIX), host.storage.list(SC_BOARD_PREFIX), host.storage.list(SC_FIELD_PREFIX)]);
     for (const it of rows) remember(it.key.slice(SC_PREFIX.length), it.value, it.version);
     for (const it of boards) takeBoard(it.key, it.value, it.version, false);
+    for (const it of fields) takeField(it.key, it.value, it.version, false);
   }
   const BOARD_KEY = `${SC_BOARD_PREFIX}main`;
   // The board the space has: the stored one when it reads, else the template's default columns in the template's words (the
@@ -161,10 +172,17 @@
     state.boardVersion = deleted ? undefined : version;
     return true;
   }
+  // A `field:<id>` record, as stored; false when the key is not one.
+  function takeField(key, value, version, deleted) {
+    if (!String(key).startsWith(SC_FIELD_PREFIX)) return false;
+    if (deleted) state.fieldRows.delete(key); else state.fieldRows.set(key, { value, version });
+    state.fields = scFieldsFrom([...state.fieldRows].map(([k, x]) => ({ key: k, value: x.value })));
+    return true;
+  }
   let drawSoon = 0;
   const redraw = () => { if (!state.loaded || drawSoon) return; drawSoon = requestAnimationFrame(() => { drawSoon = 0; render(); }); };
   host.on('change', (e) => {
-    if (e.scope !== 'spaces' && e.scope !== 'person' && e.scope !== 'environment' && takeBoard(String(e.key), e.value, e.version, e.deleted)) { redraw(); return; }
+    if (e.scope !== 'spaces' && e.scope !== 'person' && e.scope !== 'environment' && (takeBoard(String(e.key), e.value, e.version, e.deleted) || takeField(String(e.key), e.value, e.version, e.deleted))) { redraw(); return; }
     if (!String(e.key).startsWith(SC_PREFIX) || e.scope === 'spaces' || e.scope === 'person' || e.scope === 'environment') return;
     remember(String(e.key).slice(SC_PREFIX.length), e.deleted ? null : e.value, e.version);
     redraw();
@@ -174,8 +192,11 @@
     const all = Array.isArray(e.changes) ? e.changes : [];
     const boardChange = all.find((c) => String(c.key) === BOARD_KEY);
     if (boardChange) { if (!boardChange.deleted && boardChange.value === undefined) { if (state.loaded) loadEntries().then(render).catch(() => {}); return; } takeBoard(BOARD_KEY, boardChange.value, boardChange.version, boardChange.deleted); }
+    const fieldChanges = all.filter((c) => String(c.key).startsWith(SC_FIELD_PREFIX));
+    if (fieldChanges.some((c) => !c.deleted && c.value === undefined)) { if (state.loaded) loadEntries().then(render).catch(() => {}); return; }
+    for (const c of fieldChanges) takeField(String(c.key), c.value, c.version, c.deleted);
     const changes = all.filter((c) => String(c.key).startsWith(SC_PREFIX));
-    if (!changes.length) { if (boardChange) redraw(); return; }
+    if (!changes.length) { if (boardChange || fieldChanges.length) redraw(); return; }
     if (changes.some((c) => !c.deleted && c.value === undefined)) { if (state.loaded) loadEntries().then(render).catch(() => {}); return; }
     for (const c of changes) remember(String(c.key).slice(SC_PREFIX.length), c.deleted ? null : c.value, c.version);
     redraw();
@@ -410,6 +431,7 @@
     if (e.owners.length) parts.push(e.owners.map((k) => nameOf(k) || 'Someone who left').join(', '));
     const ph = e.phase && phaseOf(e.phase);
     if (ph) parts.push(ph.label);
+    if (narrow) for (const w of scFieldWords(e, state.fields)) parts.push(w.label); // the List's field columns are for a wide window
     if (state.settings.dependencies && e.waitsOn.length) {
       const names = e.waitsOn.map(entry).filter(Boolean).map((w) => w.title);
       if (names.length) parts.push(`Waits on ${names.join(', ')}`);
@@ -430,6 +452,23 @@
       into.append(c);
     }
     into.hidden = !into.childNodes.length;
+  }
+  // The List's columns for the fields: one cell for each field, empty when the work has no choice (so the columns line up).
+  function fieldCells(e, into) {
+    into.replaceChildren();
+    into.hidden = !state.fields.length;
+    if (!state.fields.length) return;
+    for (const f of state.fields) {
+      const c = document.createElement('span');
+      c.className = 'fcell';
+      const w = e.kind === 'work' ? scFieldWords(e, [f])[0] : null;
+      if (w) {
+        c.textContent = w.label;
+        c.dataset.tip = f.label;
+        c.setAttribute('aria-label', `${f.label}: ${w.label}`);
+      } else c.setAttribute('aria-hidden', 'true');
+      into.append(c);
+    }
   }
   function linkChips(e, into, max) {
     into.replaceChildren();
@@ -504,14 +543,16 @@
     el.querySelector('[data-action="open"]').addEventListener('click', () => openEditor(e.id));
     tagChips(e, slot(el, 'chips-wrap'));
     linkChips(e, slot(el, 'linked-wrap'), 3);
+    fieldCells(e, slot(el, 'fields-wrap'));
     const rollWrap = slot(el, 'roll-wrap');
     if (e.kind === 'milestone' && r && r.total) host.ui.progress(rollWrap, { done: r.done, total: r.total, label: `${e.title}: progress` });
     else rollWrap.hidden = true;
     content.append(el);
     hydrate(el);
   }
+  const editItem = (id) => ({ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(id) });
   function rowMenu(e) {
-    if (locked(e)) return sourceMenu(e);
+    if (locked(e)) return [...(canSetFields(e) && state.fields.length ? [editItem(e.id)] : []), ...sourceMenu(e)];
     if (pulled(e)) return [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(e.id) }, closeItem(e), ...sourceMenu(e)];
     if (!canEdit) return [];
     const items = [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(e.id) }];
@@ -625,6 +666,7 @@
       tags: new Set(state.settings.tags.map((t) => t.id)),
       phases: new Set(state.phases.map((p) => p.id)),
       milestones: new Set(list().filter((e) => e.kind === 'milestone').map((e) => e.id)),
+      fields: new Map(state.fields.map((f) => [f.id, new Set(f.options.map((o) => o.id))])),
     });
   }
   // All the work, the work that passes the filter, and whether a filter is on.
@@ -666,6 +708,14 @@
         { id: SC_NONE, label: `No ${kindWord('milestone')}`, count: count((e) => !scMilestoneOf(e, byId)) },
       ] });
     }
+    // One choice list for each field of the plan (the person's own view, like the rest).
+    state.fields.forEach((fd, i) => {
+      items.push({ type: 'chips', id: `f-field-${i}`, label: fd.label, single: true, value: f.fields[fd.id] || 'all', options: [
+        { id: 'all', label: `Every ${fd.label.toLowerCase()}`, count: works.length },
+        ...fd.options.map((o) => ({ id: o.id, label: o.label, count: count((e) => (e.fields || {})[fd.id] === o.id) })),
+        { id: SC_NONE, label: `No ${fd.label.toLowerCase()}`, count: count((e) => !(e.fields || {})[fd.id]) },
+      ] });
+    });
     return items;
   }
   function takeFilter(e) {
@@ -677,7 +727,12 @@
     else if (id === 'f-tags') f.tags = flip(f.tags);
     else if (id === 'f-phase') f.phase = value === 'all' ? '' : value;
     else if (id === 'f-milestone') f.milestone = value === 'all' ? '' : value;
-    else return false;
+    else if (/^f-field-\d+$/.test(id) && state.fields[Number(id.slice(8))]) {
+      const fid = state.fields[Number(id.slice(8))].id;
+      const next = { ...f.fields };
+      if (value === 'all') delete next[fid]; else next[fid] = value;
+      f.fields = next;
+    } else return false;
     state.filter = f;
     keepFilter();
     redraw();
@@ -712,6 +767,13 @@
       if (waiting.length) add('bd-wait', `Waits on ${waiting[0].title}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}`);
     }
     wrap.append(meta);
+    const words = scFieldWords(e, state.fields);
+    if (words.length) {
+      const row = document.createElement('div');
+      row.className = 'bd-fields';
+      for (const w of words) { const c = document.createElement('span'); c.className = 'bd-field'; c.textContent = w.label; c.title = w.field; row.append(c); }
+      wrap.append(row);
+    }
     const tags = e.tags.map(tagOf).filter(Boolean);
     if (tags.length) {
       const row = document.createElement('div');
@@ -737,7 +799,7 @@
   }
   function cardMenu(card) {
     const e = entry(card.id);
-    if (locked(e)) return sourceMenu(e);
+    if (locked(e)) return [...(canSetFields(e) && state.fields.length ? [editItem(card.id)] : []), ...sourceMenu(e)];
     if (pulled(e)) return [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(card.id) }, closeItem(e), ...sourceMenu(e)];
     if (!canEdit) return [];
     return [
@@ -745,26 +807,39 @@
       { id: 'delete', label: 'Delete', icon: 'trash', danger: true, onClick: () => confirmDelete(card.id) },
     ];
   }
+  // The rows the Board draws: the board's own (`rowsBy`), or in a space that follows a service, where the board is the service's and
+  // can't be changed, this person's own choice kept in this browser. A field's rows need the field to be there.
+  const ROWS_KEY = `schedule-rows:${info.context.spaceId || ''}`;
+  function rowsNow(b) {
+    const raw = pullOn() ? state.rows : (b.rowsBy || '');
+    return SC_ROWS_FIELD.test(raw) && !fieldOf(raw.slice(6)) ? '' : raw;
+  }
+  function rowsLabels(rowsBy) {
+    const f = SC_ROWS_FIELD.test(rowsBy) ? fieldOf(rowsBy.slice(6)) : null;
+    if (f) return { noRow: `No ${f.label.toLowerCase()}`, otherRow: `Change the ${f.label.toLowerCase()} in Edit.` };
+    return rowsBy === 'owners'
+      ? { noRow: 'No one', otherRow: 'Change who is doing it in Edit.' }
+      : { noRow: `No ${kindWord('milestone')}`, otherRow: `Change the ${kindWord('milestone')} in Edit.` };
+  }
   function renderBoard() {
     const b = currentBoard();
-    const rowsBy = b.rowsBy || '';
+    const rowsBy = rowsNow(b);
+    const rowsKey = `${rowsBy}|${SC_ROWS_FIELD.test(rowsBy) ? fieldOf(rowsBy.slice(6)).label : ''}`;
     const v = boardWork();
-    const { rows, of } = scBoardRows(v.shown, rowsBy, list(), nameOf, 'Someone who left');
+    const { rows, of } = scBoardRows(v.shown, rowsBy, list(), nameOf, 'Someone who left', state.fields);
     const cards = boardCards(b, v.shown, of);
     const columns = b.columns.map((c) => ({ id: c.id, label: c.label, done: Boolean(c.done) }));
     // The rows' own words (the no-row row, the line for a drop on another row) are given when the board is made, so a change of rows draws it again.
-    if (board && boardRowsBy !== rowsBy) { board.destroy(); board = null; }
+    if (board && boardRowsBy !== rowsKey) { board.destroy(); board = null; }
     if (!board) {
-      boardRowsBy = rowsBy;
+      boardRowsBy = rowsKey;
       boardOpts = {
         name: cap(label('plan')),
         columns,
         cards,
         rows,
         foldKey: BOARD_FOLD_KEY,
-        labels: rowsBy === 'owners'
-          ? { noRow: 'No one', otherRow: 'Change who is doing it in Edit.' }
-          : { noRow: `No ${kindWord('milestone')}`, otherRow: `Change the ${kindWord('milestone')} in Edit.` },
+        labels: rowsLabels(rowsBy),
         canMove: (c) => canChange(entry(c.id)),
         canAdd: (columnId) => (pullOn() ? through() && !(currentBoard().columns.find((c) => c.id === columnId) || {}).done : canAdd()),
         card: drawCard,
@@ -780,26 +855,46 @@
       if (v.on) boardOpts.empty = 'Nothing matches.'; else delete boardOpts.empty;
       board.set(cards, columns, rows);
     }
-    hide($('board-bar'), !canColumns());
+    const rowsAsk = canColumns() || (pullOn() && canEdit);
+    hide($('rows-wrap'), !rowsAsk);
+    hide($('col-add'), !canColumns());
+    hide($('fields-edit'), !canFields());
+    hide($('board-bar'), !rowsAsk && !canFields());
     $('rows-milestone').textContent = cap(kindWord('milestone'));
     const sw = $('rows-switch');
+    const first = sw.querySelector('.mf-switch-btn');
+    let any = false;
     for (const btn of sw.querySelectorAll('.mf-switch-btn')) {
       const on = btn.dataset.rows === rowsBy;
+      any = any || on;
       btn.setAttribute('aria-checked', String(on));
       btn.tabIndex = on ? 0 : -1;
     }
+    if (!any && first) first.tabIndex = 0; // a field's rows: none of the three is on, and the switch is still reachable
+    const pick = $('rows-field');
+    pick.replaceChildren(...[{ id: '', label: 'A field' }, ...state.fields].map((f) => Object.assign(document.createElement('option'), { value: f.id ? `field:${f.id}` : '', textContent: f.label })));
+    pick.value = SC_ROWS_FIELD.test(rowsBy) ? rowsBy : '';
+    hide(pick, !state.fields.length);
   }
   // The Rows switch (the `columns` right; the server refuses anyone else): one board:main write with Undo, as a column change.
   async function setRows(value) {
-    if (!canColumns()) return;
     const b = currentBoard();
-    const next = value === 'milestone' || value === 'owners' ? value : '';
-    if (next === (b.rowsBy || '')) return;
+    const next = value === 'milestone' || value === 'owners' || (SC_ROWS_FIELD.test(String(value)) && fieldOf(value.slice(6))) ? value : '';
+    if (pullOn()) { // the board is the service's: the rows are this person's own view
+      if (!canEdit || next === state.rows) return;
+      state.rows = next;
+      try { if (next) localStorage.setItem(ROWS_KEY, next); else localStorage.removeItem(ROWS_KEY); } catch (err) { /* not kept */ }
+      render();
+      return;
+    }
+    if (!canColumns() || next === (b.rowsBy || '')) return;
     const board2 = { ...b };
     if (next) board2.rowsBy = next; else delete board2.rowsBy;
-    await changeColumns(board2, [], next ? `The board has rows by ${next === 'owners' ? 'person' : kindWord('milestone')}.` : 'The board has no rows.');
+    const what = next === 'owners' ? 'person' : next === 'milestone' ? kindWord('milestone') : next ? fieldOf(next.slice(6)).label.toLowerCase() : '';
+    await changeColumns(board2, [], next ? `The board has rows by ${what}.` : 'The board has no rows.');
   }
   for (const btn of $('rows-switch').querySelectorAll('.mf-switch-btn')) btn.addEventListener('click', () => setRows(btn.dataset.rows));
+  $('rows-field').addEventListener('change', () => setRows($('rows-field').value));
   async function moveCard(m) {
     if (!canEdit || !carried) return;
     if (locked(entry(m.id))) { sayLocked(); render(); return; }
@@ -1021,10 +1116,14 @@
 
   // --- the entry, in the editor window ---------------------------------------------------------------------------------------
   const editorError = (text) => { $('f-error').textContent = text; $('f-error').hidden = !text; };
+  // The choices on the editor's field selects: { fieldId: optionId } for those with one.
+  const fieldPicks = () => Object.fromEntries([...$('f-fields').querySelectorAll('select[data-field]')].filter((x) => x.value).map((x) => [x.dataset.field, x.value]));
+  // What the work holds after the editor: the choices of fields the plan no longer has stay as they were, the rest are the selects'.
+  const fieldsFromForm = (was) => ({ ...Object.fromEntries(Object.entries(was || {}).filter(([k]) => !fieldOf(k))), ...fieldPicks() });
   const checked = (box) => [...box.querySelectorAll('input:checked')].map((i) => i.value);
   let ownersPick = null;
   const dates = { start: null, end: null };
-  const formSnapshot = () => JSON.stringify([$('f-kind').value, $('f-title').value, $('f-start').value, $('f-end').value, ownersPick ? ownersPick.get() : [], $('f-parent').value, checked($('f-waits')), $('f-phase').value, checked($('f-tags')), $('f-done').checked, $('f-notes').value]);
+  const formSnapshot = () => JSON.stringify([$('f-kind').value, $('f-title').value, $('f-start').value, $('f-end').value, ownersPick ? ownersPick.get() : [], $('f-parent').value, checked($('f-waits')), $('f-phase').value, checked($('f-tags')), $('f-done').checked, $('f-notes').value, fieldPicks()]);
   const formDirty = () => Boolean(state.editing && !state.editing.readOnly && state.editing.opened !== undefined && state.editing.opened !== formSnapshot());
   const editor = host.ui.editor($('editor'), {
     size: 'medium',
@@ -1046,6 +1145,7 @@
     hide($('f-owners-field'), kind !== 'work');
     hide($('f-waits-field'), kind === 'note' || !state.settings.dependencies || !$('f-waits').childNodes.length);
     hide($('f-done-field'), kind === 'note');
+    hide($('f-fields'), kind !== 'work' || !state.fields.length);
     const under = ed && ed.id ? list().filter((x) => x.kind === 'work' && x.parent === ed.id).length : 0;
     $('f-done-label').textContent = kind === 'milestone' && under ? 'Done, whatever is under it' : 'Done';
     $('f-start').required = Boolean(state.settings.datesRequired) && kind !== 'note';
@@ -1089,12 +1189,14 @@
     const s = seed || {};
     // A "+" in a board column opens new work in that column (its done flag with it, so the Done box starts as the column says).
     const seedCol = s.column ? currentBoard().columns.find((c) => c.id === s.column) : null;
-    const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, owners: s.owners || [], phase: s.phase || '', tags: s.tags || [], ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}) });
-    const readOnly = !canEdit || locked(shown);
-    const partly = !readOnly && pulled(shown); // a pulled issue that changes on GitHub: only the title, tags and Done
-    state.editing = { partly, id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
+    const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, owners: s.owners || [], phase: s.phase || '', tags: s.tags || [], ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}), fields: s.fields || {} });
+    // A pulled issue is read-only unless changes go back and the person may change it, or may at least set its fields (the space's own).
+    const readOnly = !canEdit || (locked(shown) && !canSetFields(shown));
+    const partly = !readOnly && pulled(shown); // a pulled issue: the title, tags and Done change on GitHub (with the right to), and the fields here
+    const fieldsOnly = partly && locked(shown);
+    state.editing = { partly, fieldsOnly, id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
     $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
-    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}. The rest comes from there.` : '';
+    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : fieldsOnly ? `Only the fields change here. The rest comes from ${state.pull.name}.` : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}.${state.fields.length ? ' The fields stay here.' : ''} The rest comes from there.` : '';
     hide($('f-readonly'), !readOnly && !partly);
     $('f-kind').replaceChildren(...SC_KINDS.map((k) => Object.assign(document.createElement('option'), { value: k, textContent: cap(kindWord(k)) })));
     $('f-kind').value = shown.kind;
@@ -1126,6 +1228,22 @@
     $('f-phase').replaceChildren(...[{ id: '', label: 'No phase' }, ...phases].map((p) => Object.assign(document.createElement('option'), { value: p.id, textContent: p.label })));
     $('f-phase').value = shown.phase && phases.some((p) => p.id === shown.phase) ? shown.phase : '';
     hide($('f-phase-field'), !phases.length);
+    // fields: one choice each
+    $('f-fields').replaceChildren(...state.fields.map((fd) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'sdk-field';
+      const text = document.createElement('span');
+      text.className = 'sdk-label';
+      text.textContent = fd.label;
+      const sel = document.createElement('select');
+      sel.dataset.field = fd.id;
+      const cur = (shown.fields || {})[fd.id] || '';
+      const known = fd.options.some((o) => o.id === cur);
+      sel.replaceChildren(...[{ id: '', label: `No ${fd.label.toLowerCase()}` }, ...fd.options].map((o) => Object.assign(document.createElement('option'), { value: o.id, textContent: o.label })));
+      sel.value = known ? cur : '';
+      wrap.append(text, sel);
+      return wrap;
+    }));
     // tags
     $('f-tags-label').textContent = cap(label('tag', { many: true }));
     $('f-tags').replaceChildren(...state.settings.tags.map((t) => choice(t.id, t.label, shown.tags.includes(t.id))));
@@ -1134,7 +1252,7 @@
     $('f-notes').value = shown.notes;
     $('f-by').textContent = shown.by ? `Added by ${nameOf(shown.by) || 'someone'}` : '';
     editorError('');
-    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !(el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)));
+    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !($('f-fields').contains(el) || (!fieldsOnly && (el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)))));
     hide($('f-save'), readOnly);
     hide($('f-cancel'), readOnly);
     hide($('f-delete'), readOnly || partly || !id);
@@ -1172,6 +1290,7 @@
       progress: ed.id ? (entry(ed.id) || {}).progress : null,
       phase: $('f-phase').value,
       tags: checked($('f-tags')),
+      fields: kind === 'work' ? fieldsFromForm(ed.id ? (entry(ed.id) || {}).fields : {}) : {},
       notes: $('f-notes').value,
       parent,
       order: ed.order && !moved ? ed.order : orderAtEnd(parent),
@@ -1210,14 +1329,15 @@
   // The title, tags and Done of a pulled issue: sent to GitHub, and the editor stays open with the reason if GitHub does not take it.
   async function savePulled(ed) {
     const title = scLine($('f-title').value, 10000);
-    if (!title) { editorError('Give it a title.'); $('f-title').focus(); return; }
-    if (title.length > SC_TITLE_MAX) { editorError(`Give it a title of at most ${SC_TITLE_MAX} characters.`); $('f-title').focus(); return; }
+    if (!title && !ed.fieldsOnly) { editorError('Give it a title.'); $('f-title').focus(); return; }
+    if (title.length > SC_TITLE_MAX && !ed.fieldsOnly) { editorError(`Give it a title of at most ${SC_TITLE_MAX} characters.`); $('f-title').focus(); return; }
     const done = $('f-done').checked;
     const picked = checked($('f-tags'));
     $('f-save').disabled = true;
     try {
       const r = await sendPulled(ed.id, (e) => {
-        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked] }; // a tag the plan no longer lists stays as it is
+        if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields) };
+        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields) }; // a tag the plan no longer lists stays as it is
         if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard() }); if (d.entry) next = d.entry; }
         return next;
       });
@@ -1236,6 +1356,154 @@
     }
   });
 
+  // --- the fields: Edit fields (the `columns` right; the server refuses anyone else) --------------------------------------------------
+  // A draft of the plan's fields is changed in the window (scAddField, scRenameField, scAddOption, ... in schedule-lib.js), and Save writes
+  // the records that changed, then the work that lost a choice (scFieldsRewrite), as one change with Undo. The fields are the space's own: in a
+  // space that follows a service nothing here is sent to it.
+  const fieldsEditor = host.ui.editor($('fields-editor'), { size: 'medium' });
+  let draft = null; // the fields being edited
+  let fieldsBusy = false;
+  const fieldsError = (text) => { $('fields-error').textContent = text || ''; $('fields-error').hidden = !text; };
+  function fieldButton(name, text, iconName, onClick, o) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-quiet btn-small sdk-icon-btn';
+    b.setAttribute('aria-label', text);
+    b.dataset.tip = text;
+    if (o && o.disabled) b.disabled = true;
+    if (o && o.danger) b.classList.add('btn-danger');
+    b.append(icon(iconName));
+    b.addEventListener('click', onClick);
+    return b;
+  }
+  function changeDraft(r, focus) {
+    if (r.problem) { fieldsError(r.problem); return false; }
+    fieldsError('');
+    draft = r.fields;
+    drawFields(focus);
+    return true;
+  }
+  function drawFields(focus) {
+    const box = $('fields-list');
+    box.replaceChildren();
+    draft.forEach((f, i) => {
+      const block = document.createElement('div');
+      block.className = 'fe-field';
+      block.setAttribute('role', 'group');
+      block.setAttribute('aria-label', f.label);
+      const head = document.createElement('div');
+      head.className = 'fe-row';
+      const name = document.createElement('input');
+      name.type = 'text';
+      name.className = 'fe-name';
+      name.value = f.label;
+      name.maxLength = SC_FIELD_LABEL_MAX;
+      name.setAttribute('aria-label', `Name of the field ${f.label}`);
+      name.dataset.focus = `f:${f.id}`;
+      name.addEventListener('change', () => { if (!changeDraft(scRenameField(draft, f.id, name.value))) name.value = f.label; });
+      head.append(name,
+        fieldButton('up', `Move ${f.label} up`, 'arrow-up', () => changeDraft(scMoveField(draft, f.id, -1), `f:${f.id}`), { disabled: i === 0 }),
+        fieldButton('down', `Move ${f.label} down`, 'arrow-down', () => changeDraft(scMoveField(draft, f.id, 1), `f:${f.id}`), { disabled: i === draft.length - 1 }),
+        fieldButton('del', `Delete the field ${f.label}`, 'trash', () => changeDraft(scDeleteField(draft, f.id)), { danger: true }));
+      const opts = document.createElement('ul');
+      opts.className = 'fe-opts';
+      f.options.forEach((o, j) => {
+        const li = document.createElement('li');
+        li.className = 'fe-row';
+        const text = document.createElement('input');
+        text.type = 'text';
+        text.value = o.label;
+        text.maxLength = SC_FIELD_LABEL_MAX;
+        text.setAttribute('aria-label', `Choice ${j + 1} of ${f.label}`);
+        text.dataset.focus = `o:${f.id}:${o.id}`;
+        text.addEventListener('change', () => { if (!changeDraft(scRenameOption(draft, f.id, o.id, text.value))) text.value = o.label; });
+        li.append(text,
+          fieldButton('up', `Move ${o.label} up`, 'arrow-up', () => changeDraft(scMoveOption(draft, f.id, o.id, -1), `o:${f.id}:${o.id}`), { disabled: j === 0 }),
+          fieldButton('down', `Move ${o.label} down`, 'arrow-down', () => changeDraft(scMoveOption(draft, f.id, o.id, 1), `o:${f.id}:${o.id}`), { disabled: j === f.options.length - 1 }),
+          fieldButton('del', `Delete the choice ${o.label}`, 'trash', () => changeDraft(scDeleteOption(draft, f.id, o.id), `a:${f.id}`), { danger: true }));
+        opts.append(li);
+      });
+      const add = document.createElement('div');
+      add.className = 'fe-add';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = SC_FIELD_LABEL_MAX;
+      input.placeholder = 'Add a choice';
+      input.setAttribute('aria-label', `Add a choice to ${f.label}`);
+      input.dataset.focus = `a:${f.id}`;
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'btn btn-small';
+      go.textContent = 'Add';
+      const addOption = () => { if (input.value.trim()) changeDraft(scAddOption(draft, f.id, input.value), `a:${f.id}`); };
+      go.addEventListener('click', addOption);
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); addOption(); } });
+      add.append(input, go);
+      block.append(head, opts, add);
+      box.append(block);
+    });
+    hydrate(box);
+    const lost = scFieldsRewrite(list(), state.fields, draft).length;
+    $('fields-note').textContent = lost ? `Saving takes a choice off ${lost} ${kindWord('work', { many: lost !== 1 })}. You can undo it.` : draft.length ? '' : 'No fields yet.';
+    $('fields-new').disabled = draft.length >= SC_FIELDS_MAX;
+    $('fields-new-go').disabled = draft.length >= SC_FIELDS_MAX;
+    if (focus) { const el = [...box.querySelectorAll('[data-focus]')].find((x) => x.dataset.focus === focus); if (el) el.focus(); }
+  }
+  function openFieldsEditor() {
+    if (!canFields()) return;
+    draft = state.fields.map((f) => ({ ...f, options: f.options.map((o) => ({ ...o })) }));
+    fieldsError('');
+    $('fields-new').value = '';
+    drawFields();
+    fieldsEditor.open({ focus: $('fields-new') });
+  }
+  function addFieldFromInput() {
+    const text = $('fields-new').value;
+    if (!text.trim()) return;
+    const r = scAddField(draft, text);
+    if (changeDraft(r, r.field ? `a:${r.field.id}` : '')) $('fields-new').value = '';
+  }
+  $('fields-new-go').addEventListener('click', addFieldFromInput);
+  $('fields-new').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); addFieldFromInput(); } });
+  $('fields-edit').addEventListener('click', openFieldsEditor);
+  $('fields-cancel').addEventListener('click', () => fieldsEditor.cancel());
+  $('fields-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (fieldsBusy || !draft) return;
+    const diff = scFieldsDiff(state.fields, draft);
+    if (!diff.write.length && !diff.remove.length) { fieldsEditor.close(); return; }
+    const rewritten = scFieldsRewrite(list(), state.fields, draft);
+    const touched = [...diff.write.map((f) => f.id), ...diff.remove];
+    const plan = { created: [], was: rewritten.map((e) => storedNow(e.id)).filter(Boolean), fields: touched.map((id) => ({ id, was: (state.fieldRows.get(SC_FIELD_PREFIX + id) || {}).value || null })) };
+    fieldsBusy = true;
+    $('fields-save').disabled = true;
+    try {
+      for (const f of diff.write) await writeField(f.id, scFieldValue(f));
+      for (const id of diff.remove) await removeField(id);
+      for (const e of rewritten) { const had = state.entries.get(e.id); await write(e, had ? had.version : undefined); }
+    } catch (err) {
+      try { await putBack(plan); } catch (again) { /* read on the next load */ }
+      fieldsError(err && err.status === 409 ? 'Someone else changed the fields just now. Close this and try again.' : (err && err.message) || 'The fields could not be changed.');
+      return;
+    } finally { fieldsBusy = false; $('fields-save').disabled = false; }
+    fieldsEditor.close();
+    render();
+    offerUndo(plan, 'Changed the fields.');
+  });
+  async function writeField(id, value) {
+    const key = SC_FIELD_PREFIX + id;
+    const had = state.fieldRows.get(key);
+    const saved = await host.storage.set(key, value, had ? { version: had.version } : {});
+    takeField(key, value, saved && saved.version, false);
+  }
+  async function removeField(id) {
+    const key = SC_FIELD_PREFIX + id;
+    const had = state.fieldRows.get(key);
+    if (!had) return;
+    await host.storage.delete(key, { version: had.version });
+    takeField(key, null, 0, true);
+  }
+
   // --- what other modules may ask of this one ----------------------------------------------------------------------------------
   // The actions library's handlers (ACTION_HANDLERS in schedule-lib-actions.js: addMilestone, addWork, addNote, setDone,
   // updateEntry), carried out here by the SDK (host.actions.fromLibrary) when a person's page carries a request, as the server's
@@ -1247,7 +1515,7 @@
   const CHANGE_REFUSED = `You may not change the ${label('plan')} here.`;
   // Once a request's writes are made, they show at once.
   async function afterAction({ writes }) {
-    for (const w of writes) if (!takeBoard(String(w.key), w.value, w.version, false)) remember(String(w.key).slice(SC_PREFIX.length), w.value, w.version);
+    for (const w of writes) if (!takeBoard(String(w.key), w.value, w.version, false) && !takeField(String(w.key), w.value, w.version, false)) remember(String(w.key).slice(SC_PREFIX.length), w.value, w.version);
     render();
   }
   if (host.actions && host.actions.provide && host.actions.fromLibrary) carried = host.actions.fromLibrary(ACTION_HANDLERS, { after: afterAction });
@@ -1293,7 +1561,7 @@
   async function exportPlan() {
     if (!state.entries.size) { say('There is nothing in the plan to export yet.'); return; }
     try {
-      const body = JSON.stringify(scExportFile(list(), { module: info.module.id, boards: [currentBoard()] }), null, 2);
+      const body = JSON.stringify(scExportFile(list(), { module: info.module.id, boards: [currentBoard()], fields: state.fields }), null, 2);
       await deliver(new Blob([body], { type: 'application/json' }), scExportName(today()));
     } catch (err) { say('This browser would not save the file.', 'danger'); }
   }
@@ -1316,6 +1584,9 @@
         else if (state.boardRaw) { await host.storage.delete(BOARD_KEY, { version: state.boardVersion }); state.boardRaw = null; state.boardVersion = undefined; }
       } catch (err) { /* read again on its change */ }
     }
+    for (const f of plan.fields || []) {
+      try { if (f.was) await writeField(f.id, f.was); else await removeField(f.id); } catch (err) { /* read again on its change */ }
+    }
     for (const id of plan.created) {
       const x = state.entries.get(id);
       if (!x) continue;
@@ -1334,13 +1605,19 @@
   }
   // `newBoard`: the file's board to store first (the columns right, `columns`, is asked of the server by that write: a refusal is the
   // server's own sentence and nothing has been written yet).
-  async function applyImport(entries, mode, newBoard) {
+  // `newFields`: the fields the file defines that the plan lacks or has to gain choices on (stored first; the `columns` right is asked of the
+  // server by those writes). `mode` 'update' writes only the entries given, which are the plan's own changed in what the space owns.
+  async function applyImport(entries, mode, newBoard, newFields) {
     const plan = { created: [], was: [] };
     importing = true;
     try {
       if (newBoard) {
         plan.board = { was: state.boardRaw };
         await writeBoard(scBoardValue(newBoard));
+      }
+      if (newFields && newFields.length) {
+        plan.fields = newFields.map((f) => ({ id: f.id, was: (state.fieldRows.get(SC_FIELD_PREFIX + f.id) || {}).value || null }));
+        for (const f of newFields) await writeField(f.id, scFieldValue(f));
       }
       const keep = new Set(entries.map((e) => e.id));
       for (const e of entries) {
@@ -1391,18 +1668,24 @@
       o = { title: all.length > 1 ? `This file has ${all.length} problems` : 'This file has a problem', message: `${all.map((p, i) => (all.length > 1 ? `${i + 1}. ${p}` : p)).join('\n\n')}${all.length > 5 && parsed.problems ? '\n\nOnly the first problems are listed: fix them and check again.' : ''}`, action: 'OK', cancel: 'Close' };
     } else {
       const n = parsed.entries.length;
-      o = { title: `This file is good: it would add ${n} ${n === 1 ? 'entry' : 'entries'}`, message: `${countWords(parsed.entries)}, from ${name}. Nothing was changed.`, action: 'OK', cancel: 'Close' };
+      if (parsed.update) {
+        const r = scApplyUpdate(parsed.entries, list());
+        const more = [r.missing ? `${r.missing} ${r.missing === 1 ? 'is' : 'are'} not in the ${label('plan')}` : '', r.same ? `${r.same} would not change` : '', parsed.fields.length ? `${parsed.fields.length} ${parsed.fields.length === 1 ? 'field is' : 'fields are'} added or gain choices` : ''].filter(Boolean);
+        o = { title: `This file is good: Update by id would change ${r.entries.length} ${r.entries.length === 1 ? 'entry' : 'entries'}`, message: `${n} ${n === 1 ? 'entry' : 'entries'} in ${name}${more.length ? `; ${more.join('; ')}` : ''}. Nothing was changed.`, action: 'OK', cancel: 'Close' };
+      } else o = { title: `This file is good: it would add ${n} ${n === 1 ? 'entry' : 'entries'}`, message: `${countWords(parsed.entries)}, from ${name}. Nothing was changed.${parsed.fields && parsed.fields.length ? ` It adds ${parsed.fields.length} ${parsed.fields.length === 1 ? 'field' : 'fields'} or choices.` : ''}`, action: 'OK', cancel: 'Close' };
     }
     try { await host.ui.confirm(o); } catch (err) { /* closed */ }
   }
   async function importFile(file, mode) {
-    if (!file || importing || !canAdd() || (mode === 'replace' && !canClear())) return;
+    if (!file || importing || (mode === 'update' || mode === 'check' ? !canEdit : !canAdd()) || (mode === 'replace' && !canClear())) return;
     if (file.size > SC_FILE.maxBytes) { say(`The file is too big: at most ${SC_FILE.maxBytes / 1024 / 1024} MB.`, 'danger'); return; }
     let text;
     try { text = await file.text(); } catch (err) { say('That file could not be read.', 'danger'); return; }
-    const parsed = scParseFile(text, { label: (k) => kindWord(k), datesRequired: state.settings.datesRequired });
+    const parsed = scParseFile(text, { label: (k) => kindWord(k), datesRequired: state.settings.datesRequired, fields: state.fields, mode });
     if (mode === 'check') { await showCheck(file, parsed); return; }
     if (parsed.problem) { say(parsed.problem, 'danger'); return; }
+    if (parsed.fields && parsed.fields.length && !canFields()) { say('This file defines fields, and only someone who can change the columns and fields may add those. Take them out of the file, or ask them.', 'danger'); return; }
+    if (mode === 'update') { await updateById(file, parsed); return; }
     if (mode === 'add' && state.entries.size + parsed.entries.length > SC_FILE.maxPlan) { say(`The plan holds at most ${SC_FILE.maxPlan} entries. This file would make ${state.entries.size + parsed.entries.length}.`, 'danger'); return; }
     const words = countWords(parsed.entries);
     const name = String(file.name || 'the file').slice(0, 60);
@@ -1420,15 +1703,33 @@
       const fileBoard = parsed.boards && parsed.boards[0] ? parsed.boards[0] : null;
       const newBoard = fileBoard && (mode === 'replace' || !state.boardRaw) ? fileBoard : null;
       entries = scImportEntries(parsed.entries, { mode, existing: list(), newId: () => host.util.id(), orderAfter: (prev) => host.util.order(prev, null), by: info.user.key, board: newBoard || currentBoard() });
-      const plan = await applyImport(entries, mode, newBoard);
+      const plan = await applyImport(entries, mode, newBoard, parsed.fields);
       offerUndo(plan, mode === 'add' ? `Added ${words}.` : `Replaced the ${label('plan')} with ${words}.`);
+    } catch (err) {
+      say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
+    }
+  }
+  // Update by id: only what the space owns (fields, days, owners, order) on the entries that are in the plan; nothing else about them.
+  async function updateById(file, parsed) {
+    const name = String(file.name || 'the file').slice(0, 60);
+    const r = scApplyUpdate(parsed.entries, list());
+    if (!r.entries.length && !parsed.fields.length) { say(r.missing ? `None of the ${parsed.entries.length} entries in the file is in the ${label('plan')}. Nothing was changed.` : 'Nothing in the file would change the plan.'); return; }
+    const n = r.entries.length;
+    let ok = false;
+    try {
+      ok = await host.ui.confirm({ title: `Update ${n} ${n === 1 ? 'entry' : 'entries'} by id?`, message: `From ${name}. This sets only the fields, days, ${label('owner', { many: true })} and order the file gives, on entries with the same id. Titles, columns and the rest stay.${r.missing ? `\n\n${r.missing} ${r.missing === 1 ? 'entry is' : 'entries are'} not in the ${label('plan')} and ${r.missing === 1 ? 'is' : 'are'} skipped.` : ''}\n\nYou can undo this for ${UNDO_SECONDS} seconds.`, action: 'Update by id' });
+    } catch (err) { ok = false; }
+    if (!ok) return;
+    try {
+      const plan = await applyImport(r.entries, 'update', null, parsed.fields);
+      offerUndo(plan, `Updated ${n} ${n === 1 ? 'entry' : 'entries'} by id.`);
     } catch (err) {
       say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
     }
   }
   let picker = null;
   function pickFile(mode) {
-    if (!canAdd() || importing || (mode === 'replace' && !canClear())) return;
+    if ((mode === 'update' || mode === 'check' ? !canEdit : !canAdd()) || importing || (mode === 'replace' && !canClear())) return;
     if (!picker) {
       picker = document.createElement('input');
       picker.type = 'file';
@@ -1443,7 +1744,8 @@
   }
   function moreItems() {
     const items = [{ id: 'export', label: 'Export as JSON', icon: 'file-export', disabled: !state.entries.size, hint: state.entries.size ? '' : 'Nothing yet', onClick: exportPlan }];
-    if (canAdd()) items.push({ id: 'check', label: 'Check file', icon: 'file-circle-check', disabled: importing, onClick: () => pickFile('check') });
+    if (canEdit) items.push({ id: 'check', label: 'Check file', icon: 'file-circle-check', disabled: importing, onClick: () => pickFile('check') });
+    if (canEdit) items.push({ id: 'import-update', label: 'Import JSON: update by id', icon: 'file-import', disabled: importing, onClick: () => pickFile('update') });
     if (canAdd()) items.push({ id: 'import-add', label: 'Import JSON: add to the plan', icon: 'file-import', disabled: importing, onClick: () => pickFile('add') });
     if (canAdd() && canClear()) items.push({ id: 'import-replace', label: 'Import JSON: replace the plan', icon: 'file-import', danger: true, disabled: importing, onClick: () => pickFile('replace') });
     return items;
@@ -1478,7 +1780,7 @@
     if (next === narrow) return;
     narrow = next;
     $('app').classList.toggle('narrow', narrow);
-    if (state.loaded && state.view === 'timeline') render();
+    if (state.loaded && (state.view === 'timeline' || state.view === 'list')) render();
   };
   fit();
   new ResizeObserver(fit).observe(host.rootElement);
@@ -1502,11 +1804,12 @@
       takeSettings(settings);
       takePhases();
       loadFilter();
+      try { const kept = localStorage.getItem(ROWS_KEY) || ''; state.rows = scRowsByOk(kept) ? kept : ''; } catch (err) { state.rows = ''; }
       // The view: the person's own choice, else the List on a phone, else the plan's default.
       let mine = '';
       try { mine = localStorage.getItem(VIEW_KEY) || ''; } catch (err) { /* none */ }
       state.view = mine === 'list' || mine === 'timeline' || mine === 'board' ? mine : pullOn() ? 'board' : narrow ? 'list' : state.settings.defaultView;
-      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', 'arrow-left', 'arrow-right', 'square-check', 'square', 'rotate', 'arrow-up-right-from-square', 'triangle-exclamation', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
+      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', 'arrow-left', 'arrow-right', 'square-check', 'square', 'rotate', 'arrow-up-right-from-square', 'triangle-exclamation', 'sliders', 'arrow-up', 'arrow-down', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
       state.loaded = true;
       render();
       loadLinks().catch(() => {});

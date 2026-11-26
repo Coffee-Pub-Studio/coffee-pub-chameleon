@@ -16,18 +16,18 @@ import { fileURLToPath } from 'node:url';
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = (f) => fs.readFileSync(path.join(dir, 'src', f), 'utf8');
-const L = new Function(`${src('schedule-lib.js')}\n${src('schedule-lib-file.js')}\nreturn { scClean, scExportFile, scParseFile, scImportEntries };`)();
+const L = new Function(`${src('schedule-lib.js')}\n${src('schedule-lib-file.js')}\nreturn { scClean, scExportFile, scParseFile, scImportEntries, scApplyUpdate };`)();
 const schema = JSON.parse(src('project-plan.schema.json'));
 
 // ---- the checker: the keywords the schema uses, nothing more ----
-const KEYWORDS = new Set(['$schema', '$comment', '$defs', '$ref', 'title', 'description', 'type', 'const', 'enum', 'pattern', 'maxLength', 'minLength', 'minimum', 'maximum', 'minItems', 'maxItems', 'items', 'properties', 'required', 'allOf', 'if', 'then']);
+const KEYWORDS = new Set(['$schema', '$comment', '$defs', '$ref', 'title', 'description', 'type', 'const', 'enum', 'pattern', 'maxLength', 'minLength', 'minimum', 'maximum', 'minItems', 'maxItems', 'items', 'properties', 'required', 'allOf', 'if', 'then', 'else', 'anyOf', 'additionalProperties']);
 function unknownKeywords(s, out = []) {
   if (Array.isArray(s)) { s.forEach((x) => unknownKeywords(x, out)); return out; }
   if (!s || typeof s !== 'object') return out;
   for (const [k, v] of Object.entries(s)) {
     if (!KEYWORDS.has(k)) out.push(k);
     if (k === 'properties' || k === '$defs') Object.values(v).forEach((x) => unknownKeywords(x, out));
-    else if (['items', 'if', 'then', 'allOf'].includes(k)) unknownKeywords(v, out);
+    else if (['items', 'if', 'then', 'else', 'allOf', 'anyOf', 'additionalProperties'].includes(k)) unknownKeywords(v, out);
   }
   return out;
 }
@@ -57,9 +57,11 @@ function valid(v, s, root = s) {
   if (v && typeof v === 'object' && !Array.isArray(v)) {
     for (const k of s.required || []) if (!(k in v)) return false;
     for (const [k, sub] of Object.entries(s.properties || {})) if (k in v && !valid(v[k], sub, root)) return false;
+    if (s.additionalProperties) for (const k of Object.keys(v)) if (!(k in (s.properties || {})) && !valid(v[k], s.additionalProperties, root)) return false;
   }
   for (const a of s.allOf || []) if (!valid(v, a, root)) return false;
-  if (s.if && valid(v, s.if, root) && s.then && !valid(v, s.then, root)) return false;
+  if (s.anyOf && !s.anyOf.some((a) => valid(v, a, root))) return false;
+  if (s.if) { if (valid(v, s.if, root)) { if (s.then && !valid(v, s.then, root)) return false; } else if (s.else && !valid(v, s.else, root)) return false; }
   return true;
 }
 
@@ -212,6 +214,81 @@ test('the importer lists up to six problems, one for each entry', () => {
   assert.equal(r.problems.length, 6);
   assert.equal(r.problem, r.problems[0]);
   assert.ok(r.problems[1].startsWith('Entry 2'));
+});
+
+// ---- the fields, and Update by id (plan-github-two-way.md, step 6) ----
+const PHASE = { id: 'phase', label: 'Phase', options: [{ id: 'first', label: 'First' }, { id: 'second', label: 'Second' }] };
+test('fields in a file: the schema and the importer agree', () => {
+  const good = wrap([w({ fields: { phase: 'first' } }), w({ id: 'c', fields: { phase: '' } })], { fields: [PHASE], boards: [{ ...BOARD, rowsBy: 'field:phase' }] });
+  assert.equal(valid(good, schema), true);
+  assert.equal(importerTakes(JSON.stringify(good)), true);
+  const bad = [
+    ['a field that is not there', wrap([w({ fields: { area: 'x' } })], { fields: [PHASE] }), true],
+    ['a choice the field does not have', wrap([w({ fields: { phase: 'third' } })], { fields: [PHASE] }), true],
+    ['fields as a list', wrap([w({ fields: ['phase'] })], { fields: [PHASE] }), false],
+    ['a choice as a number', wrap([w({ fields: { phase: 4 } })], { fields: [PHASE] }), false],
+    ['a field without a label', wrap([w()], { fields: [{ id: 'phase', options: [] }] }), false],
+    ['a field with a bad id', wrap([w()], { fields: [{ ...PHASE, id: 'Phase One' }] }), false],
+    ['nine fields', wrap([w()], { fields: Array.from({ length: 9 }, (_, i) => ({ id: `f${i}`, label: `F${i}`, options: [] })) }), false],
+    ['31 choices', wrap([w()], { fields: [{ ...PHASE, options: Array.from({ length: 31 }, (_, i) => ({ id: `o${i}`, label: `O${i}` })) }] }), false],
+    ['a choice label of 41 characters', wrap([w()], { fields: [{ ...PHASE, options: [{ id: 'a', label: 'x'.repeat(41) }] }] }), false],
+    ['a field id used twice', wrap([w()], { fields: [PHASE, PHASE] }), true],
+    ['a choice id used twice', wrap([w()], { fields: [{ ...PHASE, options: [PHASE.options[0], PHASE.options[0]] }] }), true],
+    ['a bad rowsBy', wrap([m()], { boards: [{ ...BOARD, rowsBy: 'field:Bad Id' }] }), false],
+  ];
+  for (const [name, file, schemaTakes] of bad) {
+    assert.equal(importerTakes(JSON.stringify(file)), false, `the importer should refuse: ${name}`);
+    assert.equal(valid(file, schema), schemaTakes, `the schema should ${schemaTakes ? 'leave to the importer' : 'refuse'}: ${name}`);
+  }
+});
+test('Export writes the fields, and the file it writes is valid and read back', () => {
+  const entries = [L.scClean('a', { kind: 'work', title: 'W', start: '2026-03-01', end: '2026-03-02', fields: { phase: 'first' } })];
+  const file = JSON.parse(JSON.stringify(L.scExportFile(entries, { module: 'schedule', fields: [{ ...PHASE, order: 0 }] })));
+  assert.deepEqual(file.fields, [{ id: 'phase', label: 'Phase', options: PHASE.options, order: 0 }]);
+  assert.deepEqual(file.entries[0].fields, { phase: 'first' });
+  assert.equal(valid(file, schema), true);
+  assert.equal(importerTakes(JSON.stringify(file)), true);
+});
+const UPDATE = JSON.parse(/```\n(\{[\s\S]*?\n\})\n```/.exec(doc.slice(doc.indexOf('## Update by id')))[1]);
+test('the Update by id example in FORMAT.md is valid under the schema and the importer', () => {
+  assert.equal(valid(UPDATE, schema), true);
+  const r = L.scParseFile(JSON.stringify(UPDATE), { ...opts, mode: 'update', fields: [] });
+  assert.equal(r.problem, undefined);
+  assert.equal(r.update, true);
+  assert.equal(L.scParseFile(JSON.stringify(UPDATE), { ...opts, mode: 'check', fields: [] }).update, true, 'Check file knows it');
+  assert.ok(L.scParseFile(JSON.stringify(UPDATE), opts).problem, 'Add and Replace refuse it');
+});
+test('Update by id: an entry that names anything but what the space owns is refused, the schema leaving it to the importer', () => {
+  for (const k of ['title', 'column', 'kind', 'done', 'notes', 'tags', 'parent', 'phase', 'source']) {
+    const file = wrap([{ id: 'gh-1', [k]: k === 'tags' ? ['a'] : k === 'done' ? true : 'x' }]);
+    const r = L.scParseFile(JSON.stringify(file), { ...opts, mode: 'update', fields: [PHASE] });
+    assert.match(r.problem || '', new RegExp(`does not change "${k}"`), k);
+  }
+  const bad = [
+    ['no id', wrap([{ fields: {} }])],
+    ['an id used twice', wrap([{ id: 'a' }, { id: 'a' }])],
+    ['boards', wrap([{ id: 'a', start: '2026-03-01' }], { boards: [BOARD] })],
+    ['end before start', wrap([{ id: 'a', start: '2026-03-05', end: '2026-03-01' }])],
+    ['a day that is not a day', wrap([{ id: 'a', start: '2026-02-30' }])],
+    ['owners a word', wrap([{ id: 'a', owners: 'me' }])],
+    ['a choice not there', wrap([{ id: 'a', fields: { phase: 'third' } }], { fields: [PHASE] })],
+  ];
+  for (const [name, file] of bad) assert.ok(L.scParseFile(JSON.stringify(file), { ...opts, mode: 'update', fields: [PHASE] }).problem, name);
+});
+test('Update by id changes only the space\'s own fields, and only where the file carries them', () => {
+  const was = [
+    L.scClean('gh-1', { kind: 'work', title: 'One', start: '2026-03-01', end: '2026-03-01', column: 'now', owners: ['u1'], notes: 'keep', tags: ['t'], fields: { area: 'core', phase: 'first' }, source: { from: 'github', repo: 'o/r', number: 1 } }),
+    L.scClean('gh-2', { kind: 'work', title: 'Two', start: '2026-03-02', end: '2026-03-03' }),
+  ];
+  const r = L.scApplyUpdate([{ id: 'gh-1', fields: { phase: 'second', area: '' }, end: '2026-04-01' }, { id: 'gh-2' }, { id: 'gh-9', fields: { phase: 'first' } }], was);
+  assert.equal(r.missing, 1, 'an id the plan lacks is skipped');
+  assert.equal(r.same, 1, 'an entry that would not change is not written');
+  assert.equal(r.entries.length, 1);
+  const e = r.entries[0];
+  assert.deepEqual(e.fields, { phase: 'second' }, 'a choice named changes, an empty one clears, the rest stays');
+  assert.equal(e.end, '2026-04-01');
+  assert.equal(e.start, '2026-03-01', 'a day the file does not carry stays');
+  for (const k of ['title', 'column', 'owners', 'notes', 'tags', 'source', 'done']) assert.deepEqual(e[k], was[0][k], `${k} is not touched`);
 });
 
 if (fails.length) { console.error(`check-schedule-schema: ${fails.length} failed\n  ${fails.join('\n  ')}`); process.exit(1); }

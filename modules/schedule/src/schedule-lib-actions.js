@@ -6,7 +6,7 @@
 //
 // It reads, as both carriers give them (plan-agent-server-actions.md, section 1):
 //   ctx.settings      the plan's settings ({ datesRequired, boardColumns, ... })
-//   ctx.list          the space's data by key prefix: the plan (`plan:`) and its board (`board:`)
+//   ctx.list          the space's data by key prefix: the plan (`plan:`), its board (`board:`) and its fields (`field:`)
 //   ctx.util.label    the plan's words for its kinds (the template's themed "milestone", "work", "plan")
 //   ctx.util.order    the outline's order key between two
 //   ctx.util.rollup   the outline's done and total under each entry
@@ -23,6 +23,7 @@ function scFacts(ctx) {
     phases: ctx.space && Array.isArray(ctx.space.phases) ? ctx.space.phases : [],
     people: Array.isArray(ctx.people) ? ctx.people : [],
     space: ctx.util.word('space'),
+    fieldDefs: scFieldsFrom(ctx.list(SC_FIELD_PREFIX)),
   };
 }
 // The plan's entries as the page holds them (schedule.js remember: an entry stored without a title reads as "Untitled").
@@ -95,8 +96,16 @@ function scAdd(kind, input, ctx) {
     if (r.problem) throw new Error(r.problem);
     owners = r.owners;
   }
+  // Fields (work only), by name or id, checked against the plan's fields before anything is made.
+  let choices = null;
+  if (kind === 'work' && input && input.fields !== undefined && input.fields !== null && input.fields !== '') {
+    const r = scFieldsParse(input.fields, f.fieldDefs);
+    if (r.problem) throw new Error(r.problem);
+    choices = scFieldsApplied({}, r);
+  }
   let e = obj ? scFromObject(kind, input, obj, { entries, phases: f.phases, by }).entry : scFromAction(kind, input, by);
   if (owners && owners.length) e = { ...e, owners: scKeys(owners) };
+  if (choices && Object.keys(choices).length) e = { ...e, fields: choices };
   e = { ...e, id: ctx.util.id() };
   e.order = scOrderAtEnd(entries, e.parent, f.order);
   return scAnswer(ctx, entries, null, e);
@@ -147,5 +156,5 @@ const ACTION_HANDLERS = {
   setColumn: (input, ctx) => scChange(input, ctx, (e, f) => scMoveTo(input, ctx, e, f)),
   // Only the fields given change. A day sent as "" (the manifest's `clears`) clears it, as emptying it in the editor does; so do
   // the owners and the notes.
-  updateEntry: (input, ctx) => scChange(input, ctx, (e, f) => scUpdate(e, input, { datesRequired: f.datesRequired, label: f.label, people: f.people, space: f.space })),
+  updateEntry: (input, ctx) => scChange(input, ctx, (e, f) => scUpdate(e, input, { datesRequired: f.datesRequired, label: f.label, people: f.people, space: f.space, fieldDefs: f.fieldDefs })),
 };

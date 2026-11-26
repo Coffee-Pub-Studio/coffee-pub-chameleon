@@ -106,7 +106,7 @@ await test('"Change it on GitHub" is a row the Agent column may tick, off to sta
     assert.ok(!routes.agentModuleKeys(manifest(id)).some((k) => /write_out$/.test(k)), `${id} has no such row for an agent`);
   }
   const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
-  assert.ok(/\.write_out`\]\) return ctx\.who && ctx\.who\.user && ctx\.who\.user\.agent \? \{ status: 403, error: issuesLib\.SAY\.noWriteOut\(name\) \}/.test(src), 'an agent without it is refused with the plan\'s sentence');
+  assert.ok(/const noRight = ctx\.who && ctx\.who\.user && ctx\.who\.user\.agent \? \{ status: 403, error: issuesLib\.SAY\.noWriteOut\(name\) \} : fromService;/.test(src) && /if \(!mayWriteOut && !\(d\.own && !sends && !d\.foreign\.length\)\) return noRight;/.test(src), 'an agent without it is refused with the plan\'s sentence (the space\'s own fields need only edit)');
   assert.ok(/who\.user\.agent \|\| !hasOwnerRights\(who\.user\)\) return res\.status\(403\)/.test(src), 'an agent never turns writing on');
 });
 

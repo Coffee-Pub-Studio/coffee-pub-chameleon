@@ -466,11 +466,26 @@ function changePlan(rec, { column = null, title = null, addNames = [], removeIds
   return { patch, remove, add };
 }
 
+// The id of the Area choice a title names: the words before its first colon, when the plan's `area` field (`field:area`'s value,
+// { options: [{ id, label }] }) has a choice with that id or those words, ignoring case. '' when it names none. Once, when the work
+// is first made; after that Area is the space's own.
+function areaOf(title, field) {
+  if (typeof title !== 'string' || !field || !Array.isArray(field.options)) return '';
+  const at = title.indexOf(':');
+  if (at < 1) return '';
+  const word = title.slice(0, at).trim().toLowerCase();
+  const hit = word ? field.options.find((o) => o && typeof o.id === 'string' && (o.id.toLowerCase() === word || (typeof o.label === 'string' && o.label.trim().toLowerCase() === word))) : null;
+  return hit ? hit.id : '';
+}
+
 // The work the pull writes over the stored one in a space that writes back: GitHub's fields from the new record, the space's own
 // (owners, waits, rank, fields, and the days once they exist) and who made the change kept from what is stored; work not stored
 // yet starts and ends on the day the issue was made.
-function keepOwn(stored, fresh) {
-  if (!stored || typeof stored !== 'object') return { ...fresh, end: fresh.start }; // the days start as the day it was made, then are the space's
+function keepOwn(stored, fresh, { area = null } = {}) {
+  if (!stored || typeof stored !== 'object') { // the days start as the day it was made, then are the space's; so does the Area, from the title's "Area:"
+    const choice = areaOf(fresh.title, area);
+    return { ...fresh, end: fresh.start, ...(choice ? { fields: { area: choice } } : {}) };
+  }
   const out = { ...fresh };
   for (const k of ['owners', 'waitsOn', 'rank', 'fields']) if (stored[k] !== undefined) out[k] = stored[k];
   if (typeof stored.start === 'string') out.start = stored.start;
@@ -515,6 +530,6 @@ function cleanRepo(adapter, raw) {
 
 module.exports = {
   IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  isPulledKey, cleanRepo, SAY, writeListOf, writeAllowed, diffWork, changePlan, keepOwn, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  isPulledKey, cleanRepo, SAY, writeListOf, writeAllowed, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };

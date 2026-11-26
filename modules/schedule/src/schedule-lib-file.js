@@ -6,6 +6,12 @@
 //     "boards": [ <board>, ... ] }
 //
 // `boards` is optional: the plan's board (id, name, field "column", columns [{ id, label, done? }], rowsBy?), one at first.
+// `fields` is optional: the plan's fields ([{ id, label, options: [{ id, label }] }], at most 8, 30 choices each); a work entry may carry
+// `fields: { <fieldId>: <optionId> }`. A file that defines fields adds them to the plan's, by id (a field the plan has gains the
+// choices it lacks).
+//
+// A third way to read a file is Update by id (scParseUpdate): its entries carry an `id` and only what the space owns, `fields`, `start`,
+// `end`, `owners` and `rank`; each sets that on the entry of the same id in the plan, and nothing else about it.
 //
 // An entry has the fields scClean reads (see schedule-lib.js), plus an optional `id` that `parent` and `waitsOn` of other entries
 // of the same file name. The file is read whole and checked before anything is written; the first thing wrong is one sentence.
@@ -27,6 +33,7 @@ function scExportFile(entries, o) {
     module: (o && o.module) || 'schedule',
     entries: ordered.map((e) => ({ id: e.id, ...scValue(e) })),
     ...(o && Array.isArray(o.boards) && o.boards.length ? { boards: o.boards.map(scBoardValue) } : {}),
+    ...(o && Array.isArray(o.fields) && o.fields.length ? { fields: o.fields.map(scFieldValue) } : {}),
   };
 }
 // The file's name: by kind, with the day.
@@ -40,8 +47,155 @@ function scFileSyntax(text, err) {
   return line ? `The file is not valid JSON (near line ${line}).` : 'The file is not valid JSON.';
 }
 
-// Reads the text of a file. Answers { entries: [raw entries, each checked] } or { problem: 'one plain sentence' }. Nothing here
-// writes. `o`: { label(key), datesRequired }.
+
+// The fields a file defines, checked: { fields: [cleaned] } or { problem }.
+function scParseFieldDefs(list) {
+  if (list === undefined || list === null) return { fields: [] };
+  if (!Array.isArray(list)) return { problem: 'The "fields" must be a list.' };
+  if (list.length > SC_FIELDS_MAX) return { problem: `The file has ${list.length} fields: at most ${SC_FIELDS_MAX}.` };
+  const ids = new Set();
+  const out = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const f = list[i];
+    const w = `Field ${i + 1}`;
+    if (!f || typeof f !== 'object' || Array.isArray(f)) return { problem: `${w} must be written like { "id": "phase", "label": "Phase", "options": [ ... ] }.` };
+    if (typeof f.id !== 'string' || !SC_BOARD_ID.test(f.id)) return { problem: `${w}: "id" must be lower case letters, digits and dashes.` };
+    if (ids.has(f.id)) return { problem: `${w}: the id "${f.id}" is used twice.` };
+    ids.add(f.id);
+    if (typeof f.label !== 'string' || !scLine(f.label, 1)) return { problem: `${w}: "label" is needed.` };
+    if (f.label.trim().length > SC_FIELD_LABEL_MAX) return { problem: `${w}: "label" is over ${SC_FIELD_LABEL_MAX} characters.` };
+    const opts = f.options === undefined || f.options === null ? [] : f.options;
+    if (!Array.isArray(opts)) return { problem: `${w}: "options" must be a list.` };
+    if (opts.length > SC_FIELD_OPTIONS_MAX) return { problem: `${w}: at most ${SC_FIELD_OPTIONS_MAX} options.` };
+    const oids = new Set();
+    for (let j = 0; j < opts.length; j += 1) {
+      const o = opts[j];
+      const ow = `${w}, option ${j + 1}`;
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return { problem: `${ow} must be written like { "id": "first", "label": "First" }.` };
+      if (typeof o.id !== 'string' || !SC_BOARD_ID.test(o.id)) return { problem: `${ow}: "id" must be lower case letters, digits and dashes.` };
+      if (oids.has(o.id)) return { problem: `${ow}: the id "${o.id}" is used twice.` };
+      oids.add(o.id);
+      if (typeof o.label !== 'string' || !scLine(o.label, 1)) return { problem: `${ow}: "label" is needed.` };
+      if (o.label.trim().length > SC_FIELD_LABEL_MAX) return { problem: `${ow}: "label" is over ${SC_FIELD_LABEL_MAX} characters.` };
+    }
+    out.push(scCleanField(f.id, { label: f.label, options: opts, order: i }));
+  }
+  return { fields: out };
+}
+// The file's fields joined to the plan's by id: a new field is added after the plan's; a field the plan has gains the choices it lacks
+// (its words and order stay). { fields: all of them, in order } or { problem }.
+function scMergeFields(existing, fromFile) {
+  let all = existing.map((f) => ({ ...f, options: f.options.slice() }));
+  for (const f of fromFile) {
+    const at = all.findIndex((x) => x.id === f.id);
+    if (at < 0) {
+      if (all.length >= SC_FIELDS_MAX) return { problem: `A plan has at most ${SC_FIELDS_MAX} fields.` };
+      all.push({ ...f, order: all.length });
+      continue;
+    }
+    const have = new Set(all[at].options.map((o) => o.id));
+    for (const o of f.options) if (!have.has(o.id)) all[at].options.push({ ...o });
+    if (all[at].options.length > SC_FIELD_OPTIONS_MAX) return { problem: `${all[at].label} would have more than ${SC_FIELD_OPTIONS_MAX} choices.` };
+  }
+  all = all.map((f, i) => ({ ...f, order: i }));
+  return { fields: all };
+}
+// What is wrong with an entry's `fields` against the fields the plan will have, as one sentence, or ''.
+function scFileFieldsProblem(v, defs, w) {
+  if (v === undefined || v === null) return '';
+  if (typeof v !== 'object' || Array.isArray(v)) return `${w}: "fields" must be written like { "phase": "first" }.`;
+  const keys = Object.keys(v);
+  if (keys.length > SC_FIELDS_MAX) return `${w}: "fields" has more than ${SC_FIELDS_MAX}.`;
+  for (const k of keys) {
+    const f = defs.find((x) => x.id === k);
+    if (!f) return `${w}: "fields" names "${k}", which is not a field of the plan or the file.`;
+    const val = v[k];
+    if (val === '' || val === null) continue; // empty: nothing chosen
+    if (typeof val !== 'string' || !f.options.some((o) => o.id === val)) return `${w}: "fields" gives ${f.label} the choice "${scLine(String(val), 40)}", which it does not have.`;
+  }
+  return '';
+}
+
+// What Update by id may carry on an entry: the space's own. Anything else the entry names is refused, so a file made to fill in
+// fields can't change a title, a column or anything a followed service owns.
+const SC_UPDATE_OWN = ['id', 'fields', 'start', 'end', 'owners', 'rank'];
+const SC_UPDATE_REFUSED = ['kind', 'title', 'notes', 'column', 'done', 'ticked', 'parent', 'waitsOn', 'phase', 'tags', 'order', 'by', 'ref', 'source', 'progress'];
+// Whether a file is written for Update by id: every entry has an id and neither a kind nor a title.
+const scLooksUpdate = (entries) => Array.isArray(entries) && entries.length > 0 && entries.every((v) => v && typeof v === 'object' && !Array.isArray(v) && v.kind === undefined && v.title === undefined && typeof v.id === 'string');
+
+// Reads a file for Update by id. `data` is the parsed file, `o`: { fields: the plan's fields now }. Answers { update: true, entries: [raw
+// entries], fields: [the fields to store], all: [every field the plan will have] } or { problem, problems }. Nothing here writes.
+function scParseUpdate(data, o) {
+  const existing = o && Array.isArray(o.fields) ? o.fields : [];
+  if (data.boards !== undefined && data.boards !== null) return { problem: 'Update by id does not change the board. Take "boards" out of the file.' };
+  const defs = scParseFieldDefs(data.fields);
+  if (defs.problem) return { problem: defs.problem };
+  const merged = scMergeFields(existing, defs.fields);
+  if (merged.problem) return { problem: merged.problem };
+  if (data.entries.length > SC_FILE.maxEntries) return { problem: `The file has ${data.entries.length} entries: at most ${SC_FILE.maxEntries}.` };
+  const list = data.entries;
+  const seen = new Set();
+  const problems = [];
+  const MAXP = 6;
+  for (let i = 0; i < list.length && problems.length < MAXP; i += 1) {
+    const v = list[i];
+    const w = `Entry ${i + 1}`;
+    const p = (() => {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return `${w} must be written like { "id": "gh-12", "fields": { "phase": "first" } }.`;
+      if (typeof v.id !== 'string' || !SC_ID.test(v.id)) return `${w}: "id" is needed, the id of an entry in the plan.`;
+      if (seen.has(v.id)) return `${w}: the id "${v.id}" is used twice.`;
+      seen.add(v.id);
+      for (const k of SC_UPDATE_REFUSED) {
+        if (v[k] !== undefined) return `${w} ("${v.id}"): Update by id does not change "${k}". It sets only ${SC_UPDATE_OWN.filter((x) => x !== 'id').map((x) => `"${x}"`).join(', ').replace(/, ("rank")$/, ' and $1')}.`;
+      }
+      for (const f of ['start', 'end']) {
+        const d = v[f];
+        if (d !== undefined && d !== null && d !== '' && !scIsDay(d)) return `${w} ("${v.id}"): "${f}" must be a day like 2026-10-14, from ${SC_YEAR_MIN} to ${SC_YEAR_MAX}.`;
+      }
+      if (v.start && v.end && v.end < v.start) return `${w} ("${v.id}"): "end" is before "start".`;
+      if (v.owners !== undefined && v.owners !== null) {
+        if (!Array.isArray(v.owners) || v.owners.some((x) => typeof x !== 'string')) return `${w} ("${v.id}"): "owners" must be a list of text.`;
+        if (v.owners.length > SC_LIST_MAX) return `${w} ("${v.id}"): "owners" has more than ${SC_LIST_MAX}.`;
+      }
+      if (v.rank !== undefined && v.rank !== null && v.rank !== '' && !(typeof v.rank === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.rank))) return `${w} ("${v.id}"): "rank" must be letters and digits.`;
+      return scFileFieldsProblem(v.fields, merged.fields, `${w} ("${v.id}")`);
+    })();
+    if (p) problems.push(p);
+  }
+  if (problems.length) return { problem: problems[0], problems };
+  const diff = scFieldsDiff(existing, merged.fields);
+  return { update: true, entries: list, fields: diff.write, all: merged.fields };
+}
+// The entries Update by id writes: for each file entry whose id is in `existing` (cleaned entries), the plan's own entry with only
+// what the file carries changed (`fields` choice by choice, `start`, `end`, `owners`, `rank`). Answers { entries: [the ones that change],
+// missing: how many ids the plan does not have, same: how many it has that would not change }.
+function scApplyUpdate(raws, existing) {
+  const byId = new Map(existing.map((e) => [e.id, e]));
+  const entries = [];
+  let missing = 0;
+  let same = 0;
+  for (const v of raws) {
+    const had = byId.get(v.id);
+    if (!had) { missing += 1; continue; }
+    const raw = scValue(had);
+    if (v.fields && typeof v.fields === 'object') {
+      const merged = { ...(had.fields || {}) };
+      for (const [k, val] of Object.entries(v.fields)) { if (val) merged[k] = val; else delete merged[k]; }
+      if (Object.keys(merged).length) raw.fields = merged; else delete raw.fields;
+    }
+    if (typeof v.start === 'string' && v.start) raw.start = v.start;
+    if (typeof v.end === 'string' && v.end) raw.end = v.end;
+    if (Array.isArray(v.owners)) { if (v.owners.length) raw.owners = v.owners; else delete raw.owners; }
+    if (typeof v.rank === 'string' && v.rank) raw.rank = v.rank;
+    const next = scClean(had.id, raw);
+    if (JSON.stringify(scValue(next)) === JSON.stringify(scValue(had))) same += 1; else entries.push(next);
+  }
+  return { entries, missing, same };
+}
+
+// Reads the text of a file. Answers { entries: [raw entries, each checked], boards, fields } or { problem: 'one plain sentence' }. Nothing here
+// writes. `o`: { label(key), datesRequired, fields: the plan's fields now, mode }. With `o.mode` 'update', or 'check' for a file written
+// for it (scLooksUpdate), the file is read for Update by id instead (scParseUpdate) and the answer has `update: true`.
 function scParseFile(text, o) {
   const label = (o && o.label) || ((k) => k);
   if (typeof text !== 'string' || !text.trim()) return { problem: 'The file is empty.' };
@@ -53,6 +207,12 @@ function scParseFile(text, o) {
   if (data.version !== SC_FILE.version) return { problem: `The file's "version" must be ${SC_FILE.version}.` };
   if (!Array.isArray(data.entries)) return { problem: 'The file needs an "entries" list.' };
   if (!data.entries.length) return { problem: 'The file has no entries.' };
+  const mode = o && o.mode;
+  if (mode === 'update' || (mode === 'check' && scLooksUpdate(data.entries))) return scParseUpdate(data, o);
+  const defs = scParseFieldDefs(data.fields);
+  if (defs.problem) return { problem: defs.problem };
+  const known = scMergeFields((o && Array.isArray(o.fields)) ? o.fields : [], defs.fields);
+  if (known.problem) return { problem: known.problem };
   const boards = [];
   if (data.boards !== undefined && data.boards !== null) {
     if (!Array.isArray(data.boards)) return { problem: 'The "boards" must be a list.' };
@@ -66,7 +226,7 @@ function scParseFile(text, o) {
       if (ids.has(b.id)) return { problem: `${w}: the id "${b.id}" is used twice.` };
       ids.add(b.id);
       if (b.field !== undefined && b.field !== 'column') return { problem: `${w}: "field" must be "column".` };
-      if (b.rowsBy !== undefined && b.rowsBy !== null && !SC_ROWS_BY.includes(b.rowsBy)) return { problem: `${w}: "rowsBy" must be ${SC_ROWS_BY.map((x) => `"${x}"`).join(' or ')}.` };
+      if (b.rowsBy !== undefined && b.rowsBy !== null && !scRowsByOk(b.rowsBy)) return { problem: `${w}: "rowsBy" must be ${SC_ROWS_BY.map((x) => `"${x}"`).join(', ')} or "field:" and a field's id.` };
       if (b.name !== undefined && b.name !== null && typeof b.name !== 'string') return { problem: `${w}: "name" must be text.` };
       if (!Array.isArray(b.columns) || !b.columns.length) return { problem: `${w}: "columns" must be a list of columns.` };
       if (b.columns.length > SC_COLUMNS_MAX) return { problem: `${w}: at most ${SC_COLUMNS_MAX} columns.` };
@@ -132,6 +292,8 @@ function scParseFile(text, o) {
       if (v.by !== undefined && v.by !== null && typeof v.by !== 'string') return `${w}: "by" must be text.`;
       if (v.ref !== undefined && v.ref !== null && !scCleanRef(v.ref)) return `${w}: "ref" must be a pointer as Export writes it.`;
       if (v.parent !== undefined && v.parent !== null && v.parent !== '' && typeof v.parent !== 'string') return `${w}: "parent" must be the id of another entry.`;
+      const fieldsProblem = scFileFieldsProblem(v.fields, known.fields, w);
+      if (fieldsProblem) return fieldsProblem;
       if (v.progress !== undefined && v.progress !== null && !(Number.isInteger(v.progress) && v.progress >= 0 && v.progress <= 100)) return `${w}: "progress" must be a whole number from 0 to 100.`;
       const problem = scProblem(scClean('x', v), { datesRequired: Boolean(o && o.datesRequired), label });
       if (problem) return `${w}: ${problem}`;
@@ -179,7 +341,8 @@ function scParseFile(text, o) {
     if (p) problems.push(p);
   }
   if (problems.length) return { problem: problems[0], problems };
-  return { entries: list, boards };
+  const diff = scFieldsDiff((o && Array.isArray(o.fields)) ? o.fields : [], known.fields);
+  return { entries: list, boards, fields: diff.write, all: known.fields };
 }
 
 // The entries to write, from what scParseFile answered. `o`: { mode: 'add' | 'replace', existing: [entries now in the plan],
