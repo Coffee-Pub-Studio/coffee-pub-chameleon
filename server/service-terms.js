@@ -1,20 +1,23 @@
-// Who accepted a weather service's terms (documentation/plans/plan-weather-part.md, step 1). A service's terms are accepted by a
-// person in authority, once for the whole server, never by software: the server's administrator, signed in, on a single
-// install; the host's administrator, on the host console, on a hosted one. Module settings are never the host's, so this is the
-// one small host-level file: DATA_DIR/weather-terms.json, beside weather.json and never in an environment's copy.
+// Who accepted an outside service's terms (documentation/plans/plan-weather-part.md, step 1; plan-github-pull.md, "Credentials and
+// terms"): one record for every outside service the server may ask, the weather services (server/weather-providers/) and the issue
+// services (server/issue-providers/) alike. A service's terms are accepted by a person in authority, once for the whole server,
+// never by software: the server's administrator, signed in, on a single install; the host's administrator, on the host console,
+// on a hosted one. Module settings are never the host's, so this is the one small host-level file: DATA_DIR/service-terms.json,
+// beside weather.json and never in an environment's copy.
 //
 //   { services: { <adapter id>: { terms: the address of the terms accepted, by: who (a login), at: when (ISO) } } }
 //
 // An acceptance counts only for the terms' address it was given for: if an adapter's terms move, it must be accepted again.
+// Adapter ids are one namespace across both kinds of service (each folder's index.js refuses a clash at start).
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 
-const FILE_NAME = 'weather-terms.json';
+const FILE_NAME = 'service-terms.json';
 const ID = /^[a-z][a-z0-9-]{0,23}$/;
 
-class WeatherTerms {
+class ServiceTerms {
   constructor(dataDir) {
     this.file = path.join(dataDir, FILE_NAME);
     this.services = null;
@@ -29,7 +32,7 @@ class WeatherTerms {
         if (ID.test(id) && r && typeof r.terms === 'string' && typeof r.by === 'string' && typeof r.at === 'string') this.services[id] = { terms: r.terms, by: r.by.slice(0, 80), at: r.at.slice(0, 40) };
       }
     } catch (err) {
-      if (err && err.code !== 'ENOENT') console.error(`could not read ${FILE_NAME}; no weather terms are accepted:`, err.message);
+      if (err && err.code !== 'ENOENT') console.error(`could not read ${FILE_NAME}; no service's terms are accepted:`, err.message);
     }
     return this.services;
   }
@@ -63,13 +66,14 @@ class WeatherTerms {
     fs.renameSync(tmp, this.file);
   }
 
-  // What a page shows: every registered service with its terms address, credit and whether (and by whom) it is accepted.
+  // What a page shows: every registered service with its kind ('weather' or 'issues'), terms address, credit and whether (and
+  // by whom) it is accepted. `adapters` are [{ kind, adapter }].
   view(adapters) {
-    return adapters.map((a) => {
+    return adapters.map(({ kind, adapter: a }) => {
       const r = this.of(a);
-      return { id: a.id, name: a.name, credit: a.credit, terms: a.terms || '', accepted: Boolean(r), ...(r ? { by: r.by, at: r.at } : {}) };
+      return { id: a.id, kind, name: a.name, credit: a.credit || '', terms: a.terms || '', accepted: Boolean(r), ...(r ? { by: r.by, at: r.at } : {}) };
     });
   }
 }
 
-module.exports = { WeatherTerms, FILE_NAME };
+module.exports = { ServiceTerms, FILE_NAME };

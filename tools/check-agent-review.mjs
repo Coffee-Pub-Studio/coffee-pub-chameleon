@@ -215,6 +215,7 @@ await test('the shared delete path: held first, deleted with its children, sched
     produceOf: () => null,
     enabledModule: () => ({ manifest }),
     putModuleValue: () => ({}),
+    pulledRefusal: () => null,
   });
   const ctx = { manifest, scopeKey: 'space:camp01', by: 'ana00001', hide: null, who: {} };
   moduleData.put('polls', ctx.scopeKey, 'poll:p1', { question: 'Lunch?' }, { by: 'mia00001' });

@@ -50,6 +50,7 @@ const { Tokens } = require('./tokens');
 const { AgentLog } = require('./agent-log');
 const { AgentRecords } = require('./agent-records');
 const { agentModuleKeys } = require('./agent-routes');
+const { IssuePulls } = require('./issues');
 
 // The same read-access guard index.js's route handlers use (its own moduleCan), needed here only for
 // ModuleHooks' resolveRecipients. Duplicated rather than shared, since it is three lines and pure, and this file
@@ -84,6 +85,8 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   // file when a part cannot finish, and nothing is built.
   migrateEnvironment(dataDir, { log });
   const store = new Store(dataDir);
+  // Which spaces pull a repository's issues into Planner - Projects (server/issues.js): issues.json, this environment's own.
+  const issuePulls = new IssuePulls(dataDir);
   const modules = new ModuleManager(dataDir);
   const moduleData = new ModuleData(modules.dir);
   // What a Clear took, held for its Undo (server/module-holds.js); index.js sets runIn and onExpire.
@@ -334,7 +337,7 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
     store, modules, moduleData, moduleHolds, moduleHooks, chatHistory, attention, facts, tags, moduleLinks, moduleBus, moduleSettings, ai, moduleUploads, vault,
     geocodeCache, regionCutJobs, moduleLimits, limiter, live, liveEvents, moduleLive, invites, inviteEvents, themeEvents, moduleEvents, chatPictures, chatPosts, chatPreviewsAsked, iconSvgs,
     moduleActivity, noteActivity, saveActivity, externalCalendars, guestAgreements, accessRequests, accessAddresses, guestRegister, guestLimits, newGuestSessions,
-    tokens, agentLog, agentRecords,
+    tokens, agentLog, agentRecords, issuePulls,
   };
 }
 

@@ -1,0 +1,24 @@
+// Test only: stands in for GitHub so tools/check-issues.mjs can run the whole pull against its own fake service. It is not an
+// issue service: it is registered only when ISSUES_TEST_STANDIN is set (to the origin of the check's fake service, http allowed),
+// and it must never be offered to a person. It speaks GitHub's REST shape, so the GitHub adapter's reading is what is checked.
+// Its timings come from the check: ISSUES_TEST_POLL_MS (the timer's wait), ISSUES_TEST_FULL_MS (how long a full pull lasts) and
+// ISSUES_TEST_GAP_MS (the least time between two pulls asked by a person); each defaults to GitHub's.
+'use strict';
+
+const { makeAdapter } = require('./github');
+
+const ms = (name, fallback) => { const n = Number(process.env[name]); return Number.isFinite(n) && n >= 0 ? n : fallback; };
+const origin = new URL(process.env.ISSUES_TEST_STANDIN || 'http://127.0.0.1:9').origin;
+
+module.exports = {
+  ...makeAdapter({
+    id: 'issues-standin',
+    name: 'Test stand-in (not an issue service)',
+    origin,
+    terms: 'https://example.test/issues-standin-terms',
+    allowHttp: true,
+    pollMs: ms('ISSUES_TEST_POLL_MS', 10 * 60 * 1000),
+    fullEveryMs: ms('ISSUES_TEST_FULL_MS', 24 * 3600 * 1000),
+  }),
+  nowGapMs: ms('ISSUES_TEST_GAP_MS', 60 * 1000),
+};

@@ -2257,6 +2257,15 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
       return api('GET', url('/weather', scopeOf('space'), { from: day(from), to: day(to) }));
     },
+    // The space's issue pull (GET and POST /api/spaces/:id/issues-pull[/now]): only inside a space; the server decides who may.
+    async 'issues.status'() {
+      if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
+      return api('GET', `/api/spaces/${encodeURIComponent(spaceId)}/issues-pull${guestToken ? `?guest=${encodeURIComponent(guestToken)}` : ''}`);
+    },
+    async 'issues.pullNow'() {
+      if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
+      return api('POST', `/api/spaces/${encodeURIComponent(spaceId)}/issues-pull/now`, {});
+    },
     // Lookups answered by the server (a module that declares `"lookups": ["flight"]`): a flight from the schedule this server
     // learned from saved flights, an airport by its code, and teaching it a saved flight. Only `flight` exists today.
     async 'lookup.flight'({ number, date }) {

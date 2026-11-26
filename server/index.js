@@ -39,7 +39,11 @@ const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
 const weatherProviders = require('./weather-providers');
-const { WeatherTerms } = require('./weather-terms');
+const { ServiceTerms } = require('./service-terms');
+const issueProviders = require('./issue-providers');
+const issuesLib = require('./issues');
+// The services' terms are one record keyed by adapter id (server/service-terms.js), so no id may name a weather and an issue service.
+for (const p of issueProviders.list()) if (Object.hasOwn(weatherProviders.providers, p.id)) throw new Error(`the service id ${p.id} names both a weather and an issue service`);
 const { weatherSpaceDay } = require('./weather-space');
 const { WeatherCache, weatherDays, wouldAsk: weatherWouldAsk, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
 const airportList = require('./airports');
@@ -437,6 +441,7 @@ const chatPictures = proxyFor('chatPictures');
 const iconSvgs = proxyFor('iconSvgs');
 const moduleActivity = proxyFor('moduleActivity');
 const externalCalendars = proxyFor('externalCalendars');
+const issuePulls = proxyFor('issuePulls');
 function noteActivity(...args) { return currentEnvironment().noteActivity(...args); }
 // The shared delete path and the Undo of an agent's change (server/delete-path.js; plan-agent-edit-delete.md, steps 4 and 5),
 // given what it needs by name. Each is looked up when it runs, so the order these are defined in below does not matter.
@@ -455,6 +460,7 @@ const deletePath = createDeletePath({
   produceOf: (id, kind) => modules.enabled(id)?.manifest.refs.produces.find((p) => p.kind === kind) || null,
   enabledModule: (id) => modules.enabled(id),
   putModuleValue: (ctx, key, value, o) => putModuleValue(ctx, key, value, o),
+  pulledRefusal: (ctx, key) => pulledRefusal(ctx, key),
 });
 
 // The product host, the console host and the reserved names (server/domains.js), read before anything is written, so a
@@ -582,7 +588,7 @@ function migrateIfNeeded() {
   if (fs.existsSync(dest)) throw new Error(`${dest} already exists; migration already ran`);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(DATA_DIR)) {
-    if (['host.json', 'fontawesome-pro', 'environments', 'environments-deleted', 'pre-names-host', 'flight-schedule.json', 'weather-terms.json', 'vault'].includes(entry)) continue; // the flight schedule is the host's; the vault folder holds every environment's files
+    if (['host.json', 'fontawesome-pro', 'environments', 'environments-deleted', 'pre-names-host', 'flight-schedule.json', 'service-terms.json', 'vault'].includes(entry)) continue; // the flight schedule and the services' terms are the host's; the vault folder holds every environment's files
     fs.renameSync(path.join(DATA_DIR, entry), path.join(dest, entry));
   }
   hostRegistry.addEnvironment({ slug, name: slug, plan: { modules: 'all' } });
@@ -677,8 +683,9 @@ process.on('exit', () => flightSchedule.flush());
 // The weather kept for a while, one file for the whole server (server/weather.js): keyed by a rounded position and a day only.
 const weatherCache = new WeatherCache(DATA_DIR);
 process.on('exit', () => weatherCache.flush());
-// Which weather services' terms a person in authority has accepted, once for the whole server (server/weather-terms.js).
-const weatherTerms = new WeatherTerms(DATA_DIR);
+// Which outside services' terms (weather and issues) a person in authority has accepted, once for the whole server
+// (server/service-terms.js).
+const serviceTerms = new ServiceTerms(DATA_DIR);
 
 // On a first start with BASE_DOMAIN where a shared folder (documentation/plans/plan-environments.md, "Shared files:
 // the host's map") does not exist yet: if exactly one environment has files in its own, pre-shared folder for
@@ -3590,19 +3597,19 @@ function productAddress(req, res) {
   res.json(answer.free && addressOnDisk(answer.slug) ? { slug: answer.slug, free: false, reason: 'taken' } : answer);
 }
 hostRouter.get('/api/product/address', productAddress);
-// The weather terms' host routes (accepted once for the host; see 'who accepts a weather service's terms', below) belong here, before the catch-all.
-hostRouter.get('/api/host/weather/terms', requireHostAdmin, (_req, res) => res.json(weatherTermsView(true)));
+// The services' terms host routes (accepted once for the host; see 'who accepts a service's terms', below) belong here, before the catch-all.
+hostRouter.get('/api/host/weather/terms', requireHostAdmin, (_req, res) => res.json(serviceTermsView(true)));
 hostRouter.put('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
-  const adapter = weatherTermsPut(req, res);
+  const adapter = serviceTermsPut(req, res);
   if (!adapter) return;
-  weatherTerms.accept(adapter, currentHostAdmin(req).login || currentHostAdmin(req).displayName);
-  res.json(weatherTermsView(true));
+  serviceTerms.accept(adapter, currentHostAdmin(req).login || currentHostAdmin(req).displayName);
+  res.json(serviceTermsView(true));
 });
 hostRouter.delete('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
-  const adapter = weatherAdapter(req.params.service);
-  if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
-  weatherTerms.withdraw(adapter);
-  res.json(weatherTermsView(true));
+  const adapter = serviceAdapter(req.params.service);
+  if (!adapter) return res.status(404).json({ error: NO_SUCH_SERVICE });
+  serviceTerms.withdraw(adapter);
+  res.json(serviceTermsView(true));
 });
 hostRouter.use((_req, res) => res.status(404).json({ error: 'not found' }));
 
@@ -7305,7 +7312,8 @@ function moduleSpaceAccess(entry, who, space) {
 // module"). Someone not in the space is told so first, whatever is on there, so they learn nothing of its modules; for
 // someone in it, the module is not on there (its template leaves it out), which is nothing personal.
 function moduleSpaceRefusal(entry, who, space, subject = `this ${word('module')}`) {
-  const inSpace = who.user ? hasOwnerRights(who.user) || userIsIn(who.user, space) : Boolean(who.guestSpace) && who.guestSpace.id === space.id; // a keyed viewer (the access key) is in no space
+  // The issue pull's writer (who.system, issuePullWho) works in the space it pulls into, as an owner would.
+  const inSpace = who.system ? true : who.user ? hasOwnerRights(who.user) || userIsIn(who.user, space) : Boolean(who.guestSpace) && who.guestSpace.id === space.id; // a keyed viewer (the access key) is in no space
   if (!inSpace) return `${subject} is not available in that ${word('space')} for you`;
   if (!modules.isOnIn(entry.id, space.id)) return `${subject} is not on in that ${word('space')}`;
   return null;
@@ -7398,7 +7406,7 @@ function moduleAccessAt({ manifest, entry }, who, scope, space, need) {
   const guard = need === 'own' ? (scope === 'person' && manifest.access?.personWrite ? 'personWrite' : 'write') : need;
   if (!moduleCan(manifest, perms, guard)) return { status: 403, error: `your role can't do that in this ${word('module')}` };
   if (shutFromGuests(who, manifest, spaceId)) return { status: 403, error: guestsShutRefusal(manifest) };
-  return { ctx: { manifest, entry, scope, spaceId, scopeKey: scopeKeyOf(scope, { spaceId, userKey: who.user?.key }), who, perms, by: who.user?.key || 'guest', hide: hiddenFor(who, manifest, spaceId) } };
+  return { ctx: { manifest, entry, scope, spaceId, scopeKey: scopeKeyOf(scope, { spaceId, userKey: who.user?.key }), who, perms, by: who.system ? issuesLib.SYSTEM_BY : who.user?.key || 'guest', hide: hiddenFor(who, manifest, spaceId) } };
 }
 
 // The fields of a module's stored values this viewer may not receive here (the module's guards.hidden,
@@ -7406,13 +7414,13 @@ function moduleAccessAt({ manifest, entry }, who, scope, space, need) {
 // in that space (its `guestsSeeHidden`). [] for anyone else.
 function hiddenFor(who, manifest, spaceId) {
   const fields = manifest.guards?.hidden;
-  if (!fields || !fields.length || who.user) return [];
+  if (!fields || !fields.length || who.user || who.system) return [];
   return spaceId && store.spaceById(spaceId)?.guestsSeeHidden === true ? [] : fields;
 }
 // Whether this viewer gets none of the module's data at all: guards whose hidden fields can't be read (guards.shut,
 // server/module-guards.js unreadableGuards) keep everything from whoever hiddenFor would keep those fields from.
 function shutFromGuests(who, manifest, spaceId) {
-  if (!manifest.guards?.shut || who.user) return false;
+  if (!manifest.guards?.shut || who.user || who.system) return false;
   return !(spaceId && store.spaceById(spaceId)?.guestsSeeHidden === true);
 }
 const guestsShutRefusal = (manifest) => `${modules.shownName(manifest)}'s rules can't be read, so ${word('guest', { many: true })} can't see what it holds. Ask the ${word('admin')} to update it.`;
@@ -13439,7 +13447,7 @@ const MAIN_PLACE_MAX = 500;
 const mainPlaces = new Map(); // `${environment slug}\n${module with the search}\n${text, folded}` -> { lat, lon (null: not found), at }. In memory only.
 // Where the weather comes from now: { provider (a registered adapter), credit, units }, or null: off. Off is the Weather module
 // not installed or not on in this environment, its service None, a service the server no longer has, or one whose terms no
-// person in authority has accepted (weatherTerms). Nothing is asked of any service while it is null.
+// person in authority has accepted (serviceTerms). Nothing is asked of any service while it is null.
 function weatherSetup() {
   const found = modules.enabled('weather');
   if (!found) return null;
@@ -13447,7 +13455,7 @@ function weatherSetup() {
   const chosen = values.service;
   if (typeof chosen !== 'string' || !Object.hasOwn(weatherProviders.providers, chosen)) return null;
   const provider = weatherProviders.providers[chosen];
-  if (!weatherTerms.accepted(provider)) return null;
+  if (!serviceTerms.accepted(provider)) return null;
   return { provider, credit: provider.credit, units: values.units === 'f' ? 'f' : 'c' };
 }
 // The first stop of each day that is at a place with a position, as this asker may see that place: Map(day -> { lat, lon }).
@@ -13725,39 +13733,332 @@ app.get('/api/spaces/:id/weather', async (req, res) => {
   const [lat, lon] = pos.split(',').map(Number);
   await weatherFinish(res, setup, answer, inWindow, new Map(inWindow.map((d) => [d, { lat, lon }])), count);
 });
-// --- who accepts a weather service's terms ----------------------------------------------------------------------------------
-// A service's terms are accepted by a person in authority, once for the whole server (server/weather-terms.js): on a single
-// install the signed-in `admin`; on a hosted one the host's administrator, on the host console. Never an agent, never software
-// acting alone: the call needs a signed-in administrator's own session, a same-origin write and an explicit `{ accept: true }`.
-// An owner may read which services are accepted (to choose one in the Weather module's settings), not accept.
-const weatherAdapter = (id) => (Object.hasOwn(weatherProviders.providers, id) ? weatherProviders.providers[id] : null);
+// --- who accepts a service's terms ------------------------------------------------------------------------------------------
+// An outside service's terms (a weather service's, an issue service's) are accepted by a person in authority, once for the whole
+// server (server/service-terms.js): on a single install the signed-in `admin`; on a hosted one the host's administrator, on the
+// host console. Never an agent, never software acting alone: the call needs a signed-in administrator's own session, a
+// same-origin write and an explicit `{ accept: true }`. An owner may read which services are accepted (to choose one in the
+// Weather module's settings, or before turning an issue pull on), not accept. The routes keep their weather paths until the
+// Service terms section replaces the Weather terms one (plan-github-pull.md, step 3); they list and take every service.
+const serviceAdapters = () => [...weatherProviders.list().map((adapter) => ({ kind: 'weather', adapter })), ...issueProviders.list().map((adapter) => ({ kind: 'issues', adapter }))];
+const serviceAdapter = (id) => (Object.hasOwn(weatherProviders.providers, id) ? weatherProviders.providers[id] : Object.hasOwn(issueProviders.providers, id) ? issueProviders.providers[id] : null);
 const isServerAdmin = (req) => { const u = currentUser(req); return Boolean(u && u.role === 'admin' && !u.hostAdmin && !u.agent); };
-const WEATHER_TERMS_HOSTED = 'On a hosted server the host\'s administrator accepts a weather service\'s terms, on the host console.';
-const WEATHER_TERMS_ADMIN = 'Only the server\'s administrator can accept a weather service\'s terms.';
-const weatherTermsView = (mayAccept) => ({ services: weatherTerms.view(weatherProviders.list()), mayAccept });
-function weatherTermsPut(req, res) {
-  const adapter = weatherAdapter(req.params.service);
-  if (!adapter) { res.status(404).json({ error: 'This server has no such weather service.' }); return null; }
+const WEATHER_TERMS_HOSTED = 'On a hosted server the host\'s administrator accepts a service\'s terms, on the host console.';
+const WEATHER_TERMS_ADMIN = 'Only the server\'s administrator can accept a service\'s terms.';
+const NO_SUCH_SERVICE = 'This server has no such service.';
+const serviceTermsView = (mayAccept) => ({ services: serviceTerms.view(serviceAdapters()), mayAccept });
+function serviceTermsPut(req, res) {
+  const adapter = serviceAdapter(req.params.service);
+  if (!adapter) { res.status(404).json({ error: NO_SUCH_SERVICE }); return null; }
   if (!req.body || req.body.accept !== true) { res.status(400).json({ error: `Send { "accept": true } to accept ${adapter.name}'s terms${adapter.terms ? ` (${adapter.terms})` : ''}.` }); return null; }
   return adapter;
 }
-app.get('/api/weather/terms', requireOwner, (req, res) => res.json(weatherTermsView(!hostRegistry && isServerAdmin(req))));
+app.get('/api/weather/terms', requireOwner, (req, res) => res.json(serviceTermsView(!hostRegistry && isServerAdmin(req))));
 app.put('/api/weather/terms/:service', requireOwner, (req, res) => {
   if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
   if (!isServerAdmin(req)) return res.status(403).json({ error: WEATHER_TERMS_ADMIN });
-  const adapter = weatherTermsPut(req, res);
+  const adapter = serviceTermsPut(req, res);
   if (!adapter) return;
-  weatherTerms.accept(adapter, currentUser(req).login || currentUser(req).displayName);
-  res.json(weatherTermsView(true));
+  serviceTerms.accept(adapter, currentUser(req).login || currentUser(req).displayName);
+  res.json(serviceTermsView(true));
 });
 app.delete('/api/weather/terms/:service', requireOwner, (req, res) => {
   if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
   if (!isServerAdmin(req)) return res.status(403).json({ error: WEATHER_TERMS_ADMIN });
-  const adapter = weatherAdapter(req.params.service);
-  if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
-  weatherTerms.withdraw(adapter);
-  res.json(weatherTermsView(true));
+  const adapter = serviceAdapter(req.params.service);
+  if (!adapter) return res.status(404).json({ error: NO_SUCH_SERVICE });
+  serviceTerms.withdraw(adapter);
+  res.json(serviceTermsView(true));
 });
+// --- the issue pull (documentation/plans/plan-github-pull.md, step 1) -------------------------------------------------------
+// A repository's issues pulled into one space's Planner - Projects, one way (server/issues.js; the services in
+// server/issue-providers/). An environment's owner turns it on for a space and names the repository; the timer pulls every
+// `pollMs` (GitHub: 10 minutes) with `since` and the last etag, and a full pull every `fullEveryMs` (a day) finds what is gone;
+// anyone with Projects' `edit` may ask for a pull now. Nothing is asked of the service until an administrator has accepted its
+// terms (serviceTerms). Every write is the pull's own writer's (issuePullWho): `by` is system:issues, the module's rights an
+// owner's (as a template's starter content, fillStarter), through putModuleValue, so the module's guards, the key rule and the
+// size caps hold. While a pull is on, a person's write to the plan or the board is refused (pulledRefusal). One pull at a time
+// across the server, so one request at a time goes to a service.
+const issuePullWho = Object.freeze({ user: null, guestSpace: null, templateRights: true, system: 'issues' });
+const issueAdapterOf = (id) => (typeof id === 'string' && Object.hasOwn(issueProviders.providers, id) ? issueProviders.providers[id] : null);
+const issueToken = (adapter) => (adapter.tokenEnv && typeof process.env[adapter.tokenEnv] === 'string' ? process.env[adapter.tokenEnv].trim() : '');
+const isoAt = (ms) => new Date(ms).toISOString();
+const issuesInFlight = new Map(); // "<environment>|<space>" -> the pull under way
+let issueQueue = Promise.resolve();
+const issueFlightKey = (env, spaceId) => `${env.slug || ''}|${spaceId}`;
+
+// Why a person may not write `key` of the module where ctx works (null for a whole Clear or its Undo), or null: the space's plan
+// is filled by an issue pull that is on, and only the pull writes its plan and its board.
+function pulledRefusal(ctx, key) {
+  if (ctx.who.system === 'issues' || ctx.manifest.id !== issuesLib.MODULE_ID || ctx.scope !== 'space' || !ctx.spaceId) return null;
+  const rec = issuePulls.get(ctx.spaceId);
+  if (!rec || !rec.on) return null;
+  if (key !== null && !/^(plan|board):/.test(String(key))) return null;
+  const adapter = issueAdapterOf(rec.provider);
+  return { status: 403, error: `This comes from ${adapter ? adapter.name : 'another service'}. Change it there.` };
+}
+
+// The pull's writer in a space: { ctx } (moduleAccessAt's) or { error } when Projects is not there to write.
+function issuePullAt(space) {
+  const found = modules.enabled(issuesLib.MODULE_ID);
+  if (!found || !space) return { error: `${found ? modules.shownName(found.manifest) : 'Planner - Projects'} is not on in this ${word('space')}.` };
+  const at = moduleAccessAt(found, issuePullWho, 'space', space, 'own');
+  return at.error ? { error: `${modules.shownName(found.manifest)} is not on in this ${word('space')}.` } : { ctx: at.ctx };
+}
+
+// Writes `value` at `key` as the pull, when it would change what is stored. Answers whether it wrote.
+function issueWrite(ctx, key, value, stored) {
+  if (stored.has(key) && issuesLib.sameValue(stored.get(key), value)) return false;
+  try {
+    const r = putModuleValue(ctx, key, value, {});
+    if (r.error) { console.warn(`The issue pull could not write ${key}: ${r.error}`); return false; }
+  } catch (err) {
+    if (!moduleData.get(ctx.manifest.id, ctx.scopeKey, key)) { console.warn(`The issue pull could not write ${key}: ${err.message}`); return false; }
+  }
+  stored.set(key, value);
+  return true;
+}
+function issueRemove(ctx, key, stored) {
+  try {
+    const r = deletePath.removeObject(ctx, key, {});
+    if (r.error) { console.warn(`The issue pull could not remove ${key}: ${r.error}`); return false; }
+  } catch (err) {
+    console.warn(`The issue pull could not remove ${key}: ${err.message}`);
+    return false;
+  }
+  stored.delete(key);
+  return true;
+}
+
+// The records of one pull written into the plan: the tags the labels need, one piece of work per issue (in place, under its
+// number), the milestones, and with `full` (every page read) whatever is no longer there removed. Answers { counts, error }.
+function writeIssues(ctx, rec, adapter, { list, full }) {
+  const scope = ctx.scopeKey;
+  const stored = new Map(moduleData.list(ctx.manifest.id, scope, 'plan:').map((e) => [e.key, e.value]));
+  // The labels' tags, added to the space's `tags` setting while it has room.
+  const tagIds = new Set();
+  try {
+    const now = moduleSettings.values(ctx.manifest, 'space', { spaceId: ctx.spaceId }).tags;
+    const have = Array.isArray(now) ? now : [];
+    for (const r of have) tagIds.add(r.id);
+    const add = [...issuesLib.tagRowsOf(list).values()].filter((r) => !tagIds.has(r.id)).slice(0, Math.max(0, issuesLib.MAX_TAGS - have.length));
+    if (add.length) {
+      moduleSettings.set(ctx.manifest, 'space', { spaceId: ctx.spaceId }, { tags: [...have, ...add] }, issuesLib.SYSTEM_BY);
+      for (const r of add) tagIds.add(r.id);
+    }
+  } catch (err) {
+    console.warn(`The issue pull could not add its tags: ${err.message}`);
+  }
+  const byNumber = new Map();
+  for (const r of list) byNumber.set(r.number, r); // oldest change first, so the newest of a number wins
+  const known = new Map();
+  for (const r of byNumber.values()) if (r.milestone) known.set(r.milestone.number, r.milestone);
+  const at = { repo: rec.repo, provider: adapter.id, tagIds };
+  let written = 0;
+  let removed = 0;
+  let error = '';
+  let size = [...stored.keys()].filter(issuesLib.isPulledKey).length;
+  for (const r of [...byNumber.values()].sort((a, b) => a.number - b.number)) {
+    const key = `plan:gh-${r.number}`;
+    if (!stored.has(key) && size >= issuesLib.MAX_ENTRIES) { error = issuesLib.SAY.full; continue; }
+    if (!stored.has(key)) size += 1;
+    if (issueWrite(ctx, key, issuesLib.workOf(r, at), stored)) written += 1;
+  }
+  if (full) {
+    for (const key of [...stored.keys()]) {
+      const m = issuesLib.WORK_KEY.exec(key);
+      if (m && !byNumber.has(Number(m[1])) && issueRemove(ctx, key, stored)) removed += 1;
+    }
+  }
+  const works = new Map([...stored].filter(([k]) => issuesLib.WORK_KEY.test(k)));
+  const milestones = issuesLib.milestonesOf(works, known, stored, at);
+  for (const [key, value] of milestones) if (issueWrite(ctx, key, value, stored)) written += 1;
+  for (const key of [...stored.keys()]) if (issuesLib.MILESTONE_KEY.test(key) && !milestones.has(key) && issueRemove(ctx, key, stored)) removed += 1;
+  const done = [...works.values()].filter((v) => v.done).length;
+  return { counts: { total: works.size, open: works.size - done, done, written, removed }, error };
+}
+
+// One pull of one space, in the current environment. Answers the record after it.
+async function pullIssues(spaceId) {
+  const rec = issuePulls.get(spaceId);
+  if (!rec || !rec.on) return rec;
+  const adapter = issueAdapterOf(rec.provider);
+  const now = Date.now();
+  if (!adapter) return issuePulls.set(spaceId, { error: 'This server has no such service.', next: '' });
+  const next = (ms) => isoAt(Date.now() + ms);
+  if (!serviceTerms.accepted(adapter)) return issuePulls.set(spaceId, { error: issuesLib.SAY.terms(adapter.name), next: next(adapter.pollMs) });
+  const before = issuePullAt(store.spaceById(spaceId));
+  if (before.error) return issuePulls.set(spaceId, { error: before.error, next: next(adapter.pollMs) });
+  if (rec.restUntil && Date.parse(rec.restUntil) > now) return rec;
+  const full = !rec.fullAt || now - Date.parse(rec.fullAt) >= adapter.fullEveryMs;
+  issuePulls.set(spaceId, { tried: isoAt(now) });
+  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: issueToken(adapter), full }, { now });
+  // Turned off, or turned to another repository, while the service was asked: what it answered is not written.
+  const cur = issuePulls.get(spaceId);
+  if (!cur || !cur.on || cur.repo !== rec.repo || cur.provider !== rec.provider) return cur;
+  const wait = Math.max(adapter.pollMs, got.pollMs || 0);
+  if (!got.ok) {
+    if (got.restUntil) return issuePulls.set(spaceId, { error: got.error, restUntil: isoAt(got.restUntil), next: isoAt(Math.max(got.restUntil, Date.now())) });
+    return issuePulls.set(spaceId, { error: got.error, next: next(wait) });
+  }
+  if (got.notModified) return issuePulls.set(spaceId, { error: '', restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag });
+  const at = issuePullAt(store.spaceById(spaceId));
+  if (at.error) return issuePulls.set(spaceId, { error: at.error, next: next(wait) });
+  const out = writeIssues(at.ctx, cur, adapter, { list: got.records, full: full && got.complete });
+  const newest = got.records.map((r) => r.updated).filter(Boolean).sort().pop() || '';
+  return issuePulls.set(spaceId, {
+    error: out.error, restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag,
+    since: newest && newest > (cur.since || '') ? newest : cur.since,
+    ...(full ? { fullAt: isoAt(now) } : {}),
+    counts: out.counts,
+  });
+}
+
+// A pull of a space in `env`, after the one under way (one at a time across the server); a pull already asked for that space is
+// the same pull.
+function pullIssuesQueued(env, spaceId) {
+  const key = issueFlightKey(env, spaceId);
+  if (issuesInFlight.has(key)) return issuesInFlight.get(key);
+  const run = issueQueue.then(() => envContext.run(env, () => pullIssues(spaceId))).catch((err) => {
+    console.error(`${env.slug ? `[${env.slug}] ` : ''}The issue pull failed: ${err.message}`);
+    return null;
+  }).finally(() => issuesInFlight.delete(key));
+  issuesInFlight.set(key, run);
+  issueQueue = run;
+  return run;
+}
+
+// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling }. Never the etag, never the token.
+function issuePullView(spaceId) {
+  const rec = issuePulls.get(spaceId);
+  const pulling = issuesInFlight.has(issueFlightKey(currentEnvironment(), spaceId));
+  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling };
+  const adapter = issueAdapterOf(rec.provider);
+  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling };
+}
+
+// The space a pull route names, for someone who holds Projects' `need` there ('read' or 'own'), or null after the refusal.
+function issuePullPlace(req, res, need) {
+  const who = moduleViewer(req);
+  if (!who || who.keyed) return void res.status(401).json({ error: 'Sign in first.' });
+  const space = store.spaceById(req.params.id);
+  if (!space || closedTo(req, space)) return void res.status(entryStatus(req, space)).json(entryBody(req, space, `There is no such ${word('space')}.`));
+  const found = modules.enabled(issuesLib.MODULE_ID);
+  if (!found) return void res.status(404).json({ error: `Planner - Projects is not on in this ${word('space')}.` });
+  const at = moduleAccessAt(found, who, 'space', space, need);
+  if (at.error) return void res.status(at.status).json({ error: at.error });
+  return { who, space, found, ctx: at.ctx };
+}
+
+// Anyone who may read the plan: whether a pull is on, from where, when it last ran and runs next, and its last failure.
+app.get('/api/spaces/:id/issues-pull', (req, res) => {
+  const place = issuePullPlace(req, res, 'read');
+  if (!place) return;
+  res.json(issuePullView(place.space.id));
+});
+
+// The environment's owner turns a pull on for the space ({ on: true, repo: "owner/name", provider? }, GitHub when no provider
+// is named) or off ({ on: false }). On: only into a plan that holds nothing but this repository's own pulled work (409 says to
+// clear it); the board becomes the five columns and the `boardColumns` setting `priority`; a first pull starts. Off: the work
+// stays as ordinary entries, editable again.
+app.put('/api/spaces/:id/issues-pull', (req, res) => {
+  const place = issuePullPlace(req, res, 'read');
+  if (!place) return;
+  const { who, space, found } = place;
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const provider = body.provider === undefined ? 'github' : body.provider;
+  const adapter = issueAdapterOf(provider);
+  const name = adapter ? adapter.name : 'GitHub';
+  if (!who.user || who.user.agent || !hasOwnerRights(who.user)) return res.status(403).json({ error: `Only ${word('owner', { a: true })} can turn the pull from ${name} on or off.` });
+  if (typeof body.on !== 'boolean') return res.status(400).json({ error: 'Send on as true or false.' });
+  if (!adapter) return res.status(400).json({ error: 'This server has no such service.' });
+  const had = issuePulls.get(space.id);
+  if (!body.on) {
+    if (!had) return res.json(issuePullView(space.id));
+    issuePulls.set(space.id, { on: false, next: '' });
+    return res.json(issuePullView(space.id));
+  }
+  const repo = issuesLib.cleanRepo(adapter, body.repo);
+  if (!repo) return res.status(400).json({ error: 'Name the repository as owner/name.' });
+  const at = issuePullAt(space);
+  if (at.error) return res.status(409).json({ error: at.error });
+  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name) });
+  // A pulled space owns its plan: anything there that is not this repository's own pulled work must go first. A pulled key whose
+  // `source` was dropped (written while the pull was off, by a page that does not keep it) is still the pull's own.
+  const others = moduleData.list(found.manifest.id, at.ctx.scopeKey, 'plan:').filter((e) => {
+    if (!issuesLib.isPulledKey(e.key)) return true;
+    const src = e.value && e.value.source;
+    return Boolean(src) && (src.repo !== repo || src.from !== adapter.id);
+  });
+  if (others.length) return res.status(409).json({ error: `Clear the plan first, or use a new ${word('space')}.` });
+  const now = Date.now();
+  const moved = !had || had.repo !== repo || had.provider !== adapter.id;
+  issuePulls.set(space.id, {
+    // The first pull after turning on is a full one, so anything changed while it was off is put back as the service has it.
+    provider: adapter.id, repo, on: true, next: isoAt(now), error: '', by: who.user.key, at: isoAt(now), fullAt: '', etag: '',
+    ...(moved ? { since: '', last: '', tried: '', counts: {} } : {}),
+  });
+  // The board: exactly the five columns, in the module's words for this space; the setting to match.
+  const labels = effectiveLabels(found.manifest, store.lookOf(space.id).labels[found.manifest.id]);
+  const board = issuesLib.boardOf((k) => (labels[k] && labels[k].one) || '');
+  const stored = new Map(moduleData.list(found.manifest.id, at.ctx.scopeKey, 'board:').map((e) => [e.key, e.value]));
+  issueWrite(at.ctx, 'board:main', board, stored);
+  try {
+    moduleSettings.set(found.manifest, 'space', { spaceId: space.id }, { boardColumns: 'priority' }, issuesLib.SYSTEM_BY);
+  } catch (err) {
+    console.warn(`The issue pull could not set the board's columns setting: ${err.message}`);
+  }
+  pullIssuesQueued(currentEnvironment(), space.id);
+  res.json(issuePullView(space.id));
+});
+
+// Someone with Projects' `edit` asks for a pull now: at most one a minute (429), never while the service asked to wait (429),
+// and only with its terms accepted (409). Answers the record after the pull, or 502 with the service's failure.
+app.post('/api/spaces/:id/issues-pull/now', async (req, res) => {
+  const place = issuePullPlace(req, res, 'own');
+  if (!place) return;
+  const { space } = place;
+  const rec = issuePulls.get(space.id);
+  if (!rec || !rec.on) return res.status(409).json({ error: `No pull is on in this ${word('space')}.` });
+  const adapter = issueAdapterOf(rec.provider);
+  if (!adapter) return res.status(409).json({ error: 'This server has no such service.' });
+  if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name) });
+  const at = issuePullAt(space);
+  if (at.error) return res.status(409).json({ error: at.error });
+  const now = Date.now();
+  const env = currentEnvironment();
+  if (!issuesInFlight.has(issueFlightKey(env, space.id))) {
+    const rest = rec.restUntil ? Date.parse(rec.restUntil) - now : 0;
+    if (rest > 0) {
+      const s = Math.ceil(rest / 1000);
+      return void res.set('Retry-After', String(s)).status(429).json({ error: `${issuesLib.SAY.wait(adapter.name)} Try again in ${s < 120 ? `${s} seconds` : `${Math.ceil(s / 60)} minutes`}.` });
+    }
+    const gap = Number.isFinite(adapter.nowGapMs) ? adapter.nowGapMs : issuesLib.NOW_GAP_MS;
+    const since = rec.tried ? now - Date.parse(rec.tried) : Infinity;
+    if (since < gap) {
+      const s = Math.max(1, Math.ceil((gap - since) / 1000));
+      return void res.set('Retry-After', String(s)).status(429).json({ error: `It was pulled a moment ago. Try again in ${s} ${s === 1 ? 'second' : 'seconds'}.` });
+    }
+  }
+  await pullIssuesQueued(env, space.id);
+  const view = issuePullView(space.id);
+  if (view.error) return res.status(502).json({ ...view, error: view.error });
+  res.json(view);
+});
+
+// The timer: once a minute, every pull that is on and due, in each environment that is loaded.
+setInterval(() => {
+  for (const env of environments.values()) {
+    try {
+      envContext.run(env, () => {
+        const now = Date.now();
+        for (const [spaceId, rec] of [...issuePulls.all()]) if (rec.on && (!rec.next || Date.parse(rec.next) <= now)) pullIssuesQueued(env, spaceId);
+      });
+    } catch (err) {
+      console.error(`${env.slug ? `[${env.slug}] ` : ''}The issue pull's timer failed: ${err.message}`);
+    }
+  }
+}, Number(process.env.ISSUES_TEST_TICK_MS) > 0 ? Number(process.env.ISSUES_TEST_TICK_MS) : 60 * 1000).unref();
 // --- flight lookup, from the server -----------------------------------------------------------------------------------------
 // A module that declares `"lookups": ["flight"]` in its manifest (the Planner) may look a flight number up in the schedule this
 // server has learned from saved flights, look an airport up by its code, and teach the schedule a saved flight. One schedule for
@@ -14588,6 +14889,9 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
 // Answers { item } or a refusal { status, error }; throws what moduleData.put throws (a bad key 400, a conflict with
 // `expected` 409, too big 413). Starter content (fillStarter) is written through this too.
 function putModuleValue(ctx, key, given, { expected = null, tz, asker = '' } = {}) {
+  // A plan an issue pull fills is the pull's to write (plan-github-pull.md, decisions 4 and 9).
+  const pulled = pulledRefusal(ctx, key);
+  if (pulled) return pulled;
   // A copy of another module's object (GitHub #857): not there for whoever may not see its original, and changed only by
   // whoever may change the original (copyWriteRefusal, below, once the value is known).
   const copyRef = takesCopies(ctx.manifest) ? copyRefAt(ctx.manifest, ctx.scopeKey, key) : null;
@@ -14744,6 +15048,8 @@ app.delete('/api/modules/:id/data', (req, res) => {
   if (!ctx) return;
   const refused = clearRefusal(ctx);
   if (refused) return res.status(refused.status).json({ error: refused.error });
+  const pulled = pulledRefusal(ctx, null);
+  if (pulled) return res.status(pulled.status).json({ error: pulled.error });
   const waiting = moduleHolds.peek(ctx.manifest.id, ctx.scopeKey);
   if (waiting) {
     // Retry-After is when the hold is over (the grace included); the sentence counts to undoUntil, the time the toast shows.
@@ -14786,6 +15092,8 @@ app.post('/api/modules/:id/data/restore', (req, res) => {
   if (!ctx) return;
   const refused = clearRefusal(ctx);
   if (refused) return res.status(refused.status).json({ error: refused.error });
+  const pulled = pulledRefusal(ctx, null);
+  if (pulled) return res.status(pulled.status).json({ error: pulled.error });
   const token = req.body?.restoreToken;
   if (typeof token !== 'string' || !token) return res.status(400).json({ error: 'Say which clear to undo: send the restoreToken its answer gave.' });
   const hold = moduleHolds.peek(ctx.manifest.id, ctx.scopeKey);

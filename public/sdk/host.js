@@ -5331,6 +5331,16 @@
       days: (o) => call('weather.days', { from: o && o.from, to: o && o.to }),
     },
 
+    // The space's issue pull (plan-github-pull.md): a repository's issues pulled into Planner - Projects by the server.
+    // status() -> { on, provider, name, repo, last, next, error, counts: { total, open, done, written, removed } | null, pulling }
+    // (`last` and `next` ISO times or '', `error` one sentence or ''); pullNow() -> the same after a pull, for someone with the
+    // plan's edit. Both only inside a space; they throw with the server's status and sentence (429 too soon or the service asked
+    // to wait, 409 not on or its terms not accepted, 502 the service failed).
+    issues: {
+      status: () => call('issues.status', {}),
+      pullNow: () => call('issues.pullNow', {}),
+    },
+
     // Lookups asked of the server (for a module whose manifest declares `"lookups": ["flight"]`):
     //   flight(number, date)        -> { flights: [{ object, line, sameWeekday, lastSeen }] }, empty when nothing is known;
     //                                  throws with the server's error ("bad number", "bad date", or the limit's sentence)
