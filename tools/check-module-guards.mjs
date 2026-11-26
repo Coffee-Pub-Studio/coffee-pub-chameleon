@@ -96,7 +96,11 @@ await test('manifest: every bundled module reads, guards and all; Polls, Budget,
     const raw = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
     const m = { guards: guards.cleanGuards(raw.guards, (raw.permissions || []).map((p) => p.key), ModuleError) };
     if (['polls', 'budget', 'research'].includes(id)) assert.ok(m.guards && m.guards.clear && m.guards.keys.length, `${id} has guards with keys`);
-    else if (id === 'schedule') assert.deepEqual(m.guards, { clear: 'clear', hidden: [], keys: [], exclusive: null, only: false }, 'schedule guards its Clear only');
+    else if (id === 'schedule') {
+      assert.equal(m.guards.clear, 'clear');
+      assert.deepEqual(m.guards.keys.map((r) => [r.key, r.need]), [['board:{id}', 'columns']], 'schedule guards its Clear, and a board by the columns right');
+      assert.deepEqual([m.guards.hidden, m.guards.exclusive, m.guards.only], [[], null, false]);
+    }
     else if (id === 'goals') assert.deepEqual(m.guards, { clear: 'clear', hidden: [], keys: [], exclusive: null, only: false }, 'goals guards its Clear only');
     else if (id !== 'travel') assert.equal(m.guards, null, `${id} declares none`);
     if (id === 'travel') assert.deepEqual(m.guards.hidden, ['cost', 'estimate', 'confirm', 'paidBy']);
@@ -495,6 +499,39 @@ try {
     assert.deepEqual([sam.budget, sam.polls, sam.todo], [false, false, true], 'sam may clear To-do, not Budget or Polls');
     const admin = await forSpace('admin');
     assert.deepEqual([admin.budget, admin.polls], [true, true]);
+  });
+
+  // Planner - Projects is not offered by the travel template, so its board is tried in a space made with the project template.
+  await test('live: the Projects board is written only by whoever has the columns right (kanban step 1)', async () => {
+    const made = await call('POST', '/api/spaces', { name: 'Board check', starter: false, template: 'project', members: [ctx.sam] });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const P = made.json.space.id;
+    const at = (key) => data('schedule', key, P);
+    await call('POST', '/api/modules/bundled/schedule/install');
+    assert.equal((await call('PATCH', '/api/modules/schedule', { enabled: true })).status, 200, 'Planner - Projects is on');
+    const board = { id: 'main', name: 'Board', field: 'column', columns: [{ id: 'todo', label: 'To do' }, { id: 'done', label: 'Done', done: true }] };
+    const plan = { kind: 'work', title: 'Write', start: '2026-03-01', end: '2026-03-02', done: false, column: 'todo' };
+    // A member has edit, so the plan is theirs to change, and the columns are not.
+    const planPut = await call('PUT', at('plan:k1'), { value: plan }, 'sam');
+    assert.equal(planPut.status, 200, `a member moves and edits the plan: ${JSON.stringify(planPut.json)}`);
+    const refused = await call('PUT', at('board:main'), { value: board }, 'sam');
+    assert.deepEqual([refused.status, refused.json.error], [403, 'Your role can\'t do that in this module.'], 'a member writing the board');
+    assert.equal((await call('GET', at('board:main'))).status, 404, 'nothing was stored');
+    // The owner (the admin) always holds it; the shape is checked.
+    assert.equal((await call('PUT', at('board:main'), { value: { ...board, columns: 'none' } })).status, 400, 'a board whose columns are not a list');
+    assert.equal((await call('PUT', at('board:main'), { value: { ...board, columns: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B', done: true }] } })).status, 400, 'a column id twice');
+    assert.equal((await call('PUT', at('board:main'), { value: board })).status, 200, 'the owner writes the board');
+    assert.equal((await call('DELETE', at('board:main'), undefined, 'sam')).status, 403, 'a member deleting it');
+    assert.equal((await call('GET', at('board:main'), undefined, 'sam')).status, 200, 'a member reads it');
+    // Given to members, they write it too; taken away, they don't.
+    assert.equal((await call('PATCH', '/api/roles/member', { 'module.schedule.columns': true })).status, 200);
+    try {
+      assert.equal((await call('PUT', at('board:main'), { value: { ...board, name: 'Ours' } }, 'sam')).status, 200, 'a member with the right');
+    } finally {
+      assert.equal((await call('PATCH', '/api/roles/member', { 'module.schedule.columns': false })).status, 200);
+    }
+    assert.equal((await call('PUT', at('board:main'), { value: { ...board, name: 'Again' } }, 'sam')).status, 403, 'a member without it again');
+    assert.equal((await call('PUT', at('Board:x'), { value: {} }, 'sam')).status, 400, 'a key that looks like the board\'s is not stored');
   });
 
   await test('live: a cost\'s amounts are checked (PB-02)', async () => {

@@ -5,7 +5,8 @@
 // schedule-lib*.js together).
 //
 // It reads, as both carriers give them (plan-agent-server-actions.md, section 1):
-//   ctx.settings      the plan's settings ({ datesRequired, ... })
+//   ctx.settings      the plan's settings ({ datesRequired, boardColumns, ... })
+//   ctx.list          the space's data by key prefix: the plan (`plan:`) and its board (`board:`)
 //   ctx.util.label    the plan's words for its kinds (the template's themed "milestone", "work", "plan")
 //   ctx.util.order    the outline's order key between two
 //   ctx.util.rollup   the outline's done and total under each entry
@@ -39,6 +40,12 @@ function scEntriesOf(ctx) {
 function scOrderAtEnd(entries, parent, between) {
   const sibs = entries.filter((e) => (e.parent || null) === (parent || null) && e.order).map((e) => e.order).sort();
   try { return between(sibs.length ? sibs[sibs.length - 1] : null, null); } catch (err) { return ''; }
+}
+// The space's board: the stored `board:main` when it reads, else the template's default (the `boardColumns` setting).
+function scBoardOf(ctx) {
+  const row = ctx.list(SC_BOARD_PREFIX).find((r) => r.key === `${SC_BOARD_PREFIX}main`);
+  const settings = ctx.settings && typeof ctx.settings === 'object' ? ctx.settings : {};
+  return scBoardFrom(row ? row.value : null, settings.boardColumns);
 }
 const scRef = (ctx, id) => ({ module: 'schedule', kind: 'plan', id, scope: 'space', space: ctx.space.id });
 const scWrite = (e) => ({ key: SC_PREFIX + e.id, value: scValue(e) });
@@ -116,7 +123,10 @@ const ACTION_HANDLERS = {
   addMilestone: (input, ctx) => scAdd('milestone', input, ctx),
   addWork: (input, ctx) => scAdd('work', input, ctx),
   addNote: (input, ctx) => scAdd('note', input, ctx),
-  setDone: (input, ctx) => scChange(input, ctx, (e, f) => scSetDone(e, input.done, { label: f.label })),
+  // The tick moves work with it (scSetDone's board): into the first done column, or out into the first column without the flag.
+  setDone: (input, ctx) => scChange(input, ctx, (e, f) => scSetDone(e, input.done, { label: f.label, board: scBoardOf(ctx) })),
+  // Moves work to a column by its id; `done` follows the column's flag, and the milestones' done and progress in the same answer.
+  setColumn: (input, ctx) => scChange(input, ctx, (e, f) => scSetColumn(e, input.column, scBoardOf(ctx), { label: f.label })),
   // Only the fields given change. A day sent as "" (the manifest's `clears`) clears it, as emptying it in the editor does; so do
   // the owners and the notes.
   updateEntry: (input, ctx) => scChange(input, ctx, (e, f) => scUpdate(e, input, { datesRequired: f.datesRequired, label: f.label, people: f.people, space: f.space })),

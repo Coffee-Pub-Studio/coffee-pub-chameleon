@@ -21,7 +21,21 @@
 //   order    the outline's order key (host.util.order)
 //   by       who added it
 //   ref      a pointer to the object it was made from, or absent
+//   column   work only: the id of its column on the board (see the board below), or absent
+//
+// A board, stored under `board:<id>` (the first and only one is `main`): { id, name, field: 'column', columns: [{ id, label, done? }],
+// rowsBy? }. `done` stays stored as it always was and always equals the flag on the work's column (plan-projects-kanban.md).
 const SC_PREFIX = 'plan:';
+const SC_BOARD_PREFIX = 'board:';
+const SC_BOARD_ID = /^[a-z][a-z0-9-]{0,40}$/;
+const SC_COLUMN_LABEL_MAX = 40;
+const SC_COLUMNS_MAX = 12;
+const SC_ROWS_BY = ['milestone', 'owners'];
+// The template's default columns (the `boardColumns` setting). Only `done` carries the flag in either set.
+const SC_BOARD_SETS = Object.freeze({
+  priority: Object.freeze([['inbox', 'Inbox'], ['now', 'Now'], ['next', 'Next'], ['later', 'Later'], ['done', 'Done', true]]),
+  stages: Object.freeze([['todo', 'To do'], ['doing', 'Doing'], ['done', 'Done', true]]),
+});
 const SC_KINDS = ['milestone', 'work', 'note'];
 const SC_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SC_TITLE_MAX = 120;
@@ -92,6 +106,7 @@ function scClean(id, raw) {
     by: typeof v.by === 'string' ? v.by.slice(0, 200) : '',
     ref: scCleanRef(v.ref),
   };
+  if (kind === 'work' && typeof v.column === 'string' && SC_BOARD_ID.test(v.column)) e.column = v.column;
   if (kind === 'milestone' && e.ticked) e.done = true;
   return e;
 }
@@ -114,6 +129,7 @@ function scValue(e) {
   if (e.order) out.order = e.order;
   if (e.by) out.by = e.by;
   if (e.ref) out.ref = { ...e.ref };
+  if (e.kind === 'work' && e.column) out.column = e.column;
   return out;
 }
 
@@ -352,6 +368,139 @@ function scOwnersFor(value, people, o) {
   return { owners, problem: '' };
 }
 
+// --- the board -----------------------------------------------------------------------------------------------------------------
+
+// A board as stored, cleaned, or null when it can't be used: no columns, or no column with the done flag, or none without it.
+function scCleanBoard(id, raw) {
+  const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+  if (!v || !Array.isArray(v.columns)) return null;
+  const seen = new Set();
+  const columns = [];
+  for (const c of v.columns) {
+    if (!c || typeof c !== 'object' || typeof c.id !== 'string' || !SC_BOARD_ID.test(c.id) || seen.has(c.id)) continue;
+    const label = scLine(c.label, SC_COLUMN_LABEL_MAX);
+    if (!label || columns.length >= SC_COLUMNS_MAX) continue;
+    seen.add(c.id);
+    columns.push(c.done === true ? { id: c.id, label, done: true } : { id: c.id, label });
+  }
+  if (!columns.some((c) => c.done) || !columns.some((c) => !c.done)) return null;
+  const board = { id: String(id), name: scLine(v.name, SC_COLUMN_LABEL_MAX) || 'Board', field: 'column', columns };
+  if (SC_ROWS_BY.includes(v.rowsBy)) board.rowsBy = v.rowsBy;
+  return board;
+}
+// What is stored for a board: nothing empty.
+function scBoardValue(board) {
+  const out = { id: board.id, name: board.name, field: 'column', columns: board.columns.map((c) => (c.done ? { id: c.id, label: c.label, done: true } : { id: c.id, label: c.label })) };
+  if (board.rowsBy) out.rowsBy = board.rowsBy;
+  return out;
+}
+// The template's default board for a `boardColumns` value (anything else is the default, `stages`).
+function scDefaultBoard(set) {
+  const rows = SC_BOARD_SETS[set] || SC_BOARD_SETS.stages;
+  return { id: 'main', name: 'Board', field: 'column', columns: rows.map(([id, label, done]) => (done ? { id, label, done: true } : { id, label })) };
+}
+// The space's board: the stored `board:main` when it reads, else the template's default. `stored` is the value under `board:main`
+// or null/undefined; `set` the `boardColumns` setting.
+function scBoardFrom(stored, set) {
+  return scCleanBoard('main', stored) || scDefaultBoard(set);
+}
+// The column a piece of work is in: its own when the board has it, else the first done column if it is done, else the first
+// column without the flag. Nothing is written until the work is next changed.
+function scColumnOf(e, board) {
+  const cols = board.columns;
+  const own = e && e.column ? cols.find((c) => c.id === e.column) : null;
+  if (own) return own;
+  return (e && e.done ? cols.find((c) => c.done) : cols.find((c) => !c.done)) || cols[0];
+}
+// Moves work to a column: sets `column`, and `done` to the column's flag. Answers { entry } or { problem }. A milestone's done
+// follows from its work (scMilestoneChanges), so the caller settles milestones in the same change.
+function scSetColumn(e, columnId, board, o) {
+  if (!e || e.kind !== 'work') return { entry: null, problem: 'Only work moves on the board.' };
+  const col = typeof columnId === 'string' ? board.columns.find((c) => c.id === columnId.trim()) : null;
+  if (!col) return { entry: null, problem: `There is no column called ${scLine(typeof columnId === 'string' ? columnId : '', SC_COLUMN_LABEL_MAX) || 'that'}.` };
+  return { entry: { ...e, column: col.id, done: Boolean(col.done) }, problem: '' };
+}
+const SC_KEEP_DONE = 'Keep at least one column that counts as done.';
+const SC_KEEP_OPEN = 'Keep at least one column that does not count as done.';
+// The entries that change when `rewrite(work)` gives their new form (work only), with the milestones' done and progress settled
+// after it: [entry, ...] as they would be saved. `o.rollup(entries without notes)` is host.util.rollup's answer.
+function scSettled(entries, rewrite, o) {
+  const next = entries.map((e) => (e.kind === 'work' ? rewrite(e) : e));
+  const changed = new Map();
+  next.forEach((e, i) => { if (e !== entries[i]) changed.set(e.id, e); });
+  const roll = o && typeof o.rollup === 'function' ? o.rollup(next.filter((x) => x.kind !== 'note')) : {};
+  for (const c of scMilestoneChanges(next, roll)) {
+    const m = changed.get(c.id) || next.find((x) => x.id === c.id);
+    changed.set(c.id, { ...m, done: c.done, progress: c.progress });
+  }
+  return [...changed.values()];
+}
+// A column's done flag changed: { board, entries } (the work in it with `done` rewritten, and the milestones that follow), or { problem }.
+function scSetColumnFlag(board, entries, columnId, done, o) {
+  const col = board.columns.find((c) => c.id === columnId);
+  if (!col) return { problem: `There is no column called ${scLine(String(columnId), SC_COLUMN_LABEL_MAX)}.` };
+  if (typeof done !== 'boolean') return { problem: 'Say whether the column counts as done: true or false.' };
+  if (Boolean(col.done) === done) return { board, entries: [] };
+  if (!done && board.columns.filter((c) => c.done).length < 2) return { problem: SC_KEEP_DONE };
+  if (done && board.columns.filter((c) => !c.done).length < 2) return { problem: SC_KEEP_OPEN };
+  const next = { ...board, columns: board.columns.map((c) => (c.id === columnId ? (done ? { id: c.id, label: c.label, done: true } : { id: c.id, label: c.label }) : c)) };
+  const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId && e.done !== done ? { ...e, done } : e), o);
+  return { board: next, entries: out };
+}
+// Deletes a column; its work moves to `toId` and takes that column's flag. { board, entries } or { problem }.
+function scDeleteColumn(board, columnId, toId, entries, o) {
+  const col = board.columns.find((c) => c.id === columnId);
+  if (!col) return { problem: `There is no column called ${scLine(String(columnId), SC_COLUMN_LABEL_MAX)}.` };
+  if (board.columns.length < 2) return { problem: 'Keep at least one column.' };
+  if (col.done && board.columns.filter((c) => c.done).length < 2) return { problem: SC_KEEP_DONE };
+  if (!col.done && board.columns.filter((c) => !c.done).length < 2) return { problem: SC_KEEP_OPEN };
+  const to = toId !== columnId ? board.columns.find((c) => c.id === toId) : null;
+  if (!to) return { problem: 'Choose another column to take its work.' };
+  const next = { ...board, columns: board.columns.filter((c) => c.id !== columnId) };
+  const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId ? { ...e, column: to.id, done: Boolean(to.done) } : e), o);
+  return { board: next, entries: out };
+}
+// A fresh id for a column from its name: lower case letters, digits and dashes, a number added when taken.
+function scColumnId(label, board) {
+  let base = scLine(label, SC_COLUMN_LABEL_MAX).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!/^[a-z]/.test(base)) base = `c-${base}`.replace(/-$/, '');
+  base = base.slice(0, 36).replace(/-$/, '') || 'column';
+  const taken = new Set(board.columns.map((c) => c.id));
+  let id = base;
+  for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
+  return id;
+}
+// Adds a column after `afterId` (at the end when not given). { board, column } or { problem }.
+function scAddColumn(board, label, afterId) {
+  const text = scLine(label, 10000);
+  if (!text) return { problem: 'Give the column a name.' };
+  if ([...text].length > SC_COLUMN_LABEL_MAX) return { problem: `A column name is at most ${SC_COLUMN_LABEL_MAX} characters.` };
+  if (board.columns.length >= SC_COLUMNS_MAX) return { problem: `A board has at most ${SC_COLUMNS_MAX} columns.` };
+  const column = { id: scColumnId(text, board), label: text };
+  const at = board.columns.findIndex((c) => c.id === afterId);
+  const columns = board.columns.slice();
+  columns.splice(at < 0 ? columns.length : at + 1, 0, column);
+  return { board: { ...board, columns }, column };
+}
+// Renames a column; its id, and so every card's `column`, stays as it was.
+function scRenameColumn(board, columnId, label) {
+  if (!board.columns.some((c) => c.id === columnId)) return { problem: `There is no column called ${scLine(String(columnId), SC_COLUMN_LABEL_MAX)}.` };
+  const text = scLine(label, 10000);
+  if (!text) return { problem: 'Give the column a name.' };
+  if ([...text].length > SC_COLUMN_LABEL_MAX) return { problem: `A column name is at most ${SC_COLUMN_LABEL_MAX} characters.` };
+  return { board: { ...board, columns: board.columns.map((c) => (c.id === columnId ? { ...c, label: text } : c)) } };
+}
+// Moves a column `by` places (-1 left, 1 right).
+function scMoveColumn(board, columnId, by) {
+  const from = board.columns.findIndex((c) => c.id === columnId);
+  if (from < 0) return { problem: `There is no column called ${scLine(String(columnId), SC_COLUMN_LABEL_MAX)}.` };
+  const to = from + (by < 0 ? -1 : 1);
+  if (to < 0 || to >= board.columns.length) return { board };
+  const columns = board.columns.slice();
+  [columns[from], columns[to]] = [columns[to], columns[from]];
+  return { board: { ...board, columns } };
+}
+
 // --- the actions on an entry that is there (setDone, updateEntry) ------------------------------------------------------------------
 // Each answers { entry, problem }: the entry as it would be saved (from the one stored, `e`, as scClean made it), or the one plain
 // sentence it is refused with. Nothing is saved here. They check what the editor and the done tick check (scProblem and the
@@ -366,6 +515,12 @@ function scSetDone(e, done, o) {
   const next = { ...e };
   if (e.kind === 'milestone') next.ticked = done;
   next.done = done;
+  // Work moves with its tick (`o.board`): ticked into the first done column, unticked into the first column without the flag;
+  // work already in a column of the right kind stays where it is.
+  if (e.kind === 'work' && o && o.board) {
+    const at = scColumnOf(e, o.board);
+    if (done !== at.done) next.column = (o.board.columns.find((c) => Boolean(c.done) === done) || at).id;
+  }
   return { entry: next, problem: '' };
 }
 

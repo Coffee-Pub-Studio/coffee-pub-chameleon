@@ -82,6 +82,10 @@ Small choices the decisions leave, written down so the build has no gaps (CLAUDE
 - Column "..." for someone with `columns`: **Rename**, **Counts as done** (on or off), **Move left**, **Move right**, **Add a column after**, **Delete** (asks which column takes its work, refused as the rules say), and **Edit columns**, which opens the column editor: every column with its name, its done flag and its place, add and delete under the same rules.
 - The List and Timeline show the column's name under work's title when it is not the first column, so the views agree.
 
+## Progress
+
+Step 1 is built (Planner - Projects 0.1.13, try build, 2026-11-26): the rule, the stored board, `setColumn`, the `columns` permission and the file format. The server refuses a `board:` write by someone without `columns` through a `guards.keys` rule on `board:{id}` with `need: "columns"` (and the board's shape under `fields`), which the storage route already supported. Departures: the `boardColumns` labels are the library's own words, not `labels` entries yet, and `defaultView` has no `board` option yet; both belong to step 3 with the page. Steps 2 to 5 are not built.
+
 ## Left to build, in order
 
 Each is a try build unless Thomas calls another kind. Each module change bumps the module's patch version in `modules/schedule/module.json` and `tools/module-versions.json`.

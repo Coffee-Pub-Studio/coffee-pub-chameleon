@@ -718,6 +718,39 @@
     }
   },
   {
+    "name": "schedule__setColumn",
+    "module": "schedule",
+    "action": "setColumn",
+    "label": "Move it on the plan's board",
+    "description": "Move a piece of work to a column of the plan's board; it counts as done when the column does.",
+    "effect": "write",
+    "input": {
+      "ref": "ref:schedule:plan",
+      "column": "string"
+    },
+    "clears": [],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "column": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "ref",
+        "column"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "schedule__setDone",
     "module": "schedule",
     "action": "setDone",

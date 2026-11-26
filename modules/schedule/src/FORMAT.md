@@ -10,6 +10,7 @@ anything is written; if the first problem is found, Import says it in one senten
 ```
 
 - `format` must be `"project-plan"`. `version` must be `1`. `entries` is a list of 1 to 500 entries.
+- `boards` is an optional list of at most 1 board (see "The board" below).
 - `exportedAt` and `module` are written by Export and are not needed when you write a file.
 - A file is at most 1 MB. A plan holds at most 1000 entries, so Add refuses a file that would go past that.
 - Fields that are not listed here are ignored.
@@ -27,6 +28,7 @@ anything is written; if the first problem is found, Import says it in one senten
 | `waitsOn` | no | a list (up to 50) of `id`s of milestones or work in the file that this one waits on; no loops |
 | `done` | no | `true` or `false` (milestone and work). A milestone is done when every entry under it is. |
 | `ticked` | no | `true`: a milestone ticked done by hand |
+| `column` | work | the id of the work's column on the board: lower case letters, digits and `-`. Notes and milestones have none. Work with no column, or one the board does not have, sits in the first done column if it is `done`, else in the first column that does not count as done. |
 | `notes` | no | text, up to 2000 characters |
 | `phase` | no | a phase id of the template: lower case letters, digits and `-` |
 | `tags` | no | a list (up to 50) of tag ids from the plan's Tags setting |
@@ -35,6 +37,18 @@ anything is written; if the first problem is found, Import says it in one senten
 
 A note has no dates, no `waitsOn` and no `done`. A milestone has no `end`. When the plan's setting "Dates are needed" is on,
 every milestone needs `start` and all work needs `start` and `end`.
+
+## The board
+
+```
+"boards": [ { "id": "main", "name": "Board", "field": "column", "columns": [ { "id": "todo", "label": "To do" }, { "id": "done", "label": "Done", "done": true } ] } ]
+```
+
+- `id` and each column's `id`: lower case letters, digits and `-`, starting with a letter, up to 41 characters; each used once. `field` is `"column"`.
+- 2 to 12 columns, each with a `label` of up to 40 characters. `done: true` marks a column whose work counts as done. At least one column
+  counts as done and at least one does not.
+- `rowsBy` is `"milestone"` or `"owners"`, or left out. It is kept and not used yet.
+- Work with a `column` the board has takes that column's `done`. A file with no `boards` leaves the plan's board as it is.
 
 ## Check a file before you import it
 

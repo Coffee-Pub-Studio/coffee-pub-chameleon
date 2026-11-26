@@ -190,7 +190,7 @@ test('the manifest declares both, as writes that name a plan entry', () => {
   const files = new Set(['module.json', 'page.html', 'canvas.html']);
   const m = cleanManifest(JSON.parse(JSON.stringify(manifest)), files);
   const by = Object.fromEntries(m.actions.provides.map((a) => [a.name, a]));
-  for (const n of ['setDone', 'updateEntry']) {
+  for (const n of ['setDone', 'updateEntry', 'setColumn']) {
     assert.equal(by[n].effect, 'write', n);
     assert.ok(by[n].description && by[n].description.endsWith('.'), n);
     assert.ok(!by[n].takes || !by[n].takes.length, `${n} makes no object`);
@@ -199,6 +199,15 @@ test('the manifest declares both, as writes that name a plan entry', () => {
   assert.deepEqual(by.setDone.input, { ref: 'ref:schedule:plan', done: 'boolean' });
   assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', owners: 'text?', notes: 'text?' });
   assert.ok(['addMilestone', 'addWork', 'addNote'].every((n) => by[n]), 'the adds are still there');
+  assert.equal(by.setColumn.effect, 'write');
+  assert.deepEqual(by.setColumn.input, { ref: 'ref:schedule:plan', column: 'string' });
+  assert.ok(!by.setColumn.takes || !by.setColumn.takes.length, 'it makes no object');
+  assert.ok(by.setColumn.inputHints.column.includes('column id'));
+  const cols = m.settings.find((s) => s.key === 'boardColumns');
+  assert.deepEqual([cols.type, cols.scope, cols.template, cols.default], ['choice', 'space', 'default', 'stages']);
+  assert.deepEqual(cols.options.map((o) => o.value), ['stages', 'priority']);
+  const perm = m.permissions.find((p) => p.key === 'columns');
+  assert.deepEqual([perm.label, perm.default.moderator, perm.default.member, perm.default.guest], ["Change the board's columns", true, false, false]);
 });
 
 test('an added note keeps the line breaks of the notes an agent sent', () => {

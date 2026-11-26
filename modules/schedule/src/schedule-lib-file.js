@@ -2,7 +2,10 @@
 // page (schedule.js draws the menu and does the writing; test/check-schedule-file.mjs runs these in Node). The format a person
 // or an AI follows to make a file is written out in src/FORMAT.md; that file's example is run through the importer by the test.
 //
-//   { "format": "project-plan", "version": 1, "exportedAt": "<ISO time>", "module": "schedule", "entries": [ <entry>, ... ] }
+//   { "format": "project-plan", "version": 1, "exportedAt": "<ISO time>", "module": "schedule", "entries": [ <entry>, ... ],
+//     "boards": [ <board>, ... ] }
+//
+// `boards` is optional: the plan's board (id, name, field "column", columns [{ id, label, done? }], rowsBy?), one at first.
 //
 // An entry has the fields scClean reads (see schedule-lib.js), plus an optional `id` that `parent` and `waitsOn` of other entries
 // of the same file name. The file is read whole and checked before anything is written; the first thing wrong is one sentence.
@@ -23,6 +26,7 @@ function scExportFile(entries, o) {
     exportedAt: (o && o.now) || new Date().toISOString(),
     module: (o && o.module) || 'schedule',
     entries: ordered.map((e) => ({ id: e.id, ...scValue(e) })),
+    ...(o && Array.isArray(o.boards) && o.boards.length ? { boards: o.boards.map(scBoardValue) } : {}),
   };
 }
 // The file's name: by kind, with the day.
@@ -49,6 +53,40 @@ function scParseFile(text, o) {
   if (data.version !== SC_FILE.version) return { problem: `The file's "version" must be ${SC_FILE.version}.` };
   if (!Array.isArray(data.entries)) return { problem: 'The file needs an "entries" list.' };
   if (!data.entries.length) return { problem: 'The file has no entries.' };
+  const boards = [];
+  if (data.boards !== undefined && data.boards !== null) {
+    if (!Array.isArray(data.boards)) return { problem: 'The "boards" must be a list.' };
+    if (data.boards.length > 1) return { problem: 'The file has more than one board: at most 1.' };
+    const ids = new Set();
+    for (let i = 0; i < data.boards.length; i += 1) {
+      const b = data.boards[i];
+      const w = `Board ${i + 1}`;
+      if (!b || typeof b !== 'object' || Array.isArray(b)) return { problem: `${w} must be written like { "id": "main", "name": "Board", "columns": [ ... ] }.` };
+      if (typeof b.id !== 'string' || !SC_BOARD_ID.test(b.id)) return { problem: `${w}: "id" must be lower case letters, digits and dashes.` };
+      if (ids.has(b.id)) return { problem: `${w}: the id "${b.id}" is used twice.` };
+      ids.add(b.id);
+      if (b.field !== undefined && b.field !== 'column') return { problem: `${w}: "field" must be "column".` };
+      if (b.rowsBy !== undefined && b.rowsBy !== null && !SC_ROWS_BY.includes(b.rowsBy)) return { problem: `${w}: "rowsBy" must be ${SC_ROWS_BY.map((x) => `"${x}"`).join(' or ')}.` };
+      if (b.name !== undefined && b.name !== null && typeof b.name !== 'string') return { problem: `${w}: "name" must be text.` };
+      if (!Array.isArray(b.columns) || !b.columns.length) return { problem: `${w}: "columns" must be a list of columns.` };
+      if (b.columns.length > SC_COLUMNS_MAX) return { problem: `${w}: at most ${SC_COLUMNS_MAX} columns.` };
+      const colIds = new Set();
+      for (let j = 0; j < b.columns.length; j += 1) {
+        const c = b.columns[j];
+        const cw = `${w}, column ${j + 1}`;
+        if (!c || typeof c !== 'object' || Array.isArray(c)) return { problem: `${cw} must be written like { "id": "todo", "label": "To do" }.` };
+        if (typeof c.id !== 'string' || !SC_BOARD_ID.test(c.id)) return { problem: `${cw}: "id" must be lower case letters, digits and dashes.` };
+        if (colIds.has(c.id)) return { problem: `${cw}: the id "${c.id}" is used twice.` };
+        colIds.add(c.id);
+        if (typeof c.label !== 'string' || !scLine(c.label, 1)) return { problem: `${cw}: "label" is needed.` };
+        if (c.label.trim().length > SC_COLUMN_LABEL_MAX) return { problem: `${cw}: "label" is over ${SC_COLUMN_LABEL_MAX} characters.` };
+        if (c.done !== undefined && c.done !== null && typeof c.done !== 'boolean') return { problem: `${cw}: "done" must be true or false.` };
+      }
+      const clean = scCleanBoard(b.id, b);
+      if (!clean) return { problem: `${w}: keep at least one column that counts as done and one that does not.` };
+      boards.push(clean);
+    }
+  }
   if (data.entries.length > SC_FILE.maxEntries) return { problem: `The file has ${data.entries.length} entries: at most ${SC_FILE.maxEntries}.` };
 
   const seen = new Map(); // id -> entry
@@ -87,6 +125,7 @@ function scParseFile(text, o) {
         if (!Array.isArray(l) || l.some((x) => typeof x !== 'string')) return `${w}: "${f}" must be a list of text.`;
         if (l.length > SC_LIST_MAX) return `${w}: "${f}" has more than ${SC_LIST_MAX}.`;
       }
+      if (v.column !== undefined && v.column !== null && v.column !== '' && !(typeof v.column === 'string' && SC_BOARD_ID.test(v.column))) return `${w}: "column" must be lower case letters, digits and dashes.`;
       for (const f of ['done', 'ticked']) if (v[f] !== undefined && v[f] !== null && typeof v[f] !== 'boolean') return `${w}: "${f}" must be true or false.`;
       if (v.phase !== undefined && v.phase !== null && v.phase !== '' && !(typeof v.phase === 'string' && /^[a-z][a-z0-9-]{0,40}$/.test(v.phase))) return `${w}: "phase" must be lower case letters, digits and dashes.`;
       if (v.order !== undefined && v.order !== null && v.order !== '' && !(typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order))) return `${w}: "order" must be letters and digits.`;
@@ -140,13 +179,14 @@ function scParseFile(text, o) {
     if (p) problems.push(p);
   }
   if (problems.length) return { problem: problems[0], problems };
-  return { entries: list };
+  return { entries: list, boards };
 }
 
 // The entries to write, from what scParseFile answered. `o`: { mode: 'add' | 'replace', existing: [entries now in the plan],
 // newId(), orderAfter(key|null) -> the order key after it, by: the person's key }. Add gives every entry a new id and puts them
 // after what is there; Replace keeps the file's ids (new ones for those with none) and its order keys when all are usable.
-// `parent` and `waitsOn` follow the ids. Answers cleaned entries, ready for scValue.
+// `parent` and `waitsOn` follow the ids. Answers cleaned entries, ready for scValue. With `o.board` (the board the plan will have),
+// work in a column that board has takes that column's flag as its `done`, so the two agree; the caller then settles the milestones.
 function scImportEntries(raws, o) {
   const replace = o && o.mode === 'replace';
   const existing = (o && o.existing) || [];
@@ -167,6 +207,12 @@ function scImportEntries(raws, o) {
     by: typeof v.by === 'string' && v.by ? v.by : (o && o.by) || '',
     order: '',
   }));
+  if (o && o.board) {
+    for (const e of out) {
+      const col = e.kind === 'work' && e.column ? o.board.columns.find((c) => c.id === e.column) : null;
+      if (col) e.done = Boolean(col.done);
+    }
+  }
   // Order keys, a group of siblings at a time.
   const groups = new Map();
   out.forEach((e, i) => { const k = e.parent || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(i); });

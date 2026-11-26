@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -45,6 +45,15 @@
       }
     },
     {
+      "key": "columns",
+      "label": "Change the board's columns",
+      "default": {
+        "member": false,
+        "guest": false,
+        "moderator": true
+      }
+    },
+    {
       "key": "clear",
       "label": "Clear the whole plan",
       "default": {
@@ -59,7 +68,20 @@
     "write": "edit"
   },
   "guards": {
-    "clear": "clear"
+    "clear": "clear",
+    "keys": [
+      {
+        "key": "board:{id}",
+        "need": "columns",
+        "fields": {
+          "id": { "type": "string", "required": true, "maxLength": 41 },
+          "name": { "type": "string", "maxLength": 40 },
+          "field": { "type": "string", "maxLength": 20 },
+          "columns": { "type": "array", "of": "object", "required": true, "maxLength": 12, "unique": "id" },
+          "rowsBy": { "type": "string", "maxLength": 20 }
+        }
+      }
+    ]
   },
   "actions": {
     "server": "src/schedule-lib-actions.js",
@@ -138,6 +160,20 @@
         "input": {
           "ref": "ref:schedule:plan",
           "done": "boolean"
+        }
+      },
+      {
+        "name": "setColumn",
+        "label": "Move it on the plan's board",
+        "description": "Move a piece of work to a column of the plan's board; it counts as done when the column does.",
+        "effect": "write",
+        "inputHints": {
+          "ref": "The piece of work to move, as a pointer.",
+          "column": "A column id from the board, such as todo, doing or done."
+        },
+        "input": {
+          "ref": "ref:schedule:plan",
+          "column": "string"
         }
       },
       {
@@ -253,6 +289,19 @@
         { "value": "list", "label": "List" }
       ],
       "help": "The view a person sees first. Their own choice wins once they pick one, and a phone opens on the List."
+    },
+    {
+      "key": "boardColumns",
+      "label": "Board columns",
+      "type": "choice",
+      "scope": "space",
+      "template": "default",
+      "default": "stages",
+      "options": [
+        { "value": "stages", "label": "To do, Doing, Done" },
+        { "value": "priority", "label": "Inbox, Now, Next, Later, Done" }
+      ],
+      "help": "The board's columns until someone edits them. Once the columns are edited, the board keeps its own."
     },
     {
       "key": "tags",
