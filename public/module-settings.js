@@ -66,7 +66,7 @@ function control(def, draft = false) {
   // server is the truth and the box shows it), one button that follows or stops following at once, and one line saying how it stands,
   // all filled in by wireFollows once the card is drawn. With no space yet the block is left out.
   if (def.follows === 'issues') {
-    return `${head}<input id="${id}" type="text" data-follows-input maxlength="${def.maxLength || 100}" autocapitalize="off" spellcheck="false" placeholder="owner/name or the repository's address"></label><div class="follows-pull" data-follows="${escapeHtml(def.key)}"><div class="row"><button type="button" class="btn btn-primary btn-small" data-follows-toggle hidden></button></div><p class="hint" data-follows-line role="status" aria-live="polite">Looking...</p></div>`;
+    return `${head}<input id="${id}" type="text" data-follows-input maxlength="${def.maxLength || 100}" autocapitalize="off" spellcheck="false" placeholder="owner/name or the repository's address"></label><div class="follows-pull" data-follows="${escapeHtml(def.key)}"><div class="row"><button type="button" class="btn btn-primary btn-small" data-follows-toggle hidden></button></div><p class="hint" data-follows-line role="status" aria-live="polite">Looking...</p><div data-follows-write hidden><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(def.key)}"><span class="sdk-choice-text" data-follows-write-label>Changes here go to GitHub</span></label><p class="hint" id="follows-write-${escapeHtml(def.key)}" data-follows-write-line role="status" aria-live="polite"></p></div></div>`;
   }
   return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"></label>`;
 }
@@ -79,6 +79,9 @@ function wireFollows(box, space) {
   const toggle = box.querySelector('[data-follows-toggle]');
   const line = box.querySelector('[data-follows-line]');
   const input = box.closest('.module-setting').querySelector('input[data-follows-input]');
+  const writeBox = box.querySelector('[data-follows-write]');
+  const writeInput = box.querySelector('[data-follows-write-input]');
+  const writeLine = box.querySelector('[data-follows-write-line]');
   const route = `/api/spaces/${encodeURIComponent(space)}/issues-pull`;
   const at = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); };
   let on = false;
@@ -94,11 +97,30 @@ function wireFollows(box, space) {
       input.readOnly = on;
       if (v && v.repo && (on || !input.value)) input.value = v.repo; // the server's clean owner/name, never what was pasted
     }
+    // The switch for changes going back: only while following, and on only when the server is set up for this repository.
+    writeBox.hidden = !on;
+    box.querySelector('[data-follows-write-label]').textContent = `Changes here go to ${name}`;
+    writeInput.checked = Boolean(on && v.write);
+    writeInput.disabled = !(on && v.canWrite);
+    writeLine.classList.remove('error');
+    writeLine.textContent = !on ? '' : v.canWrite ? `Moves, closes, titles and tags made here change the issues on ${name}, as the account that owns this server's token.` : `This server is not set up to change ${name} for this repository.`;
     if (!on) say('Not following. Enter a repository and press Follow this repository.');
     else if (v.error) say(v.error, true);
     else if (v.last) say(`Following ${v.repo}, last pulled ${at(v.last)}.`);
     else say(`Waiting for the first pull from ${name}.`);
   };
+  writeInput.addEventListener('change', async () => {
+    const want = writeInput.checked;
+    writeInput.disabled = true;
+    try {
+      draw(await api('PUT', route, { write: want }));
+    } catch (err) {
+      writeInput.checked = !want;
+      writeLine.textContent = err.message;
+      writeLine.classList.add('error');
+      writeInput.disabled = false;
+    }
+  });
   api('GET', route).then(draw).catch((err) => { toggle.hidden = true; say(err.message, true); });
   toggle.addEventListener('click', async () => {
     const repo = (input ? input.value : '').trim();
