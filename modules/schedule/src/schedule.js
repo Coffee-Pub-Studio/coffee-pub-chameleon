@@ -57,6 +57,13 @@
   /*__LIB__*/
 
   const canEdit = host.can('edit');
+  // While a pull is on, work that came from it is the service's (plan-github-pull.md): read-only here, and nobody adds by hand.
+  const pullOn = () => Boolean(state.pull.on);
+  const locked = (e) => Boolean(e && e.source && pullOn());
+  const canAdd = () => canEdit && !pullOn();
+  const pageLate = (e) => !e.source && scLate(e, today()); // pulled work has one day, so it is never "late"
+  const canChange = (e) => canEdit && !locked(e);
+  const sayLocked = () => say(SC_PULLED_SAY, 'danger');
   const label = (key, o) => host.util.label(key, o);
   const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
   const KIND_ICON = { milestone: 'flag', work: 'bars-progress', note: 'note-sticky' };
@@ -73,6 +80,7 @@
     view: '',
     filter: scFilterEmpty(), // this person's Board filters (kept in this browser)
     loaded: false,
+    pull: { on: false, name: 'GitHub', last: '', next: '', error: '' }, // the space's issue pull (host.issues.status)
     editing: null,
     openWanted: null,
   };
@@ -244,19 +252,94 @@
     host.menu.close();
     render();
   }
-  const ADDS = () => (canEdit ? SC_KINDS.map((k) => ({ id: k, label: cap(`Add ${kindWord(k, { a: true })}`), icon: KIND_ICON[k] })) : []);
+  const ADDS = () => (canAdd() ? SC_KINDS.map((k) => ({ id: k, label: cap(`Add ${kindWord(k, { a: true })}`), icon: KIND_ICON[k] })) : []);
   function chrome() {
     host.add.set(ADDS()).catch(() => {});
     const onBoard = state.view === 'board' && state.entries.size > 0;
-    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'right-left', label: 'Export and import', zone: 'end' }, ...(onBoard ? filterItems() : [])]).catch(() => {});
+    host.toolbar.set([
+      ...(pullOn() && canEdit ? [{ type: 'button', id: 'plan-pull', icon: 'rotate', label: pulling ? 'Pulling' : 'Pull now', zone: 'end' }] : []),
+      { type: 'button', id: 'plan-more', icon: 'right-left', label: 'Export and import', zone: 'end' },
+      ...(onBoard ? filterItems() : []),
+    ]).catch(() => {});
     const p = scProgress(list(), state.settings.progressBy);
     const what = state.settings.progressBy === 'work' ? kindWord('work', { many: true }) : kindWord('milestone', { many: true });
     const status = p.total ? [{ text: `${p.done} of ${p.total} ${what} done`, icon: 'diagram-project' }] : [];
     const v = onBoard ? boardWork() : null;
     if (v && v.on) status.push({ text: `Showing ${v.shown.length} of ${v.works.length} ${kindWord('work', { many: v.works.length !== 1 })}`, icon: 'filter' });
+    if (pullOn()) status.unshift(pullStatus());
     host.status.set(status).catch(() => {});
   }
-  host.on('add', (e) => { if (canEdit && SC_KINDS.includes(e.id)) openEditor(null, { kind: e.id }); });
+  // --- the pull from GitHub (host.issues): the status line, Pull now, and keeping the page in step with a pull ---------------------
+  let pulling = false;
+  function ago(iso) {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '';
+    const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m} ${m === 1 ? 'minute' : 'minutes'} ago`;
+    const h = Math.round(m / 60);
+    if (h < 48) return `${h} ${h === 1 ? 'hour' : 'hours'} ago`;
+    return `${Math.round(h / 24)} days ago`;
+  }
+  function pullStatus() {
+    const p = state.pull;
+    const name = p.name || 'GitHub';
+    if (p.error) {
+      const at = Date.parse(p.next);
+      const when = Number.isFinite(at) ? ` Trying again at ${new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}.` : '';
+      return { text: `${p.error}${when}`, icon: 'triangle-exclamation' };
+    }
+    const c = p.counts && p.counts.total ? `, ${p.counts.open} open of ${p.counts.total}` : '';
+    return { text: p.last ? `From ${name}, pulled ${ago(p.last)}${c}` : `From ${name}, not pulled yet`, icon: 'rotate' };
+  }
+  // Takes a status from the server. A change of whether the pull is on redraws the controls that depend on it.
+  function takePull(v) {
+    const was = pullOn();
+    const had = state.pull.last;
+    state.pull = v && typeof v === 'object' ? { on: Boolean(v.on), name: v.name || 'GitHub', last: v.last || '', next: v.next || '', error: v.error || '', counts: v.counts || null } : { on: false, name: 'GitHub', last: '', next: '', error: '' };
+    if (was !== pullOn()) {
+      if (outline) { outline.destroy(); outline = null; $('outline').replaceChildren(); }
+      if (board) { board.destroy(); board = null; $('board').replaceChildren(); }
+    }
+    return was !== pullOn() || had !== state.pull.last;
+  }
+  async function refreshPull(reload) {
+    if (!host.issues || !host.issues.status) return;
+    let v;
+    try { v = await host.issues.status(); } catch (err) { return; }
+    const changed = takePull(v);
+    if (changed && state.loaded) { if (reload) { try { await loadEntries(); } catch (err) { /* kept as it was */ } } render(); } else if (state.loaded) chrome();
+  }
+  async function pullNow() {
+    if (pulling || !canEdit || !pullOn() || !host.issues) return;
+    pulling = true;
+    chrome();
+    try {
+      takePull(await host.issues.pullNow());
+      await loadEntries();
+    } catch (err) {
+      say(err && err.message ? err.message : 'It could not be pulled.', 'danger');
+      await refreshPull(false);
+    } finally { pulling = false; render(); }
+  }
+  // The number and the link a pulled entry carries: "#12" and "Open on GitHub" (a new tab, no referrer).
+  const sourceNumber = (e) => (e.source && e.source.number ? `#${e.source.number}` : '');
+  function sourceLink(e) {
+    if (!e.source || !e.source.url) return null;
+    const a = document.createElement('a');
+    a.className = 'src-link';
+    a.href = e.source.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.referrerPolicy = 'no-referrer';
+    a.setAttribute('aria-label', `Open ${sourceNumber(e) || 'it'} on ${e.source.from === 'github' ? 'GitHub' : state.pull.name}`);
+    a.dataset.tip = `Open on ${e.source.from === 'github' ? 'GitHub' : state.pull.name}`;
+    a.append(icon('arrow-up-right-from-square'));
+    a.addEventListener('click', (ev) => ev.stopPropagation());
+    return a;
+  }
+  const sourceMenu = (e) => (e.source && e.source.url ? [{ id: 'github', label: `Open on ${e.source.from === 'github' ? 'GitHub' : state.pull.name}`, icon: 'arrow-up-right-from-square', href: e.source.url }] : []);
+  host.on('add', (e) => { if (canAdd() && SC_KINDS.includes(e.id)) openEditor(null, { kind: e.id }); });
 
   // --- render ----------------------------------------------------------------------------------------------------------
   function render() {
@@ -273,9 +356,9 @@
   }
   function renderEmpty() {
     const el = clone('tpl-state');
-    fill(el, { title: `No ${label('plan')} yet`, text: canEdit ? `Add ${kindWord('milestone', { a: true })} or ${kindWord('work', { a: true })} to start the ${label('plan')}. Each can have dates, ${label('owner', { many: true })} and what it waits on.` : `Nothing is on the ${label('plan')} yet.` });
+    fill(el, { title: `No ${label('plan')} yet`, text: pullOn() ? `Nothing has been pulled from ${state.pull.name} yet.` : canEdit ? `Add ${kindWord('milestone', { a: true })} or ${kindWord('work', { a: true })} to start the ${label('plan')}. Each can have dates, ${label('owner', { many: true })} and what it waits on.` : `Nothing is on the ${label('plan')} yet.` });
     const actions = slot(el, 'actions-wrap');
-    if (canEdit) {
+    if (canAdd()) {
       const b = document.createElement('button'); // one clear action; the + in the bar adds the other kinds
       b.type = 'button';
       b.className = 'btn btn-primary';
@@ -310,7 +393,7 @@
       const names = e.waitsOn.map(entry).filter(Boolean).map((w) => w.title);
       if (names.length) parts.push(`Waits on ${names.join(', ')}`);
     }
-    if (scLate(e, today())) parts.push('Late');
+    if (pageLate(e)) parts.push('Late');
     return parts.join(' · ');
   }
   function tagChips(e, into) {
@@ -357,7 +440,7 @@
       entries: all,
       depth: 2,
       name: cap(label('plan')),
-      canEdit,
+      canEdit: canAdd(),
       labels: { empty: `Nothing on the ${label('plan')} yet.` },
       title: (e) => e.title,
       row: (e, content) => drawLine(e, content),
@@ -374,9 +457,9 @@
     const el = clone('tpl-line');
     el.dataset.kind = e.kind;
     if (e.done) el.classList.add('done');
-    if (scLate(e, today())) el.classList.add('late');
+    if (pageLate(e)) el.classList.add('late');
     const tick = el.querySelector('[data-action="tick"]');
-    if (e.kind !== 'note' && canEdit) {
+    if (e.kind !== 'note' && canChange(e)) {
       tick.hidden = false;
       const mark = tick.querySelector('.ic');
       setIcon(mark, e.done ? 'circle-check' : '');
@@ -389,6 +472,13 @@
     setIcon(slot(el, 'mark-wrap').querySelector('.ic'), KIND_ICON[e.kind]);
     slot(el, 'mark-wrap').title = cap(kindWord(e.kind));
     fill(el, { title: e.title, sub: subWords(e) });
+    if (e.source) {
+      const num = sourceNumber(e);
+      const titleEl = slot(el, 'title');
+      if (num) { const n = document.createElement('span'); n.className = 'src-num'; n.textContent = num; titleEl.before(n); }
+      const link = sourceLink(e);
+      if (link) slot(el, 'linked-wrap').after(link);
+    }
     el.querySelector('[data-action="open"]').setAttribute('aria-label', `${cap(kindWord(e.kind))}: ${e.title}`);
     el.querySelector('[data-action="open"]').addEventListener('click', () => openEditor(e.id));
     tagChips(e, slot(el, 'chips-wrap'));
@@ -400,6 +490,7 @@
     hydrate(el);
   }
   function rowMenu(e) {
+    if (locked(e)) return sourceMenu(e);
     if (!canEdit) return [];
     const items = [{ id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(e.id) }];
     if (e.kind !== 'note') items.push({ id: 'done', label: e.done ? 'Mark not done' : 'Mark done', icon: e.done ? 'rotate-left' : 'circle-check', onClick: () => toggleDone(e.id) });
@@ -410,6 +501,7 @@
   async function confirmDelete(id) {
     const e = entry(id);
     if (!e) return;
+    if (locked(e)) { sayLocked(); return; }
     let ok = true;
     if (host.ui.confirm) {
       try { ok = await host.ui.confirm({ title: `Delete "${e.title}"?`, message: `It comes off the ${label('plan')} for everyone.`, action: 'Delete', kind: 'destructive' }); } catch (err) { ok = false; }
@@ -419,7 +511,7 @@
   }
   async function toggleDone(id) {
     const had = state.entries.get(id);
-    if (!had || !canEdit || had.e.kind === 'note') return;
+    if (!had || !canChange(had.e) || had.e.kind === 'note') return;
     // The tick is the rule's (scSetDone): a milestone's `ticked`, and work moving to the board's done or open column with it.
     const r = scSetDone(had.e, !had.e.done, { label: (k) => kindWord(k), board: currentBoard() });
     if (r.problem) { say(r.problem); return; }
@@ -427,7 +519,7 @@
   }
   async function moveEntry(m) {
     const had = state.entries.get(m.id);
-    if (!had || !canEdit) return;
+    if (!had || !canChange(had.e)) return;
     try { await saveEntry({ ...had.e, parent: m.parent || null, order: m.order }, had.version); } catch (err) { say(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be moved.'); render(); }
   }
 
@@ -531,14 +623,17 @@
     wrap.className = `bd${e.done ? ' done' : ''}`;
     const title = document.createElement('span');
     title.className = 'bd-title';
-    title.textContent = e.title;
+    if (e.source) { const num = sourceNumber(e); if (num) { const n = document.createElement('span'); n.className = 'src-num'; n.textContent = `${num} `; title.append(n); } }
+    title.append(document.createTextNode(e.title));
     wrap.append(title);
     const meta = document.createElement('div');
     meta.className = 'bd-meta';
     const add = (cls, text) => { const s = document.createElement('span'); if (cls) s.className = cls; s.textContent = text; meta.append(s); };
     const endDay = e.end || e.start;
     add('', endDay ? dayShort(endDay) : 'No date');
-    if (scLate(e, today())) add('bd-late', 'Late');
+    const srcLink = sourceLink(e);
+    if (srcLink) meta.append(srcLink);
+    if (pageLate(e)) add('bd-late', 'Late');
     if (e.owners.length) add('', e.owners.map((k) => nameOf(k) || 'Someone who left').join(', '));
     if (state.settings.dependencies) {
       const waiting = e.waitsOn.map(entry).filter((w) => w && !w.done);
@@ -569,6 +664,8 @@
     el.append(wrap);
   }
   function cardMenu(card) {
+    const e = entry(card.id);
+    if (locked(e)) return sourceMenu(e);
     if (!canEdit) return [];
     return [
       { id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(card.id) },
@@ -595,8 +692,8 @@
         labels: rowsBy === 'owners'
           ? { noRow: 'No one', otherRow: 'Change who is doing it in Edit.' }
           : { noRow: `No ${kindWord('milestone')}`, otherRow: `Change the ${kindWord('milestone')} in Edit.` },
-        canMove: () => canEdit,
-        canAdd: () => canEdit,
+        canMove: (c) => canChange(entry(c.id)),
+        canAdd: () => canAdd(),
         card: drawCard,
         menu: cardMenu,
         columnMenu,
@@ -632,6 +729,7 @@
   for (const btn of $('rows-switch').querySelectorAll('.mf-switch-btn')) btn.addEventListener('click', () => setRows(btn.dataset.rows));
   async function moveCard(m) {
     if (!canEdit || !carried) return;
+    if (locked(entry(m.id))) { sayLocked(); render(); return; }
     const ask = ++boardAsk;
     try { await carried.setColumn({ ref: pointer(m.id), column: m.column }, {}); } catch (err) {
       say(err && err.message ? err.message : 'It could not be moved.', 'danger');
@@ -643,7 +741,7 @@
   // Each change is the rules' answer (scRenameColumn, scMoveColumn, scSetColumnFlag, scAddColumn, scDeleteColumn) written as ONE
   // board:main write, then the work it rewrites; Undo (the bar the import uses) puts the board and the work back. A board still on
   // the template's columns becomes a stored board on the first change, and Undo takes that record away again.
-  const canColumns = () => host.can('columns');
+  const canColumns = () => host.can('columns') && !pullOn(); // the board follows the pull while it is on
   let columnsBusy = false;
   async function changeColumns(next, rewritten, text) {
     if (columnsBusy) return false;
@@ -760,9 +858,9 @@
       const el = clone('tpl-tl-row');
       el.dataset.kind = e.kind;
       if (e.done) el.classList.add('done');
-      if (scLate(e, today())) el.classList.add('late');
+      if (pageLate(e)) el.classList.add('late');
       setIcon(el.querySelector('.tl-label .ic'), KIND_ICON[e.kind]);
-      fill(el, { name: e.title, bar: e.kind === 'work' ? e.title : '' });
+      fill(el, { name: `${e.source && e.source.number ? `#${e.source.number} ` : ''}${e.title}`, bar: e.kind === 'work' ? e.title : '' });
       const bar = el.querySelector('.tl-bar');
       bar.style.setProperty('--x', `${r.x}px`);
       bar.style.setProperty('--w', `${r.w}px`);
@@ -906,10 +1004,10 @@
     // A "+" in a board column opens new work in that column (its done flag with it, so the Done box starts as the column says).
     const seedCol = s.column ? currentBoard().columns.find((c) => c.id === s.column) : null;
     const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, owners: s.owners || [], phase: s.phase || '', tags: s.tags || [], ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}) });
-    const readOnly = !canEdit;
+    const readOnly = !canEdit || locked(shown);
     state.editing = { id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
     $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
-    $('f-readonly').textContent = readOnly ? `You can look at the ${label('plan')} but not change it.` : '';
+    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : '';
     hide($('f-readonly'), !readOnly);
     $('f-kind').replaceChildren(...SC_KINDS.map((k) => Object.assign(document.createElement('option'), { value: k, textContent: cap(kindWord(k)) })));
     $('f-kind').value = shown.kind;
@@ -1051,6 +1149,7 @@
   if (carried) {
     host.actions.provide(Object.fromEntries(Object.entries(carried).map(([name, fn]) => [name, (input, by) => {
       if (!canEdit) throw new Error(name.startsWith('add') ? REFUSED : CHANGE_REFUSED);
+      if (pullOn() && (name.startsWith('add') || locked(entry(input && input.ref && input.ref.id)))) throw new Error(SC_PULLED_SAY);
       return fn(input, by);
     }])));
   }
@@ -1192,7 +1291,7 @@
     try { await host.ui.confirm(o); } catch (err) { /* closed */ }
   }
   async function importFile(file, mode) {
-    if (!file || importing || !canEdit || (mode === 'replace' && !canClear())) return;
+    if (!file || importing || !canAdd() || (mode === 'replace' && !canClear())) return;
     if (file.size > SC_FILE.maxBytes) { say(`The file is too big: at most ${SC_FILE.maxBytes / 1024 / 1024} MB.`, 'danger'); return; }
     let text;
     try { text = await file.text(); } catch (err) { say('That file could not be read.', 'danger'); return; }
@@ -1224,7 +1323,7 @@
   }
   let picker = null;
   function pickFile(mode) {
-    if (!canEdit || importing || (mode === 'replace' && !canClear())) return;
+    if (!canAdd() || importing || (mode === 'replace' && !canClear())) return;
     if (!picker) {
       picker = document.createElement('input');
       picker.type = 'file';
@@ -1239,13 +1338,14 @@
   }
   function moreItems() {
     const items = [{ id: 'export', label: 'Export as JSON', icon: 'file-export', disabled: !state.entries.size, hint: state.entries.size ? '' : 'Nothing yet', onClick: exportPlan }];
-    if (canEdit) items.push({ id: 'check', label: 'Check file', icon: 'file-circle-check', disabled: importing, onClick: () => pickFile('check') });
-    if (canEdit) items.push({ id: 'import-add', label: 'Import JSON: add to the plan', icon: 'file-import', disabled: importing, onClick: () => pickFile('add') });
-    if (canEdit && canClear()) items.push({ id: 'import-replace', label: 'Import JSON: replace the plan', icon: 'file-import', danger: true, disabled: importing, onClick: () => pickFile('replace') });
+    if (canAdd()) items.push({ id: 'check', label: 'Check file', icon: 'file-circle-check', disabled: importing, onClick: () => pickFile('check') });
+    if (canAdd()) items.push({ id: 'import-add', label: 'Import JSON: add to the plan', icon: 'file-import', disabled: importing, onClick: () => pickFile('add') });
+    if (canAdd() && canClear()) items.push({ id: 'import-replace', label: 'Import JSON: replace the plan', icon: 'file-import', danger: true, disabled: importing, onClick: () => pickFile('replace') });
     return items;
   }
   host.on('toolbar', (e) => {
     if (takeFilter(e)) return;
+    if (e.id === 'plan-pull') { pullNow(); return; }
     if (e.id !== 'plan-more') return;
     host.menu.show({ id: 'plan-more', at: { x: Number(e.x) || 0, y: 4 }, items: moreItems() });
   });
@@ -1284,11 +1384,13 @@
     $('loading').hidden = true;
     $('app').hidden = false;
     try {
-      const [people, settings] = await Promise.all([
+      const [people, settings, pull] = await Promise.all([
         host.people().catch(() => []),
         host.settings.get().catch(() => null),
+        host.issues && host.issues.status ? host.issues.status().catch(() => null) : null,
         loadEntries(),
       ]);
+      takePull(pull);
       state.people = people;
       takeSettings(settings);
       takePhases();
@@ -1296,14 +1398,16 @@
       // The view: the person's own choice, else the List on a phone, else the plan's default.
       let mine = '';
       try { mine = localStorage.getItem(VIEW_KEY) || ''; } catch (err) { /* none */ }
-      state.view = mine === 'list' || mine === 'timeline' || mine === 'board' ? mine : narrow ? 'list' : state.settings.defaultView;
-      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', 'arrow-left', 'arrow-right', 'square-check', 'square', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
+      state.view = mine === 'list' || mine === 'timeline' || mine === 'board' ? mine : pullOn() ? 'board' : narrow ? 'list' : state.settings.defaultView;
+      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', 'arrow-left', 'arrow-right', 'square-check', 'square', 'rotate', 'arrow-up-right-from-square', 'triangle-exclamation', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
       state.loaded = true;
       render();
       loadLinks().catch(() => {});
       if (!wired) {
         wired = true;
         host.settings.onChange((v) => { takeSettings(v); if (state.loaded) render(); });
+        // A pull runs on the server's timer: look again each minute, and read the plan when it has moved.
+        const t = setInterval(() => { if (!$('app')) return void clearInterval(t); if (!document.hidden) refreshPull(true); }, 60000);
       }
       if (state.openWanted) { const f = state.openWanted; state.openWanted = null; f(); }
     } catch (err) {

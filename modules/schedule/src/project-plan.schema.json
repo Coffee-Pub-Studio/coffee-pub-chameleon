@@ -73,6 +73,12 @@
         "order": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$" },
         "by": { "type": ["string", "null"] },
         "progress": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "source": {
+          "type": ["object", "null"],
+          "required": ["from", "repo"],
+          "properties": { "from": { "type": "string" }, "repo": { "type": "string" }, "number": { "type": "integer" }, "milestone": { "type": "integer" }, "url": { "type": "string" }, "due": { "type": "string" } },
+          "description": "Where pulled work came from, as Export writes it (a pull from GitHub). Leave it out when you write a file."
+        },
         "ref": {
           "type": ["object", "null"],
           "required": ["module", "kind", "id"],

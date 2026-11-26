@@ -84,7 +84,7 @@ await test('the page: the tick and the Done box go through scSetDone with the bo
   const form = page.slice(page.indexOf("$('form').addEventListener('submit'"), page.indexOf("$('f-delete').addEventListener"));
   assert.match(form, /scSetDone\(draft, \$\('f-done'\)\.checked, \{[^}]*board: currentBoard\(\)/);
   assert.match(page, /carried\.setColumn\(\{ ref: pointer\(m\.id\), column: m\.column \}/);
-  assert.match(page, /canMove: \(\) => canEdit/, 'a move needs edit only');
+  assert.match(page, /canMove: \(c\) => canChange\(entry\(c\.id\)\)/, 'a move needs edit only, and not pulled work');
   assert.doesNotMatch(page.slice(page.indexOf('function renderBoard'), page.indexOf('async function moveCard')), /host\.can\('columns'\)/);
 });
 await test('the page: Import stores the file\'s board first and gives it to scImportEntries; Export carries the board', () => {
