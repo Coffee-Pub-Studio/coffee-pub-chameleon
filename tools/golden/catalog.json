@@ -726,7 +726,8 @@
     "effect": "write",
     "input": {
       "ref": "ref:schedule:plan",
-      "column": "string"
+      "column": "string",
+      "before": "string?"
     },
     "clears": [],
     "schema": {
@@ -741,11 +742,20 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "before": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
         }
       },
       "required": [
         "ref",
-        "column"
+        "column",
+        "before"
       ],
       "additionalProperties": false
     }
