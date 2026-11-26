@@ -49,6 +49,7 @@ The one-bar work, in main. Each plan has its own status line.
 - **Home as three columns** ([plan-home-lobby](plans/plan-home-lobby.md)): steps 1 to 4 built, and guests in Home's chat (#289). Left: the Lobby's wording and Manage's Home row (step 5) and the narrow layout (step 6) (#290).
 - **The titlebar + and status line** ([plan-module-titlebar-add](plans/plan-module-titlebar-add.md)): steps 1 to 6 built.
 - **The picture map** ([plan-map-image](plans/plan-map-image.md)): steps 1 to 4 built. Left: its documentation (step 5) and trying it with WebGL and a large file.
+- **The GitHub pull** (plan-github-pull, on its own branch until merged): step 1 built on `claude/github-pull-1` (the puller, the GitHub adapter and its test stand-in, `issues.json`, the timer, the routes `GET`/`PUT /api/spaces/:id/issues-pull` and `POST .../now`, the `system:issues` writer, the shared `service-terms.json`, `host.issues`, `tools/check-issues.mjs`). Left: step 2 (Planner - Projects keeps `source`, the status line, Pull now, the marks, read-only pulled entries, the refusals in its actions), step 3 (the Service terms section, and the terms routes leaving their weather paths), the documentation, and a first real pull from `api.github.com` by hand.
 
 ## Next
 
