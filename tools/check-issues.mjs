@@ -42,13 +42,23 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TOKEN = 'ghp_checkissuestoken0123456789abcdef';
+const TOKEN = 'ghs_checkissuesinstallation0123456789abcdef'; // the installation token the fake mints
+// The app's credentials, made fresh on each run and never written to the repository: the key pair, a client id and a secret.
+const KEYS = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const OTHER_KEYS = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const PEM = KEYS.privateKey.export({ type: 'pkcs1', format: 'pem' });
+const CLIENT_ID = 'Iv1.checkissuesclient';
+const CLIENT_SECRET = 'checkissuesclientsecret0123456789abcdef0123';
+// The fake's installations: the repository each one reaches, by id.
+const INSTALLS = { 7: { id: 777, name: 'Drowbe/coffee-pub-chameleon' }, 8: { id: 888, name: 'other/repo' }, 9: { id: 999, name: 'other/repo' }, 10: { id: 1010, name: 'other/repo' } };
+const LINK = { installation: 7, repositoryId: 777, writeOk: true };
 const REPO = 'Drowbe/coffee-pub-chameleon';
 
 let n = 0;
@@ -63,7 +73,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // answer (a 429, a 403, a redirect). Every request is kept.
 function fakeGitHub() {
   const seen = [];
+  const app = []; // every request to the app's endpoints, apart from `seen` (the issues): { method, path, body, jwt, headers }
+  const jwts = new Set(); // every JWT the fake received, to look for in the outputs
   const state = {
+    mints: [], mintOnce: null, mintTtlMs: 3600 * 1000, mintToken: null, installs: { 7: { mode: 'ok' }, 8: { mode: 'ok' }, 9: { mode: 'ok' }, 10: { mode: 'ok' } }, publicKey: KEYS.publicKey,
     issues: new Map(), once: null, onceWrite: null, slowList: 0, missing: new Set(), clock: Date.parse('2026-11-01T00:00:00Z'),
     labels: new Set(['priority: now', 'priority: next', 'priority: later', 'bug', 'good first issue', 'docs']), created: [],
   };
@@ -83,9 +96,46 @@ function fakeGitHub() {
   };
   const label = (name, color = 'ededed') => ({ id: 1, name, color });
   const json = (res, status, body, extra = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...extra }); res.end(JSON.stringify(body)); };
+  // The app's JWT as GitHub reads it: RS256 signed by the app's key, with iat, exp (at most 10 minutes after iat) and iss.
+  const readJwt = (header) => {
+    const m = /^Bearer ([\w-]+)\.([\w-]+)\.([\w-]+)$/.exec(header || '');
+    if (!m) return null;
+    try {
+      const head = JSON.parse(Buffer.from(m[1], 'base64url'));
+      const claims = JSON.parse(Buffer.from(m[2], 'base64url'));
+      jwts.add(header.slice(7));
+      const good = crypto.verify('RSA-SHA256', Buffer.from(`${m[1]}.${m[2]}`), state.publicKey, Buffer.from(m[3], 'base64url'));
+      return { head, claims, good };
+    } catch { return null; }
+  };
+  const handleApp = (req, res, body) => {
+    const u = new URL(req.url, 'http://x');
+    const jwt = readJwt(req.headers.authorization);
+    app.push({ method: req.method, path: u.pathname, body, jwt, headers: req.headers });
+    const nowS = Date.now() / 1000;
+    if (!jwt || !jwt.good || jwt.head.alg !== 'RS256' || !(jwt.claims.exp > nowS) || jwt.claims.exp - jwt.claims.iat > 600) return json(res, 401, { message: 'A JSON web token could not be decoded' });
+    if (req.method === 'GET' && u.pathname === '/app') return json(res, 200, { id: 1, slug: 'chameleon-check', name: 'Chameleon Check', owner: { login: 'someone' } });
+    const m = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(u.pathname);
+    if (m && req.method === 'POST') {
+      if (state.mintOnce) { const f = state.mintOnce; state.mintOnce = null; return f(req, res); }
+      const inst = INSTALLS[m[1]];
+      const mode = (state.installs[m[1]] || {}).mode;
+      if (!inst || mode === 'gone') return json(res, 404, { message: 'Not Found' });
+      if (mode === 'suspended') return json(res, 403, { message: 'This installation has been suspended' });
+      if (!body || !Array.isArray(body.repository_ids) || !body.repository_ids.includes(inst.id)) return json(res, 422, { message: 'Validation Failed: the repository is not in the installation' });
+      state.mints.push(body);
+      const at = state.mintTtlMs;
+      return json(res, 201, {
+        token: state.mintToken || TOKEN, expires_at: new Date(Date.now() + at).toISOString(), permissions: body.permissions,
+        repository_selection: 'selected', repositories: [{ id: inst.id, full_name: (state.installs[m[1]] || {}).rename || inst.name }],
+      });
+    }
+    return json(res, 404, { message: 'Not Found' });
+  };
   const handle = (req, res, raw) => {
     let body = null;
     try { body = raw ? JSON.parse(raw) : null; } catch { body = '(not json)'; }
+    if (req.url === '/app' || req.url.startsWith('/app/')) return handleApp(req, res, body);
     seen.push({ method: req.method, url: req.url, headers: req.headers, body, raw });
     if (state.once) { const f = state.once; state.once = null; return f(req, res); }
     if (req.method !== 'GET' && state.onceWrite) { const f = state.onceWrite; state.onceWrite = null; return f(req, res); }
@@ -159,7 +209,7 @@ function fakeGitHub() {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => handle(req, res, Buffer.concat(chunks).toString('utf8')));
   });
-  return { server, seen, state, issue, label };
+  return { server, seen, app, jwts, state, issue, label };
 }
 
 const gh = fakeGitHub();
@@ -212,13 +262,13 @@ await test('GitHub\'s answer read as records: pull requests skipped, no person, 
 
 await test('only GitHub is registered, unless the check names its stand-in', () => {
   const out = execFileSync(process.execPath, ['-e', "const r=require('./server/issue-providers'); console.log(JSON.stringify(r.list().map(p=>[p.id,p.origin,p.pollMs,p.fullEveryMs,p.tokenEnv])))"], { cwd: ROOT, env: { PATH: process.env.PATH } }).toString().trim();
-  assert.deepEqual(JSON.parse(out), [['github', 'https://api.github.com', 600000, 86400000, 'ISSUES_GITHUB_TOKEN']]);
+  assert.deepEqual(JSON.parse(out), [['github', 'https://api.github.com', 600000, 86400000, null]]);
   const { valid } = require('../server/issue-providers');
   assert.equal(valid(STANDIN), true);
   assert.equal(valid({ ...GITHUB, origin: 'http://api.github.com' }), false, 'https unless the stand-in');
   assert.equal(valid({ ...GITHUB, needsToken: true }), false, 'a service that needs a token is not registered');
   assert.equal(valid({ ...GITHUB, terms: '' }), false, 'its terms are named');
-  assert.equal(valid({ ...GITHUB, tokenEnv: 'PATH' }), false, 'the token comes only from an ISSUES_ variable');
+  assert.equal('tokenEnv' in GITHUB, false, 'an adapter holds no token variable: the token is the installation\'s');
   assert.match(fs.readFileSync(path.join(ROOT, 'server', 'issue-providers', 'github.js'), 'utf8').split("'use strict'")[0], /Terms read on 2026-11-26/);
 });
 
@@ -299,7 +349,7 @@ await test('the ask: every page, a 304, the token only in Authorization, refusal
   gh.state.once = (req, res) => { res.writeHead(403); res.end(); };
   assert.equal((await I.askIssues(STANDIN, { repo: REPO }, { now: t })).restUntil, t + 30 * 60 * 1000, 'a 403 that names no time: 30 minutes');
   gh.state.once = (req, res) => { res.writeHead(401); res.end(); };
-  assert.match((await I.askIssues(STANDIN, { repo: REPO })).error, /refused the token/);
+  assert.match((await I.askIssues(STANDIN, { repo: REPO })).error, /refused this server's access/);
   assert.equal((await I.askIssues(STANDIN, { repo: 'nobody/here' })).ok, true, 'any repository the fake has');
   gh.state.missing.add('nobody/here');
   assert.equal((await I.askIssues(STANDIN, { repo: 'nobody/here' })).error, 'No such repository, or it is private.');
@@ -312,20 +362,190 @@ await test('the ask: every page, a 304, the token only in Authorization, refusal
   await assert.rejects(I.getter(GITHUB)('http://127.0.0.1:1/x', {}), /not the service's address/, 'GitHub\'s adapter asks only api.github.com');
 });
 
+// --- the GitHub app: credentials, the JWT, installation tokens (documentation/plans/plan-github-app.md, step 1) -----------------
+const APP = require('../server/issue-app.js');
+const ENV = { ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET: CLIENT_SECRET, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n') };
+const startApp = (env = ENV) => { const lines = []; APP.start(env, (l) => lines.push(l)); gh.state.installs = { 7: { mode: 'ok' }, 8: { mode: 'ok' }, 9: { mode: 'ok' }, 10: { mode: 'ok' } }; gh.app.length = 0; gh.state.mints.length = 0; gh.state.mintOnce = null; gh.state.mintToken = null; gh.state.mintTtlMs = 3600 * 1000; return lines; };
+const MINT = { installation: 7, repositoryId: 777, write: true };
+
+await test('the app\'s variables: the key from a file or from the variable, exactly one, and a clear line when something is wrong', () => {
+  const R = APP.readConfig;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issues-key-'));
+  const file = path.join(dir, 'app.pem');
+  fs.writeFileSync(file, PEM, { mode: 0o600 });
+  const base = { ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET: CLIENT_SECRET };
+  const fromFile = R({ ...base, ISSUES_GITHUB_APP_KEY_FILE: file });
+  assert.deepEqual([Boolean(fromFile.key), fromFile.problem, fromFile.set], [true, '', true], 'the key read from a file');
+  const fromVar = R({ ...base, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n') });
+  assert.deepEqual([Boolean(fromVar.key), fromVar.problem], [true, ''], 'the key read from the variable, \\n for line breaks');
+  assert.equal(Boolean(R({ ...base, ISSUES_GITHUB_APP_KEY: PEM }).key), true, 'and with real line breaks');
+  assert.equal(typeof fromVar.key, 'object', 'a key object, not text');
+  assert.ok(!JSON.stringify(Object.keys(fromVar)).includes('PRIVATE'), 'no text of the key kept');
+  const both = R({ ...base, ISSUES_GITHUB_APP_KEY_FILE: file, ISSUES_GITHUB_APP_KEY: PEM });
+  assert.deepEqual([both.key, both.problem], [null, 'Set only one of ISSUES_GITHUB_APP_KEY_FILE and ISSUES_GITHUB_APP_KEY. The GitHub app is off.'], 'both set: off with one line');
+  const bad = R({ ...base, ISSUES_GITHUB_APP_KEY: '-----BEGIN RSA PRIVATE KEY-----\nnot a key\n-----END RSA PRIVATE KEY-----' });
+  assert.deepEqual([bad.key, bad.problem], [null, 'The GitHub app\'s private key could not be read. The GitHub app is off.'], 'an unreadable key');
+  assert.ok(!bad.problem.includes('not a key'), 'nothing of it in the line');
+  assert.equal(R({ ...base, ISSUES_GITHUB_APP_KEY_FILE: path.join(dir, 'missing.pem') }).problem, 'The GitHub app\'s private key could not be read. The GitHub app is off.');
+  const ec = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+  assert.equal(R({ ...base, ISSUES_GITHUB_APP_KEY: ec }).key, null, 'only an RSA key signs RS256');
+  assert.match(R({ ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_KEY: PEM }).problem, /^The GitHub app needs ISSUES_GITHUB_APP_CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET and one of ISSUES_GITHUB_APP_KEY_FILE or ISSUES_GITHUB_APP_KEY\. The GitHub app is off\.$/, 'a missing variable');
+  assert.deepEqual([R({}).set, R({}).problem], [false, ''], 'none set: the app is simply not there');
+  for (const env of [{ ...base, ISSUES_GITHUB_APP_KEY: 'x' }, { ...base, ISSUES_GITHUB_APP_KEY_FILE: file, ISSUES_GITHUB_APP_KEY: PEM }, { ...base }]) {
+    const lines = [];
+    APP.start(env, (l) => lines.push(l));
+    assert.ok(lines.every((l) => !l.includes(CLIENT_SECRET) && !l.includes('BEGIN') && !l.includes(CLIENT_ID)), 'no secret in a start line');
+  }
+  APP.start({}, () => {});
+  assert.equal(APP.refusal(), 'This server has no GitHub app.', 'unset: its own sentence');
+  APP.start({ ...base, ISSUES_GITHUB_APP_KEY: 'x' }, () => {});
+  assert.equal(APP.refusal(), 'The GitHub app on this server is not working. The administrator checks its settings.', 'set but bad: the other sentence');
+  assert.equal(APP.configured(), false);
+});
+
+await test('without the app, or with a bad key, a token is refused with the plan\'s sentence and nothing is asked of GitHub', async () => {
+  startApp({});
+  gh.app.length = 0;
+  const none = await APP.token(STANDIN, MINT);
+  assert.deepEqual([none.ok, none.kind, none.status, none.error], [false, 'off', 409, 'This server has no GitHub app.']);
+  startApp({ ...ENV, ISSUES_GITHUB_APP_KEY: 'not a key' });
+  const bad = await APP.token(STANDIN, MINT);
+  assert.deepEqual([bad.ok, bad.kind, bad.error], [false, 'broken', 'The GitHub app on this server is not working. The administrator checks its settings.']);
+  assert.equal(gh.app.length, 0, 'no request was made');
+  assert.equal((await APP.token(GITHUB, { ...MINT })).ok, false, 'GitHub\'s own adapter, with no app, has no token either');
+  assert.equal(gh.app.length, 0);
+});
+
+await test('the JWT: RS256, the client id, 60 seconds back, under 10 minutes ahead, signed by the app\'s key only', async () => {
+  startApp();
+  const got = await APP.token(STANDIN, MINT);
+  assert.equal(got.ok, true);
+  assert.deepEqual(gh.app.map((r) => [r.method, r.path]), [['GET', '/app'], ['POST', '/app/installations/7/access_tokens']]);
+  for (const r of gh.app) {
+    assert.equal(r.jwt.good, true, 'signed with the run\'s key');
+    assert.deepEqual(r.jwt.head, { alg: 'RS256', typ: 'JWT' });
+    assert.equal(r.jwt.claims.iss, CLIENT_ID);
+    const nowS = Date.now() / 1000;
+    assert.ok(Math.abs(r.jwt.claims.iat - (nowS - 60)) < 10, 'iat is 60 seconds back');
+    assert.ok(r.jwt.claims.exp > nowS && r.jwt.claims.exp - r.jwt.claims.iat <= 600, 'exp is under 10 minutes after iat');
+    assert.deepEqual(Object.keys(r.jwt.claims).sort(), ['exp', 'iat', 'iss']);
+    assert.match(r.headers.authorization, /^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
+    assert.match(r.headers['user-agent'], /^[^ ]+\/\d+\.\d+\.\d+/);
+  }
+  const wrong = APP.signJwt(OTHER_KEYS.privateKey, CLIENT_ID, Date.now());
+  const refused = await fetch(`${ORIGIN}/app`, { headers: { authorization: `Bearer ${wrong}` } });
+  assert.equal(refused.status, 401, 'a JWT signed with another key is refused');
+  assert.equal(gh.app[gh.app.length - 1].jwt.good, false);
+  assert.equal((await fetch(`${ORIGIN}/app`, { headers: { authorization: `Bearer ${gh.app[0].headers.authorization.slice(7).replace(/\.[^.]+$/, '.AAAA')}` } })).status, 401, 'a changed signature is refused');
+  assert.deepEqual(gh.app.slice(0, 2).map((r) => r.body), [null, gh.state.mints[0]]);
+});
+
+await test('a token is narrowed to one repository and to issues and metadata, and used by the adapter in Authorization only', async () => {
+  startApp();
+  const w = await APP.token(STANDIN, { installation: 7, repositoryId: 777, write: true });
+  const r = await APP.token(STANDIN, { installation: 7, repositoryId: 777, write: false });
+  assert.deepEqual(gh.state.mints, [
+    { repository_ids: [777], permissions: { issues: 'write', metadata: 'read' } },
+    { repository_ids: [777], permissions: { issues: 'read', metadata: 'read' } },
+  ]);
+  assert.deepEqual([w.ok, w.token, w.repo, r.token], [true, TOKEN, REPO, TOKEN]);
+  assert.ok(gh.app.every((x) => !JSON.stringify(x.body || {}).includes('repositories"')), 'by id, never by name');
+  assert.ok(gh.app.every((x) => !x.headers.authorization.includes(TOKEN)), 'the app\'s calls carry the JWT');
+});
+
+await test('a token is reused until 5 minutes before it expires, then made again; a 401 drops it; calls at once share one mint', async () => {
+  startApp();
+  const t0 = Date.now();
+  await APP.token(STANDIN, MINT, { now: t0 });
+  await APP.token(STANDIN, MINT, { now: t0 + 30 * 60 * 1000 });
+  await APP.token(STANDIN, MINT, { now: t0 + 54 * 60 * 1000 });
+  assert.equal(gh.state.mints.length, 1, 'within the hour (less 5 minutes): one mint');
+  assert.equal(gh.app.filter((x) => x.path === '/app').length, 1, 'the app is asked its name once');
+  gh.state.mintToken = `${TOKEN}-again`;
+  const late = await APP.token(STANDIN, MINT, { now: t0 + 56 * 60 * 1000 });
+  assert.deepEqual([gh.state.mints.length, late.token], [2, `${TOKEN}-again`], '5 minutes before expiry: a new token');
+  assert.equal((await APP.token(STANDIN, MINT, { now: t0 + 1000 })).token, `${TOKEN}-again`, 'and the new one is kept');
+  assert.equal(gh.state.mints.length, 2);
+  APP.dropToken(STANDIN, 7, 777);
+  await APP.token(STANDIN, MINT, { now: t0 + 1000 });
+  assert.equal(gh.state.mints.length, 3, 'dropped (a 401): made again');
+  APP.dropToken(STANDIN, 7, 777);
+  gh.state.mintTtlMs = 4 * 60 * 1000;
+  await APP.token(STANDIN, MINT);
+  await APP.token(STANDIN, MINT);
+  assert.equal(gh.state.mints.length, 5, 'a token with under 5 minutes left is never reused');
+  APP.dropToken(STANDIN, 7, 777);
+  gh.state.mintTtlMs = 3600 * 1000;
+  const before = gh.state.mints.length;
+  const both = await Promise.all([APP.token(STANDIN, MINT), APP.token(STANDIN, MINT), APP.token(STANDIN, MINT)]);
+  assert.deepEqual([gh.state.mints.length - before, both.every((x) => x.ok)], [1, true], 'three at once: one mint');
+});
+
+await test('trouble with a mint: not installed, repository out of it, paused, key refused, a limit, a rename, another repository', async () => {
+  startApp();
+  gh.state.installs[7].mode = 'gone';
+  let g = await APP.token(STANDIN, MINT);
+  assert.deepEqual([g.ok, g.kind], [false, 'gone'], '404: the app is not installed');
+  gh.state.installs[7].mode = 'ok';
+  gh.state.mintOnce = (req, res) => { res.writeHead(422, { 'content-type': 'application/json' }); res.end('{"message":"Validation Failed"}'); };
+  g = await APP.token(STANDIN, MINT);
+  assert.deepEqual([g.ok, g.kind], [false, 'gone'], '422: the repository is not in the installation');
+  gh.state.installs[7].mode = 'suspended';
+  g = await APP.token(STANDIN, MINT);
+  assert.deepEqual([g.ok, g.kind], [false, 'paused'], '403 naming the suspension');
+  gh.state.installs[7].mode = 'ok';
+  gh.state.mintOnce = (req, res) => { res.writeHead(403, { 'content-type': 'application/json', 'retry-after': '90' }); res.end('{"message":"You have exceeded a secondary rate limit"}'); };
+  const t = Date.now();
+  g = await APP.token(STANDIN, MINT, { now: t });
+  assert.deepEqual([g.ok, g.kind, g.restUntil], [false, 'limited', t + 90000], '403 with a wait: a rest');
+  assert.equal(APP.refusal(), '', 'a limit is not a broken app');
+  gh.state.installs[8].rename = 'other/renamed';
+  g = await APP.token(STANDIN, { installation: 8, repositoryId: 888, write: true });
+  assert.deepEqual([g.ok, g.repo], [true, 'other/renamed'], 'the mint names the repository as GitHub has it now');
+  g = await APP.token(STANDIN, { installation: 7, repositoryId: 778, write: true });
+  assert.deepEqual([g.ok, g.kind], [false, 'gone'], 'a mint that does not name the repository asked for');
+  assert.equal(gh.state.mints.every((m) => m.repository_ids.length === 1), true);
+  gh.state.mintOnce = (req, res) => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"message":"Bad credentials"}'); };
+  g = await APP.token(STANDIN, { installation: 9, repositoryId: 999, write: true });
+  assert.deepEqual([g.ok, g.kind, g.error], [false, 'broken', 'The GitHub app on this server is not working. The administrator checks its settings.'], '401: the key or secret is refused');
+  const asked = gh.app.length;
+  g = await APP.token(STANDIN, { installation: 9, repositoryId: 999, write: true });
+  assert.deepEqual([g.kind, gh.app.length], ['broken', asked], 'then the server does not ask again for a while');
+  assert.equal(APP.refusal(), 'The GitHub app on this server is not working. The administrator checks its settings.');
+  startApp();
+  assert.equal(APP.refusal(), '', 'a restart reads it again');
+});
+
+await test('one service rest for every environment: a repository\'s limit rests every space on it, whichever environment', () => {
+  startApp();
+  const a = { provider: 'issues-standin', via: 'app', repo: 'o/r', repositoryId: 5 };
+  const renamed = { ...a, repo: 'o/renamed' };
+  const pub = { provider: 'issues-standin', via: 'public', repo: 'O/R' };
+  APP.restSet(a, Date.now() + 60000);
+  assert.ok(APP.restLeft(renamed) > 0 && APP.restLeft(renamed) <= 60000, 'by repository id: a rename does not escape it');
+  assert.equal(APP.restLeft({ ...a, repositoryId: 6 }), 0, 'another repository');
+  assert.equal(APP.restLeft(pub), 0, 'a public read is another limit');
+  APP.restSet(pub, Date.now() + 60000);
+  assert.ok(APP.restLeft({ ...pub, repo: 'o/r' }) > 0, 'a public repository by name, any case');
+  assert.equal(APP.restLeft(a, Date.now() + 120000), 0, 'and it ends');
+});
+
+await test('the removed server token and allow list are gone from the source', () => {
+  const words = ['ISSUES_GITHUB_' + 'TOKEN', 'ISSUES_GITHUB_' + 'WRITE', 'token' + 'Env', 'issue' + 'Token', 'issueMay' + 'Write', 'write' + 'Allowed', 'writeList' + 'Of', 'SAY.no' + 'Token', 'No token is set on this server', 'issues-to-' + 'plan'];
+  const found = [];
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (['node_modules', '.git', '.wiki-build'].includes(e.name) ? [] : e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const files = [...walk(path.join(ROOT, 'server')), ...walk(path.join(ROOT, 'tools')), path.join(ROOT, 'package.json'), path.join(ROOT, 'docker-compose.yml'), path.join(ROOT, 'Dockerfile')];
+  for (const f of files) {
+    if (f === fileURLToPath(import.meta.url) || !fs.existsSync(f) || /\.(png|jpe?g|gif|webp|ico|woff2?|zip|pmtiles|pdf|mp3|mp4)$/i.test(f)) continue;
+    const text = fs.readFileSync(f, 'utf8');
+    for (const w of words) if (text.includes(w)) found.push(`${path.relative(ROOT, f)}: ${w}`);
+  }
+  assert.deepEqual(found, [], 'nothing reads, names or answers with the removed variables or the old sentences');
+  assert.equal(fs.existsSync(path.join(ROOT, 'tools', 'issues-to-' + 'plan.mjs')), false, 'the stopgap tool is gone');
+});
+
 // --- writing back: the pieces ------------------------------------------------------------------------------------------------
-await test('ISSUES_GITHUB_WRITE: unset writes nothing; a host names the environment; case does not matter', () => {
-  const A = I.writeAllowed;
-  assert.equal(A(undefined, { repo: 'o/r' }), false);
-  assert.equal(A('', { repo: 'o/r' }), false);
-  assert.equal(A('o/r', { repo: 'o/r' }), true);
-  assert.equal(A(' O/R , x/y ', { repo: 'o/r' }), true);
-  assert.equal(A('x/y', { repo: 'o/r' }), false, 'another repository');
-  assert.equal(A('o/r', { hosted: true, slug: 'camp', repo: 'o/r' }), false, 'on a host each is named with its environment');
-  assert.equal(A('camp:o/r', { hosted: true, slug: 'camp', repo: 'o/r' }), true);
-  assert.equal(A('camp:o/r', { hosted: true, slug: 'other', repo: 'o/r' }), false, 'another environment on the host');
-  assert.equal(A('camp:o/r', { hosted: false, repo: 'o/r' }), false, 'a single install does not read an environment\'s entry');
-  assert.equal(A('camp:o/r', { hosted: true, slug: '', repo: 'o/r' }), false);
-  assert.equal(A('o/r;rm -rf', { repo: 'o/r' }), false, 'a malformed entry is nothing');
+await test('the write gaps', () => {
   assert.equal(GITHUB.writeGapMs, 1000, 'GitHub asks for a second between writes');
   assert.equal(STANDIN.writeGapMs, 0);
 });
@@ -408,7 +628,7 @@ await test('the adapter\'s writes carry only the fields the plan allows', async 
   assert.equal((await wc(lim(403, {}, 'Resource not accessible by personal access token'))).status, 502, 'a 403 that is not a limit is the token\'s refusal, not a rest');
   assert.match((await wc(lim(403, {}, 'You have exceeded a secondary rate limit.'))).error, /^Test stand-in .* asked to wait\. Try again in \d+ minutes\.$/);
   assert.equal((await wc(lim(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '2000' }, 'API rate limit exceeded'))).status, 429);
-  assert.match((await wc(lim(401, {}, 'Bad credentials'))).error, /refused the token/);
+  assert.match((await wc(lim(401, {}, 'Bad credentials'))).error, /refused this server's access/);
   assert.equal((await wc(lim(422, {}, 'Validation Failed.'))).error, 'Test stand-in (not an issue service) refused the change: Validation Failed.');
   assert.equal((await wc(lim(404, {}, 'Not Found'))).status, 404);
   assert.match((await wc(lim(502, {}, ''))).error, /did not answer\. Nothing was changed; try again\.$/);
@@ -456,12 +676,13 @@ await test('the gate is read from the code, and each part of it matters', () => 
       /if \(pull && pull\.on && pull\.write\) \{\n      const out = await issueWriteThrough\(/.test(routeOf(text, "app.put('/api/modules/:id/data/:key'")),
       /if \(!mayWriteOut && !\(d\.own && !sends && !d\.foreign\.length\)\) return noRight;/.test(fnOf(text, 'async function issueWriteThrough(')) && /const mayWriteOut = Boolean\(ctx\.perms\[`module\.\$\{ctx\.manifest\.id\}\.write_out`\]\);/.test(fnOf(text, 'async function issueWriteThrough(')),
       /if \(d\.foreign\.length\) return fromService;/.test(fnOf(text, 'async function issueWriteThrough(')),
-      /if \(!issueCanWrite\(adapter\) \|\| !issueMayWrite\(rec\.repo\)\) return \{ status: 403/.test(fnOf(text, 'async function issueWriteThrough(')),
+      /const refused = issueWriteRefusal\(rec, adapter\);\n    if \(refused\) return refused;/.test(fnOf(text, 'async function issueWriteThrough(')),
       /const read = await issueRead\(rec, adapter, number\);/.test(fnOf(text, 'async function issueWriteThrough(')),
-      /process\.env\.ISSUES_GITHUB_WRITE/.test(text.slice(text.indexOf('const issueMayWrite'), text.indexOf('const issueCanWrite'))),
+      /if \(rec\.via !== 'app'\) return \{ status: 409/.test(fnOf(text, 'function issueWriteRefusal(')) && /!rec\.writeOk\) return \{ status: 403/.test(fnOf(text, 'function issueWriteRefusal(')), // only a space linked through the app, by someone who could write there
       /if \(!rec\.write\) return res\.status\(403\)/.test(routeOf(text, "app.post('/api/spaces/:id/issues'")),
       /\.write_out`\]\) return res\.status\(403\)/.test(routeOf(text, "app.post('/api/spaces/:id/issues'")),
-      /if \(!issueCanWrite\(adapter\) \|\| !issueMayWrite\(rec\.repo\)\) return res\.status\(403\)/.test(routeOf(text, "app.post('/api/spaces/:id/issues'")),
+      /const refusedWrite = issueWriteRefusal\(rec, adapter\);\n  if \(refusedWrite\) return res\.status/.test(routeOf(text, "app.post('/api/spaces/:id/issues'")),
+      /const refused = writeCheck\(had\);\n    if \(refused\)/.test(routeOf(text, "app.put('/api/spaces/:id/issues-pull'")) && /if \(body\.write !== true\) return null;\n    return issueWriteRefusal\(rec, adapter\);/.test(routeOf(text, "app.put('/api/spaces/:id/issues-pull'")),
       /if \(issuesLib\.olderThanStored\(stored\.get\(key\), r\)\) continue;/.test(fnOf(text, 'function writeIssues(')),
       // An agent's side: its request on pulled work waits for the service (and nothing else is written with it), its Undo is a write
       // to the service, and a delete is never asked for.
@@ -491,12 +712,14 @@ await test('the gate is read from the code, and each part of it matters', () => 
     ['the agent\'s undo through the service', (t) => t.replace('const out = await issueWriteThrough(at.ctx, c.object.key, back, { expected: c.versionAfter });', 'const out = {};')],
     ['no delete of pulled work for an agent', (t) => t.replace('if (pull && pull.on && pull.write) { const a = issueAdapterOf(pull.provider); return res.status(403)', 'if (false) { const a = issueAdapterOf(pull.provider); return res.status(403)')],
     ['the read-only fields', inPull((t) => t.replace('if (d.foreign.length) return fromService;', ''))],
-    ['the server\'s list of repositories', inPull((t) => t.replace('if (!issueCanWrite(adapter) || !issueMayWrite(rec.repo)) return { status: 403', 'if (false) return { status: 403'))],
+    ['the link of the space', inPull((t) => t.replace("if (rec.via !== 'app') return { status: 409", "if (false) return { status: 409"))],
+    ['the linking person\'s own right to write', inPull((t) => t.replace('!rec.writeOk) return { status: 403', 'false) return { status: 403'))],
+    ['the refusal in the write-through', inPull((t) => t.replace('const refused = issueWriteRefusal(rec, adapter);\n    if (refused) return refused;', ''))],
+    ['the refusal on turning writing on', inPull((t) => t.replace('return issueWriteRefusal(rec, adapter);', 'return null;'))],
     ['the read before a write', inPull((t) => t.replace('const read = await issueRead(rec, adapter, number);', 'const read = { ok: true, record: null };'))],
-    ['the list in the environment', inPull((t) => t.replace('process.env.ISSUES_GITHUB_WRITE', 'process.env.ISSUES_NOTHING'))],
     ['the new issue\'s write flag', inPull((t) => t.replace('if (!rec.write) return res.status(403)', 'if (false) return res.status(403)'))],
     ['the new issue\'s write_out', inPull((t) => t.replace('.write_out`]) return res.status(403)', '.write_out`] === 1) return res.status(403)'))],
-    ['the new issue\'s list of repositories', inPull((t) => t.replace('if (!issueCanWrite(adapter) || !issueMayWrite(rec.repo)) return res.status(403)', 'if (false) return res.status(403)'))],
+    ['the new issue\'s link', inPull((t) => t.replace('if (refusedWrite) return res.status', 'if (false) return res.status'))],
     ['the pull\'s never-older rule', inPull((t) => t.replace('if (issuesLib.olderThanStored(stored.get(key), r)) continue;', ''))],
     ['only while on', inPull((t) => t.replace('if (!rec || !rec.on) return null;\n  if (key', 'if (!rec) return null;\n  if (key'))],
   ]) {
@@ -517,7 +740,7 @@ const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
   env: {
     PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret',
     ADMIN_PASSWORD: 'testpass1234', AGENT_TOKENS: 'true', LIVEKIT_API_URL: `http://127.0.0.1:${lk.address().port}`,
-    ISSUES_TEST_STANDIN: ORIGIN, ISSUES_GITHUB_TOKEN: TOKEN, ISSUES_GITHUB_WRITE: `${REPO.toLowerCase()}, nobody:${REPO}`, ISSUES_TEST_GAP_MS: '1000', ISSUES_TEST_FULL_MS: String(FULL_MS), ISSUES_TEST_POLL_MS: String(3600 * 1000), ISSUES_TEST_TICK_MS: '300',
+    ISSUES_TEST_STANDIN: ORIGIN, ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET: CLIENT_SECRET, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n'), ISSUES_TEST_GAP_MS: '1000', ISSUES_TEST_FULL_MS: String(FULL_MS), ISSUES_TEST_POLL_MS: String(3600 * 1000), ISSUES_TEST_TICK_MS: '300',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -550,6 +773,7 @@ const call = async (method, urlPath, { body, token } = {}) => {
 };
 const ok = (r, what, status = 200) => { assert.equal(r.status, status, `${what}: ${r.status} ${r.text.slice(0, 300)}`); return r; };
 const S = {};
+const FOLLOW = { on: true, repo: REPO, provider: 'issues-standin', testLink: LINK }; // the test seam: step 1 has no link flow yet
 const P = (space) => `/api/spaces/${space}/issues-pull`;
 const plan = async (space) => Object.fromEntries((ok(await call('GET', `/api/modules/schedule/data?scope=space&space=${space}`, { token: S.admin }), 'the plan').json.items).map((e) => [e.key, e]));
 const status = async (space) => ok(await call('GET', P(space), { token: S.admin }), 'the status').json;
@@ -599,7 +823,7 @@ await live('set up: Planner - Projects on, a member, an agent and a guest link',
 
 await live('the gate: only an owner turns it on, the terms first, only into an empty plan', async () => {
   const on = { on: true, repo: REPO, provider: 'issues-standin' };
-  assert.deepEqual(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads the status').json, { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling: false, write: false, canWrite: false });
+  assert.deepEqual(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads the status').json, { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling: false, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', app: null });
   const mia = await call('PUT', P(S.bugs), { token: S.mia, body: on });
   assert.equal(mia.status, 403, 'a member');
   assert.match(mia.json.error, /^Only an owner can turn the pull from .+ on or off\.$/);
@@ -632,7 +856,7 @@ await live('the gate: only an owner turns it on, the terms first, only into an e
 
 let first;
 await live('on: the board fixed to five columns, every issue once, by the pull', async () => {
-  const r = ok(await call('PUT', P(S.bugs), { token: S.admin, body: { on: true, repo: REPO, provider: 'issues-standin' } }), 'the owner turns it on');
+  const r = ok(await call('PUT', P(S.bugs), { token: S.admin, body: FOLLOW }), 'the owner turns it on');
   assert.deepEqual([r.json.on, r.json.repo, r.json.provider], [true, REPO, 'issues-standin']);
   const s = await until('the first pull', async () => { const v = await status(S.bugs); return v.last ? v : null; });
   assert.deepEqual(s.counts, { total: 5, open: 4, done: 1, written: 5, removed: 0 });
@@ -763,6 +987,8 @@ await live('a repository that is not there', async () => {
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'nobody/here', provider: 'issues-standin' } }), 'on');
   const s = await until('its pull', async () => { const v = await status(S.other); return v.error ? v : null; });
   assert.equal(s.error, 'No such repository, or it is private.');
+  const mine = gh.seen.filter((x) => x.url.startsWith('/repos/nobody/here'));
+  assert.ok(mine.length > 0 && mine.every((x) => x.headers.authorization === undefined), 'a repository followed with no link is read with no token at all');
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
 });
 
@@ -772,7 +998,7 @@ await live('off: the work stays and is editable again', async () => {
   ok(await putKey(S.bugs, 'plan:gh-1', { kind: 'work', title: 'mine now', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia), 'a member edits it');
   assert.equal((await call('POST', `${P(S.bugs)}/now`, { token: S.admin, body: {} })).status, 409, 'no pull while off');
   // On again, with a hand-changed pulled entry of this repository: allowed (it is the pull's own) and overwritten by the next pull.
-  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { on: true, repo: REPO, provider: 'issues-standin' } }), 'on again');
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: FOLLOW }), 'on again');
   await until('the full pull after turning on', async () => (await plan(S.bugs))['plan:gh-1'].value.title === 'Server: open, no priority');
   assert.equal((await plan(S.bugs))['plan:gh-1'].by, 'system:issues', 'the hand change is overwritten');
   assert.equal((await call('PUT', P(S.bugs), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin' } })).status, 409, 'another repository needs an empty plan');
@@ -790,24 +1016,35 @@ const move = (key, column, token) => edit(key, { column, done: column === 'done'
 const lastLine = async () => (await status(S.bugs)).error;
 const FROM_GITHUB = 'This comes from Test stand-in (not an issue service). Change it there.';
 
-await live('writing: only an owner turns it on, and only for a repository the server names', async () => {
+await live('writing: only an owner turns it on, and only for a space linked through the app by someone who may write', async () => {
   const view = (r) => [r.json.write, r.json.canWrite];
-  assert.deepEqual(view(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads it')), [false, true], 'off, and allowed here');
+  assert.deepEqual(view(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads it')), [false, true], 'off, and the space is linked by someone who may write');
   assert.equal((await call('PUT', P(S.bugs), { token: S.mia, body: { write: true } })).status, 403, 'a member');
   assert.equal((await call('PUT', P(S.bugs), { token: S.agent, body: { write: true } })).status, 403, 'an agent');
   assert.equal((await call('PUT', P(S.bugs), { body: { write: true } })).status, 401, 'nobody');
   assert.equal((await call('PUT', P(S.bugs), { token: S.admin, body: { write: 'yes' } })).status, 400);
   assert.equal((await call('PUT', P(S.bugs), { token: S.admin, body: {} })).status, 400, 'on or write must be named');
-  // A repository the server's list does not name: refused before anything is sent, on turning on and on turning writing on.
+  // A repository followed with no link (a public one, no token), and one linked by someone who could not write there: refused before
+  // anything is sent, on turning on and on turning writing on; and each with its own sentence.
   const before = gh.seen.length;
   ok(await call('DELETE', `/api/modules/schedule/data?scope=space&space=${S.other}`, { token: S.admin }), 'the other plan is empty', 200).status;
-  const other = ok(await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin' } }), 'follows another repository');
-  assert.deepEqual(view(other), [false, false], 'the server does not allow writing there');
+  const other = ok(await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin' } }), 'follows another repository, no link');
+  assert.deepEqual(view(other), [false, false], 'not linked: no writing');
+  assert.deepEqual([other.json.via, other.json.writeOk, other.json.appError, other.json.app], ['public', false, '', null]);
   const no = await call('PUT', P(S.other), { token: S.admin, body: { write: true } });
-  assert.deepEqual([no.status, no.json.error], [409, 'This server may not change Test stand-in (not an issue service) for this repository.']);
+  assert.deepEqual([no.status, no.json.error], [409, 'Connect this repository through the GitHub app to change it from here.']);
   assert.equal((await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', write: true } })).status, 409, 'turning both on at once');
   assert.equal((await status(S.other)).write, false);
   ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
+  const readOnly = ok(await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', testLink: { installation: 8, repositoryId: 888, writeOk: false } } }), 'linked by someone who could only read');
+  assert.deepEqual([readOnly.json.via, readOnly.json.writeOk, readOnly.json.canWrite, readOnly.json.write], ['app', false, false, false]);
+  const may = await call('PUT', P(S.other), { token: S.admin, body: { write: true } });
+  assert.deepEqual([may.status, may.json.error], [403, 'The GitHub app may not change this repository.']);
+  assert.equal((await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', write: true, testLink: { installation: 8, repositoryId: 888, writeOk: false } } })).status, 403, 'nor with both at once');
+  assert.equal((await status(S.other)).write, false);
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
+  const dropped = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.other];
+  assert.deepEqual([dropped.via, dropped.installation, dropped.repositoryId, dropped.writeOk, dropped.write, dropped.appError], ['public', 0, 0, false, false, ''], 'stopping drops the link');
   assert.deepEqual(mutations(before), [], 'nothing was sent');
   // Writing alone needs a pull that is on.
   assert.equal((await call('PUT', P(S.other), { token: S.admin, body: { write: true } })).status, 409);
@@ -1024,7 +1261,7 @@ await live('GitHub does not answer, refuses, or asks to wait: one sentence, and 
   assert.deepEqual(await same(), base);
   gh.state.onceWrite = hold(401, {}, { message: 'Bad credentials' });
   r = await move(key, 'now', S.mod);
-  assert.deepEqual([r.status, r.json.error], [502, `${T} refused the token set on this server.`]);
+  assert.deepEqual([r.status, r.json.error], [502, `${T} refused this server's access.`]);
   gh.state.onceWrite = hold(422, {}, { message: 'Validation Failed.' });
   r = await move(key, 'now', S.mod);
   assert.deepEqual([r.status, r.json.error], [502, `${T} refused the change: Validation Failed.`]);
@@ -1249,6 +1486,65 @@ await live('the roadmap fields: defining one and setting a choice make no reques
   assert.ok(gh.seen.slice(at, full).every((x) => !/field|area|phase/i.test(`${x.url} ${x.raw || ''}`)), 'no word of a field in any request');
 });
 
+// --- live: the app's own troubles (documentation/plans/plan-github-app.md, section 9) -----------------------------------------------
+await live('the app is gone, paused or renamed: the sentence, reads without a token, writes refused, and it heals', async () => {
+  const GONE = 'The GitHub app is no longer installed on other/repo. Install it again and press Connect to GitHub, or stop following.';
+  const PAUSED = 'The GitHub app is paused for other/repo on GitHub.';
+  const from = gh.seen.length;
+  const follow = (extra = {}) => call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', testLink: { installation: 9, repositoryId: 999, writeOk: true }, ...extra } });
+  gh.state.installs[9].mode = 'gone';
+  ok(await follow({ write: true }), 'linked');
+  let s = await until('the first pull', async () => { const v = await status(S.other); return v.appError && v.last ? v : null; });
+  assert.deepEqual([s.via, s.appError, s.error, s.write], ['app', GONE, '', true], 'the trouble is on the record; the public repository still reads');
+  const read = gh.seen.slice(from).filter((x) => x.url.startsWith('/repos/other/repo'));
+  assert.ok(read.length > 0 && read.every((x) => x.headers.authorization === undefined), 'read with no token');
+  const create = await call('POST', `/api/spaces/${S.other}/issues`, { token: S.admin, body: { title: 'Server: nope', column: 'now' } });
+  assert.deepEqual([create.status, create.json.error], [409, GONE], 'writing is refused with the sentence');
+  assert.deepEqual(mutations(from), [], 'nothing sent');
+  gh.state.installs[9].mode = 'suspended';
+  await sleep(1100);
+  ok(await call('POST', `${P(S.other)}/now`, { token: S.admin, body: {} }), 'a pull');
+  s = await status(S.other);
+  assert.equal(s.appError, PAUSED, 'paused on GitHub: its own sentence');
+  assert.equal((await call('POST', `/api/spaces/${S.other}/issues`, { token: S.admin, body: { title: 'Server: nope', column: 'now' } })).json.error, PAUSED);
+  gh.state.installs[9].mode = 'ok';
+  await sleep(1100);
+  ok(await call('POST', `${P(S.other)}/now`, { token: S.admin, body: {} }), 'a pull');
+  s = await status(S.other);
+  assert.equal(s.appError, '', 'a token made again clears it');
+  assert.ok(gh.seen.filter((x) => x.url.startsWith('/repos/other/repo')).slice(-1)[0].headers.authorization === `Bearer ${TOKEN}`, 'and the next read carries the installation token');
+  assert.ok(!JSON.stringify(s).includes(TOKEN) && s.via === 'app' && !('installation' in s) && !('repositoryId' in s), 'the status carries no token and no id');
+  // A repository GitHub now names differently is followed from the mint.
+  gh.state.installs[10].rename = 'other/renamed';
+  ok(await follow({ testLink: { installation: 10, repositoryId: 1010, writeOk: false } }), 'linked again, through another installation');
+  await until('the pull', async () => (await status(S.other)).repo === 'other/renamed');
+  s = await status(S.other);
+  assert.deepEqual([s.repo, s.appError, s.error], ['other/renamed', '', ''], 'a repository GitHub names differently is followed from the mint');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.other].repo, 'other/renamed');
+  ok(await call('PUT', P(S.other), { token: S.admin, body: { on: false } }), 'off');
+});
+
+await live('a write that meets a 301 is made again once, after a new token, and a 401 drops the token', async () => {
+  const minted = gh.state.mints.length;
+  const before = gh.seen.length;
+  const cur = (await plan(S.bugs))['plan:gh-10'];
+  gh.state.onceWrite = (req, res) => { res.writeHead(301, { location: `${ORIGIN}/repositories/777/issues/10` }); res.end(); };
+  const moved = await call('PUT', `/api/modules/schedule/data/${encodeURIComponent('plan:gh-10')}?scope=space&space=${S.bugs}`, { token: S.admin, body: { value: { ...cur.value, title: 'Server: ten, moved' }, version: cur.version } });
+  assert.equal(moved.status, 200, `the write goes through on the second try: ${moved.text.slice(0, 200)}`);
+  const patches = gh.seen.slice(before).filter((x) => x.method === 'PATCH');
+  assert.equal(patches.length, 2, 'the first met the 301, the second was made');
+  assert.ok(patches.every((x) => x.headers.authorization === `Bearer ${TOKEN}`));
+  assert.equal(gh.state.mints.length, minted + 1, 'after a fresh token');
+  const was = gh.state.mints.length;
+  const cur2 = (await plan(S.bugs))['plan:gh-10'];
+  gh.state.onceWrite = (req, res) => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"message":"Bad credentials"}'); };
+  const refused = await call('PUT', `/api/modules/schedule/data/${encodeURIComponent('plan:gh-10')}?scope=space&space=${S.bugs}`, { token: S.admin, body: { value: { ...cur2.value, title: 'Server: ten, again' }, version: cur2.version } });
+  assert.equal(refused.status, 502, 'a 401 changes nothing');
+  const cur3 = (await plan(S.bugs))['plan:gh-10'];
+  ok(await call('PUT', `/api/modules/schedule/data/${encodeURIComponent('plan:gh-10')}?scope=space&space=${S.bugs}`, { token: S.admin, body: { value: { ...cur3.value, title: 'Server: ten, third' }, version: cur3.version } }), 'the next write');
+  assert.equal(gh.state.mints.length, was + 1, 'the 401 dropped the token: the next call made a new one');
+});
+
 await live('what GitHub was sent holds only what the plan allows, and no one\'s name', async () => {
   const sent = mutations();
   assert.ok(sent.length > 20, `${sent.length} writes seen`);
@@ -1269,15 +1565,34 @@ await live('what GitHub was sent holds only what the plan allows, and no one\'s 
   assert.deepEqual(gh.state.created, [], 'no label was made on GitHub');
 });
 
-await live('the token is never in an answer, the data, the record or the log', async () => {
+await live('no secret is in an answer, the data, the record, the log or a request but the one that carries it', async () => {
+  const jwts = [...gh.jwts];
   await stop();
-  assert.ok(answers.every((a) => !a.includes(TOKEN)), 'no answer');
-  assert.ok(!serverOut.includes(TOKEN), 'not in the log');
+  const pemBody = PEM.split('\n').filter((l) => l && !l.startsWith('-----'));
+  const secrets = { 'the installation token': TOKEN, 'the client secret': CLIENT_SECRET, 'the key': pemBody[1], 'the key\'s first line': pemBody[0], ...Object.fromEntries(jwts.map((j, i) => [`a JWT (${i})`, j])) };
+  assert.ok(jwts.length > 0 && pemBody.length > 10);
+  for (const [what, v] of Object.entries(secrets)) {
+    assert.ok(answers.every((a) => !a.includes(v)), `${what}: not in an answer`);
+    assert.ok(!serverOut.includes(v), `${what}: not in the log`);
+  }
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
-  for (const f of walk(dataDir)) assert.ok(!fs.readFileSync(f).includes(TOKEN), `not in ${path.relative(dataDir, f)}`);
+  for (const f of walk(dataDir)) for (const [what, v] of Object.entries(secrets)) assert.ok(!fs.readFileSync(f).includes(v), `${what}: not in ${path.relative(dataDir, f)}`);
   const record = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8'));
   assert.deepEqual(Object.keys(record.spaces).sort(), [S.bugs, S.other].sort());
   assert.equal(record.spaces[S.bugs].repo, REPO);
+  assert.deepEqual([record.spaces[S.bugs].via, record.spaces[S.bugs].installation, record.spaces[S.bugs].repositoryId, record.spaces[S.bugs].writeOk, typeof record.spaces[S.bugs].linkBy, Boolean(record.spaces[S.bugs].linkAt), record.spaces[S.bugs].appError], ['app', 7, 777, true, 'string', true, '']);
+  assert.ok(Object.keys(record.spaces[S.bugs]).every((k) => ['provider', 'repo', 'on', 'since', 'etag', 'last', 'tried', 'fullAt', 'next', 'restUntil', 'error', 'counts', 'by', 'at', 'write', 'writeBy', 'writeAt', 'via', 'installation', 'repositoryId', 'writeOk', 'linkBy', 'linkAt', 'appError'].includes(k)), 'only the fields the plan names');
+  // What reached the fake: the repository's requests carry the installation token in Authorization only; the app's carry a JWT only.
+  for (const x of gh.seen.filter((r) => /^\/repos\/(Drowbe|other)\//.test(r.url))) {
+    assert.ok(!x.url.includes(TOKEN) && !(x.raw || '').includes(TOKEN), `${x.method} ${x.url}: the token only in Authorization`);
+    assert.ok([`Bearer ${TOKEN}`, undefined].includes(x.headers.authorization), `${x.method} ${x.url}: the installation token or none`);
+  }
+  assert.ok(gh.seen.filter((r) => r.url.startsWith(`/repos/${REPO}`)).every((x) => x.headers.authorization === `Bearer ${TOKEN}`), 'the linked repository: read and written with the installation token');
+  for (const x of gh.app) {
+    assert.ok(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/.test(x.headers.authorization), `${x.method} ${x.path}: a JWT`);
+    assert.ok(!JSON.stringify(x.body || {}).includes(CLIENT_SECRET) && !JSON.stringify(x.body || {}).includes(TOKEN) && !x.path.includes(CLIENT_ID), `${x.method} ${x.path}: no secret in the body or the address`);
+  }
+  assert.ok(gh.app.every((x) => !x.headers.authorization.includes(TOKEN)));
 });
 
 await stop();

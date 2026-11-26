@@ -6,7 +6,7 @@
  *   node tools/roadmap-to-plan.mjs [--csv file] [--plan file] [--repo owner/name] [--out file] [--dry-run]
  *
  *   --csv      the roadmap (default .github/roadmap-board.csv)
- *   --plan     a project-plan file whose entries are the work the space has (the file tools/issues-to-plan.mjs writes, or a plan's
+ *   --plan     a project-plan file whose entries are the work the space has (a plan's
  *              Export). A row whose gh-<number> is not in it is reported and left out. Without it every row is written and
  *              Update by id skips, and counts, the ids the plan does not have.
  *   --repo     the repository the space follows (default Drowbe/coffee-pub-chameleon); a row for another repository is reported
