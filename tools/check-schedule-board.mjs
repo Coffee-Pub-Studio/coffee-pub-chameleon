@@ -200,10 +200,10 @@ try {
       await ev(tab, `(() => { for (const [id, v] of [['#f-start', '2026-10-26'], ['#f-end', '2026-10-27']]) { const i = __all(${JSON.stringify(F)} + id)[0]; i.value = v; i.dispatchEvent(new Event('change', { bubbles: true })); } return 1; })()`);
       await ev(tab, `__all(${JSON.stringify(F + '#f-save')})[0].click()`);
       await waitFor(async () => (await colOf(tab, 'Brand new work')) === 'doing', `${tag}: "+" in Doing adds work in Doing`);
-      // the column menu has Fold only
+      // the column menu: Fold, then the module's editor items for an owner (check-schedule-board-editor.mjs drives them)
       await ev(tab, `__all(${JSON.stringify(F + '.sdk-board-col')})[1].querySelector('.sdk-board-colmore').click()`);
       await sleep(300);
-      same(await ev(tab, `__all(${JSON.stringify(F + '[role=menuitem]')}).map((m) => m.textContent.trim())`), ['Fold'], `${tag}: the column menu only folds for now`);
+      same(await ev(tab, `__all(${JSON.stringify(F + '[role=menuitem]')}).map((m) => m.textContent.trim())`), ['Fold', 'Rename', 'Move left', 'Move right', 'Counts as done', 'Delete'], `${tag}: the column menu for an owner`);
       await tab.key('Escape');
     }
     await tab.close();

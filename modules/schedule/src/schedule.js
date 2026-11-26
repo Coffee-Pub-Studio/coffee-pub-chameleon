@@ -510,11 +510,13 @@
         canAdd: () => canEdit,
         card: drawCard,
         menu: cardMenu,
+        columnMenu,
         onOpen: (c) => openEditor(c.id),
         onAdd: (columnId) => openEditor(null, { kind: 'work', column: columnId }),
         onMove: (m) => moveCard(m),
       });
     } else board.set(cards, columns);
+    hide($('board-bar'), !canColumns());
   }
   async function moveCard(m) {
     if (!canEdit || !carried) return;
@@ -523,6 +525,100 @@
       say(err && err.message ? err.message : 'It could not be moved.', 'danger');
       if (ask === boardAsk) render();
     }
+  }
+
+  // --- the columns: rename, move, "Counts as done", add, delete (the `columns` right; the server refuses anyone else) -----------------
+  // Each change is the rules' answer (scRenameColumn, scMoveColumn, scSetColumnFlag, scAddColumn, scDeleteColumn) written as ONE
+  // board:main write, then the work it rewrites; Undo (the bar the import uses) puts the board and the work back. A board still on
+  // the template's columns becomes a stored board on the first change, and Undo takes that record away again.
+  const canColumns = () => host.can('columns');
+  let columnsBusy = false;
+  async function changeColumns(next, rewritten, text) {
+    if (columnsBusy) return false;
+    columnsBusy = true;
+    const plan = { created: [], was: rewritten.map((e) => storedNow(e.id)).filter(Boolean), board: { was: state.boardRaw } };
+    try {
+      try { await writeBoard(scBoardValue(next)); } catch (err) { say(err && err.status === 409 ? 'Someone else changed the columns just now. Try again.' : (err && err.message) || 'The columns could not be changed.', 'danger'); render(); return false; }
+      try {
+        for (const e of rewritten) { const had = state.entries.get(e.id); await write(e, had ? had.version : undefined); }
+      } catch (err) {
+        try { await putBack(plan); } catch (again) { /* read on the next load */ }
+        say((err && err.message) || 'The columns could not be changed.', 'danger');
+        return false;
+      }
+      render();
+      offerUndo(plan, text);
+      return true;
+    } finally { columnsBusy = false; }
+  }
+  const rollup = (entries) => host.util.rollup(entries);
+  async function renameColumn(c) {
+    const b = currentBoard();
+    const text = await host.ui.prompt({ title: 'Rename the column', label: 'Name', value: c.label, action: 'Rename', validate: (v) => scRenameColumn(b, c.id, v).problem || '' });
+    if (text === null || scLine(text, 10000) === c.label) return;
+    const r = scRenameColumn(currentBoard(), c.id, text);
+    if (r.problem) { say(r.problem, 'danger'); return; }
+    await changeColumns(r.board, [], `Renamed the column ${scLine(text, 10000)}.`);
+  }
+  async function addColumn() {
+    if (!canColumns()) return;
+    const b = currentBoard();
+    const text = await host.ui.prompt({ title: 'Add a column', label: 'Name', action: 'Add', validate: (v) => scAddColumn(b, v).problem || '' });
+    if (text === null) return;
+    const r = scAddColumn(currentBoard(), text);
+    if (r.problem) { say(r.problem, 'danger'); return; }
+    await changeColumns(r.board, [], `Added the column ${r.column.label}.`);
+  }
+  async function moveColumn(c, by) {
+    const r = scMoveColumn(currentBoard(), c.id, by);
+    if (r.problem) { say(r.problem, 'danger'); return; }
+    await changeColumns(r.board, [], `Moved the column ${c.label} ${by < 0 ? 'left' : 'right'}.`);
+  }
+  async function flagColumn(c) {
+    const r = scSetColumnFlag(currentBoard(), list(), c.id, !c.done, { rollup });
+    if (r.problem) { say(r.problem, 'danger'); return; }
+    await changeColumns(r.board, r.entries, `${c.label} ${c.done ? 'no longer counts' : 'now counts'} as done.`);
+  }
+  const deleteEditor = host.ui.editor($('col-delete'), { size: 'small' });
+  let deleting = null; // the column being deleted
+  function deleteColumn(c) {
+    const b = currentBoard();
+    const others = b.columns.filter((x) => x.id !== c.id);
+    // The refusals that do not depend on where the work goes are said at once, in the rules' own sentences.
+    const probe = scDeleteColumn(b, c.id, others[0] ? others[0].id : '', list(), { rollup });
+    if (probe.problem) { say(probe.problem, 'danger'); return; }
+    const n = list().filter((e) => e.kind === 'work' && scColumnOf(e, b).id === c.id).length;
+    deleting = c;
+    $('col-delete-title').textContent = `Delete the column ${c.label}`;
+    const sel = $('col-to');
+    sel.replaceChildren(...others.map((x) => { const o = document.createElement('option'); o.value = x.id; o.textContent = x.label; return o; }));
+    $('col-to-hint').textContent = n ? `${n} ${kindWord('work', { many: n !== 1 })} will move there.` : 'There is no work in it.';
+    $('col-error').hidden = true;
+    deleteEditor.open({ focus: sel });
+  }
+  $('col-cancel').addEventListener('click', () => deleteEditor.close());
+  $('col-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const c = deleting;
+    if (!c) return;
+    const r = scDeleteColumn(currentBoard(), c.id, $('col-to').value, list(), { rollup });
+    if (r.problem) { $('col-error').textContent = r.problem; $('col-error').hidden = false; return; }
+    deleteEditor.close();
+    deleting = null;
+    await changeColumns(r.board, r.entries, `Deleted the column ${c.label}.`);
+  });
+  $('col-add').addEventListener('click', addColumn);
+  function columnMenu(c) {
+    if (!canColumns()) return [];
+    const b = currentBoard();
+    const at = b.columns.findIndex((x) => x.id === c.id);
+    return [
+      { id: 'rename', label: 'Rename', icon: 'pen', onClick: () => renameColumn(c) },
+      { id: 'left', label: 'Move left', icon: 'arrow-left', disabled: at <= 0, onClick: () => moveColumn(c, -1) },
+      { id: 'right', label: 'Move right', icon: 'arrow-right', disabled: at < 0 || at >= b.columns.length - 1, onClick: () => moveColumn(c, 1) },
+      { id: 'done', label: 'Counts as done', icon: c.done ? 'square-check' : 'square', regular: !c.done, current: Boolean(c.done), onClick: () => flagColumn(c) },
+      { id: 'delete', label: 'Delete', icon: 'trash', danger: true, onClick: () => deleteColumn(c) },
+    ];
   }
 
   // --- the Timeline --------------------------------------------------------------------------------------------------------
@@ -1083,7 +1179,7 @@
       let mine = '';
       try { mine = localStorage.getItem(VIEW_KEY) || ''; } catch (err) { /* none */ }
       state.view = mine === 'list' || mine === 'timeline' || mine === 'board' ? mine : narrow ? 'list' : state.settings.defaultView;
-      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
+      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', 'arrow-left', 'arrow-right', 'square-check', 'square', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
       state.loaded = true;
       render();
       loadLinks().catch(() => {});
