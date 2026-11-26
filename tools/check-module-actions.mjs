@@ -138,6 +138,20 @@ const test = async (name, fn) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The apply step waits for the service when a request names pulled work (plan-github-two-way.md, section 11); its live cases are
+// in tools/check-issues.mjs (the stand-in GitHub). Here, as code: the step is async, the one write is awaited, nothing else
+// is written with it, and the ordinary loop still writes the rest synchronously.
+await test('the apply step awaits a write to pulled work, and writes nothing else with it', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  const a = src.indexOf('async function carryOnServer(');
+  const body = src.slice(a, src.indexOf('\n}\n', a));
+  assert.ok(/const after = async \(\) => \{/.test(body), 'the apply step is async');
+  assert.ok(/await issueWriteThrough\(ctx, via\.first\.key, via\.first\.value/.test(body), 'the write to pulled work is awaited');
+  assert.ok(/for \(const w of via \? \[\] : outcome\.writes\) \{/.test(body), 'the ordinary loop writes none of it');
+  assert.ok(/if \(via\.other\.length \|\| e\.links\.length/.test(body) && /error: issuesLib\.SAY\.oneAtATime/.test(body), 'a request with more than that one write or any effect is refused');
+  assert.ok(/error: out\.error === SOMEONE_CHANGED \? ACTION_CHANGED : out\.error/.test(body), 'a change meanwhile is the runner\'s own sentence, GitHub\'s sentences are its own');
+});
+
 // --- a copy of the app whose modules/ also holds the fixture ------------------------------------------------------------
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-module-actions-'));
 const app = path.join(base, 'app');

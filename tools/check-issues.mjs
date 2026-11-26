@@ -28,6 +28,9 @@
  * older issue does not overwrite a newer write; a change to the same field on GitHub is refused (409) and the work shows GitHub's
  * version, a change to another field goes ahead and keeps the label someone added; 401, 403 with a wait, 422, 429 and silence
  * each change nothing here and give their sentence, and the wait rests every write; a write is not held behind a pull under way;
+ * an agent's setColumn, setDone and updateEntry on pulled work go through the same way (only with `write_out` ticked in the Agent
+ * column, which is off to start with; its own sentence without it; GitHub-only fields, a cut title and a delete refused; the conflict
+ * rule; writing off as today), and its Undo is another write held to the same rule;
  * every request the fake saw holds only the fields the plan allows, nothing of the space or the people, and the token only in
  * Authorization.
  *
@@ -440,7 +443,7 @@ await test('the gate is read from the code, and each part of it matters', () => 
       // Writing back: nothing goes out unless the space has it on, the server names the repository, the person holds write_out,
       // the field is one that may go, and the service is read first.
       /if \(pull && pull\.on && pull\.write\) \{\n      const out = await issueWriteThrough\(/.test(routeOf(text, "app.put('/api/modules/:id/data/:key'")),
-      /\.write_out`\]\) return fromService;/.test(fnOf(text, 'async function issueWriteThrough(')),
+      /\.write_out`\]\) return ctx\.who && ctx\.who\.user && ctx\.who\.user\.agent \? \{ status: 403, error: issuesLib\.SAY\.noWriteOut\(name\) \} : fromService;/.test(fnOf(text, 'async function issueWriteThrough(')),
       /if \(d\.foreign\.length\) return fromService;/.test(fnOf(text, 'async function issueWriteThrough(')),
       /if \(!issueCanWrite\(adapter\) \|\| !issueMayWrite\(rec\.repo\)\) return \{ status: 403/.test(fnOf(text, 'async function issueWriteThrough(')),
       /const read = await issueRead\(rec, adapter, number\);/.test(fnOf(text, 'async function issueWriteThrough(')),
@@ -449,6 +452,12 @@ await test('the gate is read from the code, and each part of it matters', () => 
       /\.write_out`\]\) return res\.status\(403\)/.test(routeOf(text, "app.post('/api/spaces/:id/issues'")),
       /if \(!issueCanWrite\(adapter\) \|\| !issueMayWrite\(rec\.repo\)\) return res\.status\(403\)/.test(routeOf(text, "app.post('/api/spaces/:id/issues'")),
       /if \(issuesLib\.olderThanStored\(stored\.get\(key\), r\)\) continue;/.test(fnOf(text, 'function writeIssues(')),
+      // An agent's side: its request on pulled work waits for the service (and nothing else is written with it), its Undo is a write
+      // to the service, and a delete is never asked for.
+      /const out = await issueWriteThrough\(ctx, via\.first\.key, via\.first\.value, \{ expected: versions\.get\(via\.first\.key\) \|\| 0 \}\);/.test(text),
+      /if \(via\.other\.length \|\| e\.links\.length \|\| e\.schedules\.length \|\| e\.notify\.length \|\| e\.phaseEnd\) return end\(422/.test(text),
+      /const out = await issueWriteThrough\(at\.ctx, c\.object\.key, back, \{ expected: c\.versionAfter \}\);/.test(fnOf(text, 'async function undoThrough(')),
+      /pull && pull\.on && pull\.write\) \{ const a = issueAdapterOf\(pull\.provider\); return res\.status\(403\)\.json\(\{ error: issuesLib\.SAY\.noDelete/.test(text),
     ].every(Boolean);
   };
   assert.equal(intact(src), true, 'the gate is as the plan says');
@@ -463,8 +472,12 @@ await test('the gate is read from the code, and each part of it matters', () => 
     ['the refusal of a write', (t) => t.replace('const pulled = pulledRefusal(ctx, key);\n  if (pulled) return pulled;', '')],
     ['the refusal of a delete', null, (t) => t.replace('const pulled = d.pulledRefusal(ctx, key);\n    if (pulled) return pulled;', '')],
     ['the refusal of a Clear', (t) => t.replace('const pulled = pulledRefusal(ctx, null);', 'const pulled = null;')],
-    ['the write-through for a space that writes', (t) => t.replace('if (pull && pull.on && pull.write) {', 'if (false) {')],
-    ['write_out', inPull((t) => t.replace('.write_out`]) return fromService;', '.write_out`]) return null;'))],
+    ['the write-through for a space that writes', (t) => t.replace('if (pull && pull.on && pull.write) {\n      const out = await issueWriteThrough(', 'if (false) {\n      const out = await issueWriteThrough(')],
+    ['write_out', inPull((t) => t.replace('.write_out`]) return ctx.who &&', '.write_out`] === 1) return ctx.who &&'))],
+    ['the agent\'s one write', (t) => t.replace('if (via.other.length || e.links.length', 'if (false && (via.other.length || e.links.length').replace('|| e.phaseEnd) return end(422', '|| e.phaseEnd)) return end(422')],
+    ['the agent\'s write-through', (t) => t.replace('const out = await issueWriteThrough(ctx, via.first.key, via.first.value, { expected: versions.get(via.first.key) || 0 });', 'const out = { item: null };')],
+    ['the agent\'s undo through the service', (t) => t.replace('const out = await issueWriteThrough(at.ctx, c.object.key, back, { expected: c.versionAfter });', 'const out = {};')],
+    ['no delete of pulled work for an agent', (t) => t.replace('if (pull && pull.on && pull.write) { const a = issueAdapterOf(pull.provider); return res.status(403)', 'if (false) { const a = issueAdapterOf(pull.provider); return res.status(403)')],
     ['the read-only fields', inPull((t) => t.replace('if (d.foreign.length) return fromService;', ''))],
     ['the server\'s list of repositories', inPull((t) => t.replace('if (!issueCanWrite(adapter) || !issueMayWrite(rec.repo)) return { status: 403', 'if (false) return { status: 403'))],
     ['the read before a write', inPull((t) => t.replace('const read = await issueRead(rec, adapter, number);', 'const read = { ok: true, record: null };'))],
@@ -1012,6 +1025,136 @@ await live('a write is not held behind a pull under way', async () => {
   assert.equal(p.r.status, 200);
   assert.ok(wroteAt < p.at, `the write (${wroteAt} ms) finished before the pull (${p.at} ms)`);
   assert.equal((await plan(S.bugs))['plan:gh-13'].value.column, 'later', 'and the pull kept it');
+});
+
+// --- live: an agent's side (documentation/plans/plan-github-two-way.md, section 11) -------------------------------------------
+const ask = (action, input, token = S.agent) => call('POST', `/api/spaces/${S.bugs}/action`, { token, body: { action: `schedule:${action}`, input } });
+const refOf = (n) => ({ module: 'schedule', kind: 'plan', id: `gh-${n}`, scope: 'space', space: S.bugs });
+const reviewOf = async (n) => (ok(await call('GET', `/api/spaces/${S.bugs}/agent-review`, { token: S.admin }), 'the review list').json.done).filter((c) => c.object.id === `gh-${n}`);
+await live('an agent: without write_out nothing is sent; with it setColumn, setDone and updateEntry go through as a person\'s do', async () => {
+  const L = gh.label;
+  const users = (await call('GET', '/api/users', { token: S.admin })).json.users;
+  ok(await call('PATCH', `/api/spaces/${S.bugs}`, { token: S.admin, body: { members: ['mia', 'mod'].map((l) => users.find((u) => u.login === l).key).concat(users.find((u) => u.agent).key) } }), 'the agent is in the space again');
+  gh.issue(20, { title: 'Agent: twenty', labels: [L('priority: next')] });
+  gh.issue(21, { title: 'Agent: twenty-one', labels: [] });
+  gh.issue(22, { title: 'Agent: twenty-two', labels: [L('priority: later'), L('bug')] });
+  ok(await pullNow(S.bugs), 'pulled');
+  let at = gh.seen.length;
+  // The agent column holds write_out off by default: the plan's own sentence, and not a request.
+  const roles = ok(await call('GET', '/api/roles', { token: S.admin }), 'roles').json;
+  assert.ok(roles.permissions.some((p) => p.key === 'module.schedule.write_out') && !roles.never.agent.includes('module.schedule.write_out'), 'the Agent column may tick it');
+  assert.notEqual(roles.roles.agent['module.schedule.write_out'], true, 'and it is off to start with');
+  const no = await ask('setColumn', { ref: refOf(20), column: 'now' });
+  assert.deepEqual([no.status, no.json.error], [403, 'Only someone allowed to change Test stand-in (not an issue service) can change this.']);
+  assert.equal(gh.seen.length, at, 'no request of any kind');
+  assert.equal((await plan(S.bugs))['plan:gh-20'].value.column, 'next');
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.schedule.write_out': true } }), 'an owner gives it');
+  // setColumn: exactly the label removal and addition.
+  at = gh.seen.length;
+  const moved = ok(await ask('setColumn', { ref: refOf(20), column: 'now' }), 'moves it');
+  assert.equal(moved.json.ok, true);
+  assert.deepEqual(shape(mutations(at)), [['DELETE', '/issues/20/labels/priority%3A%20next', undefined], ['POST', '/issues/20/labels', { labels: ['priority: now'] }]]);
+  const v = (await plan(S.bugs))['plan:gh-20'].value;
+  assert.deepEqual([v.column, v.by === S.modKey, v.source.updated], ['now', false, gh.state.issues.get(20).updated_at], 'written from GitHub\'s answer');
+  assert.notEqual(v.by, 'system:issues', 'by the agent');
+  // setDone closes with completed; undone it reopens and labels.
+  at = gh.seen.length;
+  ok(await ask('setDone', { ref: refOf(20), done: true }), 'ticks it');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/20', { state: 'closed', state_reason: 'completed' }]]);
+  at = gh.seen.length;
+  ok(await ask('setDone', { ref: refOf(20), done: false }), 'unticks it');
+  assert.deepEqual(shape(mutations(at)).map((x) => x[0]), ['PATCH', 'DELETE'], 'it reopens, into the inbox (its label goes)');
+  assert.equal(gh.state.issues.get(20).state, 'open');
+  // updateEntry: the title is one PATCH; the space's own fields are stored here with no request; the notes are GitHub's.
+  at = gh.seen.length;
+  ok(await ask('updateEntry', { ref: refOf(21), title: ' Agent: a new   title ' }), 'a title');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/21', { title: 'Agent: a new title' }]]);
+  at = gh.seen.length;
+  ok(await ask('updateEntry', { ref: refOf(21), start: '2026-10-05', end: '2026-10-09' }), 'its own days');
+  assert.equal(gh.seen.length, at, 'no request for the space\'s own');
+  const notes = await ask('updateEntry', { ref: refOf(21), notes: 'mine' });
+  assert.deepEqual([notes.status, notes.json.error], [403, FROM_GITHUB]);
+  assert.equal(gh.seen.length, at, 'and nothing sent for the body');
+  // A title GitHub holds longer is never written.
+  const long = await ask('updateEntry', { ref: refOf(12), title: 'Short' });
+  assert.deepEqual([long.status, long.json.error], [403, 'This title is longer than the plan holds. Change it on GitHub.']);
+  assert.deepEqual(mutations(at), []);
+  // A delete is asked for and never made.
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { agentDelete: true } }), 'an owner lets it ask');
+  const del = await call('POST', `/api/spaces/${S.bugs}/delete-asks`, { token: S.agent, body: { object: refOf(21) } });
+  assert.deepEqual([del.status, del.json.error], [403, 'Test stand-in (not an issue service) issues can\'t be deleted from here. Close it, or delete it on Test stand-in (not an issue service).']);
+});
+
+await live('an agent: the service changed the same field, and a write with writing off', async () => {
+  const L = gh.label;
+  gh.issue(22, { labels: [L('priority: now')] });
+  let at = gh.seen.length;
+  const r = await ask('setColumn', { ref: refOf(22), column: 'next' });
+  assert.deepEqual([r.status, r.json.error], [409, 'This changed on GitHub a moment ago. It now shows GitHub\'s version.']);
+  assert.deepEqual(mutations(at), [], 'nothing written to GitHub');
+  assert.equal((await plan(S.bugs))['plan:gh-22'].value.column, 'now', 'the plan shows GitHub\'s');
+  // Another field changed on GitHub only: it goes ahead, and the other label stays.
+  gh.issue(22, { labels: [L('priority: now'), L('docs')] });
+  at = gh.seen.length;
+  ok(await ask('setColumn', { ref: refOf(22), column: 'later' }), 'goes ahead');
+  assert.deepEqual(gh.state.issues.get(22).labels.map((l) => l.name).sort(), ['docs', 'priority: later']);
+  // Writing off in the space: today's refusal, nothing sent. An agent never turns writing on.
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: false } }), 'writing off');
+  at = gh.seen.length;
+  const off = await ask('setColumn', { ref: refOf(22), column: 'now' });
+  assert.deepEqual([off.status, off.json.error], [403, FROM_GITHUB]);
+  assert.equal(gh.seen.length, at);
+  assert.equal((await call('PUT', P(S.bugs), { token: S.agent, body: { write: true } })).status, 403, 'an agent cannot turn writing on');
+  assert.equal((await call('PUT', P(S.bugs), { token: S.agent, body: { on: true, repo: 'other/repo', provider: 'issues-standin' } })).status, 403, 'nor follow a repository');
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: true } }), 'writing on again');
+});
+
+await live('an agent: Undo is another write that obeys the same rule', async () => {
+  const change = async (n) => { const c = (await reviewOf(n)).filter((x) => !x.undone); assert.ok(c.length, `a change for ${n}`); return c[0]; };
+  const undo = (c, token = S.admin) => call('POST', `/api/spaces/${S.bugs}/changes/${c.id}/undo`, { token, body: {} });
+  // 22 was moved by the agent while a tag from GitHub was drawn in with it: which change is whose can't be told, so it is refused.
+  const c22 = await change(22);
+  let at = gh.seen.length;
+  const mixed = await undo(c22);
+  assert.deepEqual([mixed.status, mixed.json.error], [409, 'This changed on GitHub as well since then, so it can\'t be undone from here.']);
+  assert.deepEqual(mutations(at), []);
+  // A plain move of 20 undone: back to its earlier column, one removal and one addition.
+  ok(await ask('setColumn', { ref: refOf(20), column: 'next' }), 'moves 20');
+  const c20a = (await reviewOf(20)).filter((x) => !x.undone)[0];
+  assert.equal(c20a.undoable, true);
+  at = gh.seen.length;
+  ok(await undo(c20a), 'undone');
+  assert.equal(mutations(at).length >= 1, true, 'the undo went to GitHub');
+  assert.equal((await plan(S.bugs))['plan:gh-20'].value.column, gh.state.issues.get(20).labels.some((l) => l.name === 'priority: now') ? 'now' : 'inbox', 'and the plan shows what GitHub has');
+  assert.equal((await undo(c20a)).status, 409, 'once');
+  // Changed on GitHub since: the undo is refused with the conflict sentence, nothing sent, and the plan shows GitHub's.
+  ok(await ask('updateEntry', { ref: refOf(21), title: 'Agent: second title' }), 'a title');
+  const c21 = await change(21);
+  gh.issue(21, { title: 'Agent: set on GitHub' });
+  at = gh.seen.length;
+  const refused = await undo(c21);
+  assert.deepEqual([refused.status, refused.json.error], [409, 'This changed on GitHub a moment ago. It now shows GitHub\'s version.']);
+  assert.deepEqual(mutations(at), []);
+  assert.equal((await plan(S.bugs))['plan:gh-21'].value.title, 'Agent: set on GitHub');
+  // Changed here since: the plain sentence of every undo.
+  ok(await ask('setColumn', { ref: refOf(20), column: 'later' }), 'moves 20');
+  const c20 = await change(20);
+  ok(await move('plan:gh-20', 'next', S.admin), 'a person moves it after');
+  at = gh.seen.length;
+  const late = await undo(c20);
+  assert.equal(late.status, 409);
+  assert.deepEqual(mutations(at), []);
+  // Writing off since: the list says why, and the undo says it, with nothing sent.
+  ok(await ask('setColumn', { ref: refOf(21), column: 'next' }), 'moves 21');
+  const c21b = await change(21);
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: false } }), 'writing off');
+  const listed = (await reviewOf(21)).find((x) => x.id === c21b.id);
+  assert.deepEqual([listed.undoable, listed.why], [false, FROM_GITHUB]);
+  at = gh.seen.length;
+  const off = await undo(c21b);
+  assert.deepEqual([off.status, off.json.error], [403, FROM_GITHUB]);
+  assert.deepEqual(mutations(at), []);
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: true } }), 'writing on again');
 });
 
 await live('what GitHub was sent holds only what the plan allows, and no one\'s name', async () => {
