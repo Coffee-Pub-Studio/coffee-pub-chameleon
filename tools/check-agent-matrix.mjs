@@ -96,6 +96,20 @@ await test('every row an agent column may tick is needed by some entry of its ki
   assert.deepEqual(AGENT_BUILT_IN.filter((k) => SETUP_BUILT_IN.includes(k)), [], 'the two kinds share no tickable row (plan-agent-matrix.md, decision 3)');
 });
 
+await test('"Change it on GitHub" is a row the Agent column may tick, off to start with, and only Projects\' (plan-github-two-way.md, section 11)', () => {
+  const manifest = (id) => JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', id, 'module.json'), 'utf8'));
+  const schedule = manifest('schedule');
+  assert.ok(routes.agentModuleKeys(schedule).includes('module.schedule.write_out'), 'tickable by the Agent column');
+  const row = schedule.permissions.find((p) => p.key === 'write_out');
+  assert.deepEqual([row.default.member, row.default.guest], [false, false], 'off at the member default, which the Agent column starts at');
+  for (const id of fs.readdirSync(path.join(ROOT, 'modules')).filter((d) => d !== 'schedule' && fs.existsSync(path.join(ROOT, 'modules', d, 'module.json')))) {
+    assert.ok(!routes.agentModuleKeys(manifest(id)).some((k) => /write_out$/.test(k)), `${id} has no such row for an agent`);
+  }
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  assert.ok(/\.write_out`\]\) return ctx\.who && ctx\.who\.user && ctx\.who\.user\.agent \? \{ status: 403, error: issuesLib\.SAY\.noWriteOut\(name\) \}/.test(src), 'an agent without it is refused with the plan\'s sentence');
+  assert.ok(/who\.user\.agent \|\| !hasOwnerRights\(who\.user\)\) return res\.status\(403\)/.test(src), 'an agent never turns writing on');
+});
+
 await test('the set-up column is plan-agent-matrix.md\'s: three rows, all off, and what each set-up route needs', () => {
   assert.deepEqual([...SETUP_BUILT_IN], ['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']);
   assert.deepEqual({ ...routes.SETUP_DEFAULTS }, { agentMakeSpaces: false, agentChangeSpaces: false, agentAskPeople: false }, 'nothing until an owner ticks it (decision 5)');
