@@ -2,7 +2,7 @@
 /*
  * check-project-sync.mjs -- the workflow that makes the issues' `priority: ...` labels follow the project board
  * (.github/workflows/project-priority-sync.yml), the reverse of project-priority.yml:
- *   - it runs only on workflow_dispatch (no inputs, no schedule), with only `issues: write`, and uses no action
+ *   - it runs hourly (a schedule at a minute other than :00) and on workflow_dispatch (no inputs), with only `issues: write`, and uses no action
  *     outside actions/*; the project's owner and number come from repository variables, never from the file;
  *   - its inline script, run here with stand-ins for GitHub, pages through the board, gives open issues of this
  *     repository in Now, Next or Later exactly that priority label, clears it for Inbox or no column, leaves Done
@@ -136,8 +136,7 @@ async function simulate({ items = [], pageSize = 100, env = {}, project = 'prese
 }
 
 await test('the trigger, the permissions and the actions', () => {
-  assert.match(text, /^on:\n  workflow_dispatch:\n\n/m, 'only workflow_dispatch, with no inputs');
-  assert.ok(!/^\s*schedule:/m.test(text), 'no schedule');
+  assert.match(text, /^on:\n  schedule:\n    - cron: '(?!0 )([0-5]?\d) \* \* \* \*'\n  workflow_dispatch:\n\n/m, 'hourly at a minute other than :00, then workflow_dispatch with no inputs');
   assert.match(text, /^permissions:\n  issues: write\n\n/m, 'only issues: write');
   const uses = [...text.matchAll(/uses:\s*(\S+)/g)].map((m) => m[1]);
   assert.deepEqual(uses, ['actions/github-script@v9']);
