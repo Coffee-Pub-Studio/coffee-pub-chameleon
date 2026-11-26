@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Following a GitHub repository is one step (2026-11-26)
+
+#### Changed
+
+- **Follow a GitHub repository in one step.** Under **Follows GitHub** in Planner - Projects' settings, enter `owner/name` or paste the repository's address (an issue's address works too) and choose **Follow this repository**; **Stop following** ends it. It acts at once, outside **Save**, and one line says how it stands. A refusal now says "Name the repository as owner/name, or paste its address." or "Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space." On an empty plan an owner sees **Follow a GitHub repository**, which opens **Set up** on the module settings, and the plan looks again when **Set up** closes. New `host.setup.can`, `host.setup.open` and the `setup` event in the SDK. Planner - Projects 0.1.19, #1179. Documentation only in this entry, read from the code at `e368b39`; `npm run check:docs` and `npm run docs:build` were run. Not verified live or against the real GitHub.
+
 ### Weather on the strip and the Calendar, airline links, a GitHub pull and the Projects board (2026-11-26)
 
 Written from the code on `main` at `d321d058` (pull requests #1125, #1159 to #1177) and the plans, read as code; the documents and what they say were checked against the code, and the one check run for this entry is named at the end. None of it was seen against a real weather service, a real GitHub or a real call (no LiveKit); what each builder checked is in its pull request. The documents: [Weather architecture](documentation/architecture/architecture-weather.md), [Modules API](documentation/api/api-modules.md), [Module SDK](documentation/api/api-module-sdk.md), [Agents API](documentation/api/api-agents.md), [Modules architecture](documentation/architecture/architecture-modules.md), [Planner - Projects](documentation/userguides/userguide-planner-projects.md), [Planner - Itinerary](documentation/userguides/userguide-planner.md), [Modules](documentation/userguides/userguide-modules.md), [Calendar](documentation/userguides/userguide-calendar.md) and [Spaces](documentation/userguides/userguide-spaces.md).

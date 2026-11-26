@@ -19,7 +19,7 @@ Who can: anyone who may **See the plan** (members, guests and moderators by defa
 | **Opens on** | The view a space opens on, **Timeline**, **List** or **Board** | The template's start; you may change it |
 | **Board columns** | The columns the board starts with: **To do, Doing, Done** or **Inbox, Now, Next, Later, Done**. They stay until someone edits the columns; after that the board keeps its own | The template's start (Gaming: Inbox, Now, Next, Later, Done) |
 | **Tags** | The tags an entry may carry (the Gaming template seeds story threads) | The template's start; you may change it |
-| **Follows GitHub** | A public GitHub repository, as `owner/name`, whose issues this plan shows as work. See "Follow a GitHub repository" | Not set by a template |
+| **Follows GitHub** | A public GitHub repository, as `owner/name` or its address, whose issues this plan shows as work. See "Follow a GitHub repository" | Not set by a template |
 
 ## Add to the plan
 
@@ -107,9 +107,14 @@ A space's plan can show a public GitHub repository's issues as work, so the plan
 
 1. The administrator opens **Manage**, then **Modules**, finds **Service terms**, reads GitHub's terms and chooses **Accept**.
 2. The owner opens the space's **Set up**, then the **Settings** tab, and finds **Follows GitHub** in Planner - Projects' section.
-3. Enter the repository as `owner/name` (such as `Drowbe/coffee-pub-chameleon`, not a web address) and choose **Turn on**. The space must have an empty plan, or one that holds only this repository's own pulled work: otherwise it says "Clear the plan first, or use a new space." (use **Clear** on the module's menu, or make a new space).
-4. Turning it on makes the board exactly **Inbox**, **Now**, **Next**, **Later** and **Done**, and pulls at once.
-5. To stop, choose **Turn off** and confirm. The work stays in the plan as your own and can be changed again.
+3. Enter the repository as `owner/name` (such as `Drowbe/coffee-pub-chameleon`) or paste its address from your browser (such as `https://github.com/Drowbe/coffee-pub-chameleon`, or the address of one of its issues), then choose **Follow this repository**. That is the whole step: it does not wait for **Save**. The box then shows the repository's `owner/name`.
+4. The space must have an empty plan, or one that holds only this repository's own pulled work. Otherwise it says "Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space." Do that, or make a new space, and choose **Follow this repository** again.
+5. Following makes the board exactly **Inbox**, **Now**, **Next**, **Later** and **Done**, and pulls at once.
+6. To stop, choose **Stop following** and confirm. The work stays in the plan as your own and can be changed again.
+
+The line under the button says how it stands: "Not following. Enter a repository and press Follow this repository.", "Waiting for the first pull from GitHub.", "Following owner/name, last pulled" with the time, or the reason it failed.
+
+**From the empty plan.** On an empty plan the owner also sees **Follow a GitHub repository**. It opens **Set up** on the settings of modules, where the steps above begin. When **Set up** closes, the plan looks again at once, so what you followed shows without a reload.
 
 **What you see.** The status bar starts with "From GitHub, pulled 3 minutes ago, 12 open of 40" (or, after a failure, the reason and "Trying again at 14:20."), and **Pull now** for anyone who may change the plan; it waits a minute between pulls. The server also pulls by itself about every 10 minutes. Each issue is a piece of work with its number ("#157") and a link, and its menu has **Open on GitHub** (a new tab). A closed issue is in **Done**; an open one is in **Now**, **Next** or **Later** when it has the label `priority: now`, `priority: next` or `priority: later`, and otherwise in **Inbox**. A GitHub milestone is a milestone, and its other labels are tags (when there is room, 20) or are named in the work's notes. Its days are the day the issue was made and the day it closed.
 
