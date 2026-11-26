@@ -1,7 +1,9 @@
 name: Core checks
 
 # A short lane of quick core checks that have caught real breakage and need no browser, no LiveKit and no running server.
-# About a minute in all. Each check is its own step, so a failure names itself; every step runs even when an earlier one fails.
+# It runs: syntax, the generated design system sources, system CSS, modules, catalog, module versions, clear and undo,
+# destinations, space erase, the Names check (words, vocabulary and the names migration), no outside addresses in module
+# code, third-party licences and vendored file hashes. About a minute in all. Each check is its own step, so a failure names itself; every step runs even when an earlier one fails.
 # The full suite (`npm run check`) is not run here; it runs at release prep.
 
 on:
@@ -61,3 +63,16 @@ jobs:
       - name: Space erase
         if: success() || failure()
         run: node tools/check-space-erase.mjs
+      # The Names check's two --migration cases that make a folder read-only fail only as root; the runner is not root.
+      - name: Names
+        if: success() || failure()
+        run: node tools/check-names.mjs
+      - name: No outside addresses
+        if: success() || failure()
+        run: node tools/check-no-outside-urls.mjs
+      - name: Third-party licences
+        if: success() || failure()
+        run: node tools/check-third-party-licences.mjs
+      - name: Vendored hashes
+        if: success() || failure()
+        run: node tools/check-vendored-hashes.mjs
