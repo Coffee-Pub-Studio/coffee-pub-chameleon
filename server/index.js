@@ -42,6 +42,7 @@ const weatherProviders = require('./weather-providers');
 const { ServiceTerms } = require('./service-terms');
 const issueProviders = require('./issue-providers');
 const issuesLib = require('./issues');
+const issueApp = require('./issue-app');
 // The services' terms are one record keyed by adapter id (server/service-terms.js), so no id may name a weather and an issue service.
 for (const p of issueProviders.list()) if (Object.hasOwn(weatherProviders.providers, p.id)) throw new Error(`the service id ${p.id} names both a weather and an issue service`);
 const { weatherSpaceDay } = require('./weather-space');
@@ -13884,7 +13885,6 @@ app.delete('/api/weather/terms/:service', requireOwner, (req, res) => {
 // across the server, so one request at a time goes to a service.
 const issuePullWho = Object.freeze({ user: null, guestSpace: null, templateRights: true, system: 'issues' });
 const issueAdapterOf = (id) => (typeof id === 'string' && Object.hasOwn(issueProviders.providers, id) ? issueProviders.providers[id] : null);
-const issueToken = (adapter) => (adapter.tokenEnv && typeof process.env[adapter.tokenEnv] === 'string' ? process.env[adapter.tokenEnv].trim() : '');
 const isoAt = (ms) => new Date(ms).toISOString();
 const issuesInFlight = new Map(); // "<environment>|<space>" -> the pull under way
 let issueQueue = Promise.resolve();
@@ -14008,7 +14008,7 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
 
 // One pull of one space, in the current environment. Answers the record after it.
 async function pullIssues(spaceId) {
-  const rec = issuePulls.get(spaceId);
+  let rec = issuePulls.get(spaceId);
   if (!rec || !rec.on) return rec;
   const adapter = issueAdapterOf(rec.provider);
   const now = Date.now();
@@ -14017,16 +14017,24 @@ async function pullIssues(spaceId) {
   if (!serviceTerms.accepted(adapter)) return issuePulls.set(spaceId, { error: issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true })), next: next(adapter.pollMs) });
   const before = issuePullAt(store.spaceById(spaceId));
   if (before.error) return issuePulls.set(spaceId, { error: before.error, next: next(adapter.pollMs) });
-  if (rec.restUntil && Date.parse(rec.restUntil) > now) return rec;
+  if ((rec.restUntil && Date.parse(rec.restUntil) > now) || issueApp.restLeft(rec, now) > 0) return rec;
+  // A space linked through the app is read with its repository's installation token; when the app cannot give one, a public
+  // repository is read without a token (the app's trouble is on the record) and a private one then answers "not found".
+  const auth = await issueAuth(rec, adapter, { write: rec.write, quiet: true });
+  if (auth.renamed) rec = issuePulls.get(spaceId) || rec;
   const full = !rec.fullAt || now - Date.parse(rec.fullAt) >= adapter.fullEveryMs;
   issuePulls.set(spaceId, { tried: isoAt(now) });
-  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: issueToken(adapter), full }, { now });
+  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: auth.token || '', full }, { now });
   // Turned off, or turned to another repository, while the service was asked: what it answered is not written.
   const cur = issuePulls.get(spaceId);
   if (!cur || !cur.on || cur.repo !== rec.repo || cur.provider !== rec.provider) return cur;
   const wait = Math.max(adapter.pollMs, got.pollMs || 0);
   if (!got.ok) {
-    if (got.restUntil) return issuePulls.set(spaceId, { error: got.error, restUntil: isoAt(got.restUntil), next: isoAt(Math.max(got.restUntil, Date.now())) });
+    if (got.status === 401 && rec.via === 'app') issueApp.dropToken(adapter, rec.installation, rec.repositoryId);
+    if (got.restUntil) {
+      issueRest(cur, got.restUntil);
+      return issuePulls.set(spaceId, { error: got.error, restUntil: isoAt(got.restUntil), next: isoAt(Math.max(got.restUntil, Date.now())) });
+    }
     return issuePulls.set(spaceId, { error: got.error, next: next(wait) });
   }
   if (got.notModified) return issuePulls.set(spaceId, { error: '', restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag });
@@ -14056,23 +14064,23 @@ function pullIssuesQueued(env, spaceId) {
   return run;
 }
 
-// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling, write, canWrite } (`write`: changes made
-// here go to the service; `canWrite`: this server allows that for this repository). Never the etag, never the token.
+// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling, write, canWrite, via, writeOk, appError, app }
+// (`write`: changes made here go to the service; `canWrite`: the space is linked through the app by someone who may write there;
+// `app`: { name, slug } once the app has answered, else null). Never the etag, a token or an installation or repository id.
 function issuePullView(spaceId) {
   const rec = issuePulls.get(spaceId);
   const pulling = issuesInFlight.has(issueFlightKey(currentEnvironment(), spaceId));
-  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling, write: false, canWrite: false };
+  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', app: null };
   const adapter = issueAdapterOf(rec.provider);
-  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling, write: rec.on && rec.write, canWrite: issueCanWrite(adapter) && issueMayWrite(rec.repo) };
+  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling, write: rec.on && rec.write, canWrite: issueCanWrite(adapter) && rec.via === 'app' && rec.writeOk, via: rec.via, writeOk: rec.writeOk, appError: rec.via === 'app' ? rec.appError : '', app: rec.via === 'app' && adapter ? issueApp.appOf(adapter) : null };
 }
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) -----------------------------------------------------
 // A space whose pull has `write` on sends some changes to the service: the column (the priority labels), Done (close and
 // reopen), the title, tags (labels) and new issues; never the body, comments, assignees or a delete. Only when the service accepts
 // a change is the work written here, mapped from the service's own answer. Writes go one at a time in their own lane (ahead of
-// the timer's pulls, never behind a full pull), at least `writeGapMs` apart. ISSUES_GITHUB_WRITE says which repositories (and on
-// a host which environments) may be written; unset, nothing on the host writes. The token only ever goes to the service.
-const issueMayWrite = (repo) => issuesLib.writeAllowed(process.env.ISSUES_GITHUB_WRITE, { hosted: Boolean(hostRegistry), slug: currentEnvironment().slug || '', repo });
+// the timer's pulls, never behind a full pull), at least `writeGapMs` apart. A space may write only when it is linked through the GitHub
+// app (`via: 'app'`) by someone who could write there on GitHub (`writeOk`); the installation token only ever goes to the service.
 const issueCanWrite = (adapter) => Boolean(adapter && typeof adapter.update === 'function' && typeof adapter.get === 'function' && typeof adapter.create === 'function' && typeof adapter.addLabels === 'function' && typeof adapter.removeLabel === 'function' && typeof adapter.hasLabel === 'function');
 const issueReads = new Map(); // "<provider>|<repo>#<number>" -> { etag, record }: the last read of an issue, in memory only
 let issueWriteLane = Promise.resolve();
@@ -14085,17 +14093,62 @@ function inIssueWriteLane(fn) {
 }
 const issueWriteSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // The service rests, for every space of this environment that follows the repository, until `until`.
+// Also for every environment on the host (issueApp.restSet): one installation's limit is shared by all the spaces linked to it.
 function issueRest(rec, until) {
+  issueApp.restSet(rec, until);
   for (const [id, r] of [...issuePulls.all()]) if (r.provider === rec.provider && r.repo === rec.repo) issuePulls.set(id, { restUntil: isoAt(until) });
 }
 const issueRestFor = (rec) => {
   const ms = rec.restUntil ? Date.parse(rec.restUntil) - Date.now() : 0;
-  return ms > 0 ? ms : 0;
+  return Math.max(ms > 0 ? ms : 0, issueApp.restLeft(rec));
 };
+// The credentials for one call about a space's repository: { ok: true, token, repo } (token '' for a space not linked through the
+// app), or { ok: false, status, error, restUntil? } when the app cannot give one. `write`: the token may change issues. The app's
+// trouble with this repository (not installed, paused, key refused) is kept on the space's record as `appError`, and cleared by the
+// next token made; a repository that GitHub now names differently is followed (`renamed`). `quiet`: a failure is not an answer to
+// give (a pull reads on without a token then).
+async function issueAuth(rec, adapter, { write = true, quiet = false } = {}) {
+  if (rec.via !== 'app') return { ok: true, token: '', repo: rec.repo };
+  const got = await issueApp.token(adapter, { installation: rec.installation, repositoryId: rec.repositoryId, write });
+  const sameApp = ([, r]) => r.provider === rec.provider && r.via === 'app' && r.installation === rec.installation && r.repositoryId === rec.repositoryId;
+  const mark = (appError) => { for (const [id, r] of [...issuePulls.all()].filter(sameApp)) if (r.appError !== appError) issuePulls.set(id, { appError }); };
+  if (got.ok) {
+    mark('');
+    if (got.repo && got.repo !== rec.repo && adapter.validRepo(got.repo)) {
+      for (const [id] of [...issuePulls.all()].filter(sameApp)) issuePulls.set(id, { repo: got.repo });
+      return { ...got, renamed: true };
+    }
+    return { ...got, repo: rec.repo };
+  }
+  if (got.kind === 'gone') { const e = issuesLib.SAY.appGone(rec.repo); mark(e); return { ok: false, status: 409, error: e }; }
+  if (got.kind === 'paused') { const e = issuesLib.SAY.appPaused(rec.repo); mark(e); return { ok: false, status: 409, error: e }; }
+  if (got.kind === 'broken') mark(issuesLib.SAY.appBroken);
+  if (got.kind === 'limited' && got.restUntil) issueRest(rec, got.restUntil);
+  return { ...got, ok: false, quiet };
+}
+// Why this space may not write through (as { status, error }), or null: not linked through the app (409), linked by someone who
+// could not write there or an adapter that cannot (403), or the app unusable on this server (409).
+function issueWriteRefusal(rec, adapter) {
+  if (rec.via !== 'app') return { status: 409, error: issuesLib.SAY.noApp };
+  if (!issueCanWrite(adapter) || !rec.writeOk) return { status: 403, error: issuesLib.SAY.noWrite };
+  const why = issueApp.refusal();
+  return why ? { status: 409, error: why } : null;
+}
 const issueRetry = (adapter, ms) => ({ status: 429, error: issuesLib.SAY.writeWait(adapter.name, ms), retryAfter: Math.max(1, Math.ceil(ms / 1000)) });
 // One call that reads, as writeCall answers; a rest is set on a limit.
+// `call(ask, { repo, token })` makes the one request with the credentials for it. A 401 drops the token (the next call makes a new
+// one); a 301 (the repository moved) is tried once more after a fresh token, which names the repository as GitHub has it now.
 async function issueAsk(rec, adapter, call) {
-  const out = await issuesLib.writeCall(adapter, call);
+  let out;
+  for (let tries = 0; tries < 2; tries += 1) {
+    const auth = await issueAuth(rec, adapter, { write: true });
+    if (!auth.ok) return { ...auth, ok: false };
+    out = await issuesLib.writeCall(adapter, (ask) => call(ask, { repo: auth.repo, token: auth.token }));
+    if (out.ok) return out;
+    if (out.unauthorized && rec.via === 'app') issueApp.dropToken(adapter, rec.installation, rec.repositoryId);
+    if (!out.moved || rec.via !== 'app' || tries > 0) break;
+    issueApp.dropToken(adapter, rec.installation, rec.repositoryId);
+  }
   if (!out.ok) {
     console.warn(`${currentEnvironment().slug ? `[${currentEnvironment().slug}] ` : ''}The issue write to ${rec.repo} was not accepted (${out.status}).`);
     if (out.status === 429 && out.restUntil) { issueRest(rec, out.restUntil); return { ...out, retryAfter: Math.max(1, Math.ceil((out.restUntil - Date.now()) / 1000)) }; }
@@ -14115,7 +14168,7 @@ async function issueMutate(rec, adapter, call) {
 async function issueRead(rec, adapter, number, { conditional = true } = {}) {
   const cacheKey = `${rec.provider}|${rec.repo}#${number}`;
   const seen = conditional ? issueReads.get(cacheKey) : null;
-  const out = await issueAsk(rec, adapter, (ask) => adapter.get({ repo: rec.repo, number, etag: seen ? seen.etag : '', token: issueToken(adapter) }, ask));
+  const out = await issueAsk(rec, adapter, (ask, a) => adapter.get({ repo: a.repo, number, etag: seen ? seen.etag : '', token: a.token }, ask));
   if (!out.ok) return out;
   const a = out.answer;
   if (a.status === 304 && seen) return { ok: true, record: seen.record };
@@ -14178,8 +14231,8 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
   if (d.foreign.length) return fromService;
   if (!sends && !d.own) return { item: had };
   if (sends) {
-    if (!issueCanWrite(adapter) || !issueMayWrite(rec.repo)) return { status: 403, error: issuesLib.SAY.noWrite(name) };
-    if (!issueToken(adapter)) return { status: 409, error: issuesLib.SAY.noToken };
+    const refused = issueWriteRefusal(rec, adapter);
+    if (refused) return refused;
     if (d.column !== null && !issuesLib.COLUMNS.some(([id]) => id === d.column)) return { status: 400, error: 'That is not a column this plan has.' };
     if (d.title !== null) {
       d.title = issuesLib.oneLine(d.title, 1000);
@@ -14221,7 +14274,7 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
     }
     const plan = issuesLib.changePlan(fresh, { column: d.column, title: d.title, addNames, removeIds: d.tags.remove });
     for (const label of plan.add) {
-      const has = await issueAsk(rec, adapter, (ask) => adapter.hasLabel({ repo: rec.repo, label, token: issueToken(adapter) }, ask));
+      const has = await issueAsk(rec, adapter, (ask, a) => adapter.hasLabel({ repo: a.repo, label, token: a.token }, ask));
       if (!has.ok && has.notFound) return { status: 422, error: issuesLib.SAY.noLabel(label) };
       if (!has.ok) return has;
     }
@@ -14236,17 +14289,17 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
       return out;
     };
     if (Object.keys(plan.patch).length) {
-      const out = await issueMutate(rec, adapter, (ask) => adapter.update({ repo: rec.repo, number, ...plan.patch, token: issueToken(adapter) }, ask));
+      const out = await issueMutate(rec, adapter, (ask, a) => adapter.update({ repo: a.repo, number, ...plan.patch, token: a.token }, ask));
       if (!out.ok) return failed(out);
       changed = true;
     }
     for (const label of plan.remove) {
-      const out = await issueMutate(rec, adapter, (ask) => adapter.removeLabel({ repo: rec.repo, number, label, token: issueToken(adapter) }, ask));
+      const out = await issueMutate(rec, adapter, (ask, a) => adapter.removeLabel({ repo: a.repo, number, label, token: a.token }, ask));
       if (!out.ok && !out.notFound) return failed(out);
       changed = true;
     }
     if (plan.add.length) {
-      const out = await issueMutate(rec, adapter, (ask) => adapter.addLabels({ repo: rec.repo, number, labels: plan.add, token: issueToken(adapter) }, ask));
+      const out = await issueMutate(rec, adapter, (ask, a) => adapter.addLabels({ repo: a.repo, number, labels: plan.add, token: a.token }, ask));
       if (!out.ok) return failed(out);
       changed = true;
     }
@@ -14296,22 +14349,20 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   if (!adapter) return res.status(400).json({ error: 'This server has no such service.' });
   const had = issuePulls.get(space.id);
   // Writing alone: a pull that is on starts or stops sending changes (documentation/plans/plan-github-two-way.md).
-  const writeCheck = (repo) => {
+  const writeCheck = (rec) => {
     if (body.write !== true) return null;
-    if (!issueCanWrite(adapter) || !issueMayWrite(repo)) return issuesLib.SAY.noWrite(name);
-    return null;
+    return issueWriteRefusal(rec, adapter);
   };
   if (typeof body.on !== 'boolean') {
     if (!had || !had.on || had.provider !== adapter.id) return res.status(409).json({ error: `No pull is on in this ${word('space')}.` });
-    const refused = writeCheck(had.repo);
-    if (refused) return res.status(409).json({ error: refused });
-    if (body.write === true && !issueToken(adapter)) return res.status(409).json({ error: issuesLib.SAY.noToken });
+    const refused = writeCheck(had);
+    if (refused) return res.status(refused.status).json({ error: refused.error });
     if (body.write !== had.write) issuePulls.set(space.id, body.write ? { write: true, writeBy: who.user.key, writeAt: isoAt(Date.now()) } : { write: false, writeBy: '', writeAt: '' });
     return res.json(issuePullView(space.id));
   }
   if (!body.on) {
     if (!had) return res.json(issuePullView(space.id));
-    issuePulls.set(space.id, { on: false, write: false, writeBy: '', writeAt: '', next: '' });
+    issuePulls.set(space.id, { on: false, write: false, writeBy: '', writeAt: '', next: '', via: 'public', installation: 0, repositoryId: 0, writeOk: false, linkBy: '', linkAt: '', appError: '' });
     return res.json(issuePullView(space.id));
   }
   const repo = issuesLib.cleanRepo(adapter, body.repo);
@@ -14329,12 +14380,21 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   if (others.length) return res.status(409).json({ error: `Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new ${word('space')}.` });
   const now = Date.now();
   const moved = !had || had.repo !== repo || had.provider !== adapter.id;
+  // TEST SEAM (tools/check-issues.mjs): the link flow is step 2 of plan-github-app.md, so until it exists a check links a space by
+  // sending `testLink` { installation, repositoryId, writeOk }. Honoured only for the test stand-in, which is registered only when
+  // ISSUES_TEST_STANDIN is set; the real service has no such way.
+  const t = adapter.id === 'issues-standin' && body.testLink && typeof body.testLink === 'object' ? body.testLink : null;
+  const link = t && Number.isSafeInteger(t.installation) && t.installation > 0 && Number.isSafeInteger(t.repositoryId) && t.repositoryId > 0
+    ? { via: 'app', installation: t.installation, repositoryId: t.repositoryId, writeOk: t.writeOk === true, linkBy: who.user.key, linkAt: isoAt(now) } : null;
   const writing = body.write === undefined ? Boolean(had && !moved && had.write) : body.write;
   if (writing) {
-    const refused = writeCheck(repo) || (issueToken(adapter) ? null : issuesLib.SAY.noToken);
-    if (refused) return res.status(409).json({ error: refused });
+    const refused = writeCheck(link || (moved ? { via: 'public' } : had));
+    if (refused) return res.status(refused.status).json({ error: refused.error });
   }
   issuePulls.set(space.id, {
+    // A repository followed here with no link is read as a public one; the app's link (step 2) is made by its own route.
+    ...(moved ? { via: 'public', installation: 0, repositoryId: 0, writeOk: false, linkBy: '', linkAt: '', appError: '' } : {}),
+    ...(link ? { ...link, appError: '' } : {}),
     write: writing, writeBy: writing ? (had && had.write && !moved ? had.writeBy : who.user.key) : '', writeAt: writing ? (had && had.write && !moved ? had.writeAt : isoAt(now)) : '',
     // The first pull after turning on is a full one, so anything changed while it was off is put back as the service has it.
     provider: adapter.id, repo, on: true, next: isoAt(now), error: '', by: who.user.key, at: isoAt(now), fullAt: '', etag: '',
@@ -14374,8 +14434,8 @@ app.post('/api/spaces/:id/issues', async (req, res) => {
   if (!title || title.length > issuesLib.TITLE_MAX) return res.status(400).json({ error: issuesLib.SAY.badTitle });
   const column = typeof body.column === 'string' ? body.column : '';
   if (!['inbox', 'now', 'next', 'later'].includes(column)) return res.status(400).json({ error: issuesLib.SAY.badColumn });
-  if (!issueCanWrite(adapter) || !issueMayWrite(rec.repo)) return res.status(403).json({ error: issuesLib.SAY.noWrite(adapter.name) });
-  if (!issueToken(adapter)) return res.status(409).json({ error: issuesLib.SAY.noToken });
+  const refusedWrite = issueWriteRefusal(rec, adapter);
+  if (refusedWrite) return res.status(refusedWrite.status).json({ error: refusedWrite.error });
   const slow = overLimit(found.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   const rest = issueRestFor(rec);
@@ -14384,11 +14444,11 @@ app.post('/api/spaces/:id/issues', async (req, res) => {
   const out = await inIssueWriteLane(async () => {
     const labels = column === 'inbox' ? [] : [issuesLib.labelOf(column)];
     for (const label of labels) {
-      const has = await issueAsk(rec, adapter, (ask) => adapter.hasLabel({ repo: rec.repo, label, token: issueToken(adapter) }, ask));
+      const has = await issueAsk(rec, adapter, (ask, a) => adapter.hasLabel({ repo: a.repo, label, token: a.token }, ask));
       if (!has.ok && has.notFound) return { status: 422, error: issuesLib.SAY.noLabel(label) };
       if (!has.ok) return has;
     }
-    const made = await issueMutate(rec, adapter, (ask) => adapter.create({ repo: rec.repo, title, labels, token: issueToken(adapter) }, ask));
+    const made = await issueMutate(rec, adapter, (ask, a) => adapter.create({ repo: a.repo, title, labels, token: a.token }, ask));
     if (!made.ok) return made;
     const record = made.answer.record;
     return issueStore(ctx, `plan:gh-${record.number}`, record, { by: ctx.by, rec, adapter });
@@ -14416,7 +14476,7 @@ app.post('/api/spaces/:id/issues-pull/now', async (req, res) => {
   const now = Date.now();
   const env = currentEnvironment();
   if (!issuesInFlight.has(issueFlightKey(env, space.id))) {
-    const rest = rec.restUntil ? Date.parse(rec.restUntil) - now : 0;
+    const rest = Math.max(rec.restUntil ? Date.parse(rec.restUntil) - now : 0, issueApp.restLeft(rec, now));
     if (rest > 0) {
       const s = Math.ceil(rest / 1000);
       return void res.set('Retry-After', String(s)).status(429).json({ error: `${issuesLib.SAY.wait(adapter.name)} Try again in ${s < 120 ? `${s} seconds` : `${Math.ceil(s / 60)} minutes`}.` });
@@ -14434,6 +14494,8 @@ app.post('/api/spaces/:id/issues-pull/now', async (req, res) => {
   res.json(view);
 });
 
+// The GitHub app's credentials are read once, here (the host's, shared by every environment); a fault is one line in the log.
+issueApp.start();
 // The timer: once a minute, every pull that is on and due, in each environment that is loaded.
 setInterval(() => {
   for (const env of environments.values()) {

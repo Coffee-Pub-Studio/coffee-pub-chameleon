@@ -21,7 +21,12 @@
 //     x-ratelimit-reset to obey; x-poll-interval to honour; conditional requests (an etag sent back as if-none-match: a 304
 //     on an authorized request does not count); one request at a time; a User-Agent naming the application.
 //   - The issues list returns pull requests too (a `pull_request` key): they are skipped.
-// The token, when the server has one (ISSUES_GITHUB_TOKEN), goes only in the Authorization header to this adapter's own origin.
+// A token (the repository's installation token, server/issue-app.js) goes only in the Authorization header to this adapter's own
+// origin; the app's own two calls (GET /app, POST /app/installations/{id}/access_tokens) carry the app's JWT the same way.
+// API version: 2022-11-28 is sent. Re-read on 2026-11-26 (docs.github.com, "API Versions", "Breaking changes"): 2026-03-10 is the
+// newest; a request with no header gets 2022-11-28; 2022-11-28 is supported for 24 months after 2026-03-10. What 2026-03-10 changes
+// that this adapter could meet is the removal of the singular `assignee` from an issue, which no record reads; nothing there is
+// needed, so the header is left as it was.
 // What a write may carry is fixed here: a title, a state and its reason, a label's name, and for a new issue its title and
 // labels. Never a body, an assignee, a milestone or anything of the space or the person.
 'use strict';
@@ -140,7 +145,6 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
     origin,
     allowHttp,
     needsToken: false,
-    tokenEnv: 'ISSUES_GITHUB_TOKEN', // the environment variable the server reads the token from; optional for a public repository
     pollMs,
     fullEveryMs,
     writeGapMs, // the least time between two requests that create, update or delete
@@ -209,6 +213,30 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
     async hasLabel({ repo, label, token = '' }, ask) {
       if (!labelOk(label)) return { status: 404, wait: {}, limited: false, message: '' };
       return answerOf(await ask('GET', `${origin}/repos/${repo}/labels/${encodeURIComponent(label)}`, writeHeaders(token)), false);
+    },
+    // The app's own calls (plan-github-app.md, section 4), each with the app's JWT as the bearer; answers { status, wait, limited,
+    // message } and, for a 200 or 201, the fields read. Nothing of a token is returned but the installation token a mint made.
+    async appInfo({ jwt }, ask) {
+      const got = await ask('GET', `${origin}/app`, writeHeaders(jwt));
+      const out = answerOf(got, false);
+      const j = got.json && typeof got.json === 'object' ? got.json : {};
+      if (got.status === 200) { out.name = text(j.name, 80); out.slug = text(j.slug, 80); if (!out.slug) out.bad = true; }
+      return out;
+    },
+    // An installation token narrowed to one repository (by id) and to `permissions` ({ issues: 'read'|'write', metadata: 'read' }).
+    async mintToken({ jwt, installation, repositoryId, permissions }, ask) {
+      const body = { repository_ids: [Number(repositoryId)], permissions: { issues: permissions.issues === 'write' ? 'write' : 'read', metadata: 'read' } };
+      const got = await ask('POST', `${origin}/app/installations/${Number(installation)}/access_tokens`, writeHeaders(jwt), body);
+      const out = answerOf(got, false);
+      out.suspended = got.status === 403 && /suspend/i.test(out.message);
+      if (got.status === 201 || got.status === 200) {
+        const j = got.json && typeof got.json === 'object' ? got.json : {};
+        const repo = Array.isArray(j.repositories) && j.repositories[0] && typeof j.repositories[0] === 'object' ? j.repositories[0] : null;
+        const expires = typeof j.expires_at === 'string' ? Date.parse(j.expires_at) : NaN;
+        if (typeof j.token !== 'string' || !j.token || !Number.isFinite(expires) || !repo) out.bad = true;
+        else { out.token = j.token; out.expiresAt = expires; out.repositoryId = Number(repo.id); out.repo = text(repo.full_name, 140); }
+      }
+      return out;
     },
     // A new issue: its title and its labels, an empty body. Answers the record.
     async create({ repo, title, labels, token = '' }, ask) {

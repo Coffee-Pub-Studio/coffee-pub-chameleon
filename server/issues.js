@@ -4,14 +4,18 @@
 // into the plan (the plan's option a), so this file names the `schedule` module; nothing here knows which service it is.
 //
 // What goes out: GET requests to the adapter's origin naming the repository, a `since` time, a page and the last etag, with the
-// server's token when it has one (ISSUES_GITHUB_TOKEN). Nothing of the space, the environment or its people.
+// repository's installation token when the space is linked through the GitHub app (server/issue-app.js, plan-github-app.md) and
+// no token otherwise. Nothing of the space, the environment or its people.
 //
 // What is kept, per environment: issues.json in the environment's data folder,
 //   { spaces: { <spaceId>: { provider, repo, on, since, etag, last, tried, fullAt, next, restUntil, error, counts, by, at } } }
 // `since` the newest `updated` time a pull saw (the next pull asks only what changed from then), `etag` the first page's last
 // etag, `last` when a pull last finished, `tried` when one last started, `fullAt` when every page was last read, `next` when the
 // timer pulls next, `restUntil` until when the service asked to be left alone, `error` the last failure as one sentence or '',
-// `counts` { total, open, done, written, removed } after the last pull, `by` and `at` who turned it on and when. Never the token.
+// `counts` { total, open, done, written, removed } after the last pull, `by` and `at` who turned it on and when. Never a token.
+// Linked through the app (plan-github-app.md, section 8) also `via` ('app' or 'public'), `installation` and `repositoryId` (numbers,
+// not secrets), `writeOk` (the linking person could write on the service), `linkBy` and `linkAt` (who linked and when, Chameleon's
+// own key) and `appError` (the last trouble with the app as one sentence, or '').
 // With two-way on (documentation/plans/plan-github-two-way.md, step 1) also `write` (changes made here go to the service) and
 // `writeBy`, `writeAt`, who turned writing on and when.
 'use strict';
@@ -43,14 +47,19 @@ const SPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SAY = Object.freeze({
   terms: (name, modules) => `${name}'s terms are not accepted on this server. The administrator accepts them in Manage, ${modules}, Service terms.`, // `modules`: the template's word for them, from word()
   missing: 'No such repository, or it is private.',
-  token: (name) => `${name} refused the token set on this server.`,
+  token: (name) => `${name} refused this server's access.`,
   wait: (name) => `${name} asked to wait.`,
   silent: (name) => `${name} did not answer.`,
   bad: (name) => `${name}'s answer could not be read.`,
   full: `This plan holds at most ${MAX_ENTRIES} entries; the rest are not pulled.`,
   // Writing (plan-github-two-way.md, section 5): nothing is changed in the space unless the service accepted the change.
-  noWrite: (name) => `This server may not change ${name} for this repository.`,
-  noToken: 'No token is set on this server.',
+  noWrite: 'The GitHub app may not change this repository.',
+  noApp: 'Connect this repository through the GitHub app to change it from here.',
+  appOff: 'This server has no GitHub app.',
+  appBroken: 'The GitHub app on this server is not working. The administrator checks its settings.',
+  appGone: (repo) => `The GitHub app is no longer installed on ${repo}. Install it again and press Connect to GitHub, or stop following.`,
+  appPaused: (repo) => `The GitHub app is paused for ${repo} on GitHub.`,
+  moved: (name) => `${name} says this repository has moved. Try again.`,
   noWriteOut: (name) => `Only someone allowed to change ${name} can change this.`,
   writeSilent: (name) => `${name} did not answer. Nothing was changed; try again.`,
   writeWait: (name, ms) => `${name} asked to wait. Try again in ${ms < 120000 ? `${Math.max(1, Math.ceil(ms / 1000))} seconds` : `${Math.ceil(ms / 60000)} minutes`}.`,
@@ -86,6 +95,9 @@ function cleanRecord(r) {
   const provider = typeof r.provider === 'string' && /^[a-z][a-z0-9-]{0,23}$/.test(r.provider) ? r.provider : '';
   if (!repo || !provider) return null;
   const c = r.counts && typeof r.counts === 'object' ? r.counts : {};
+  const id = (v) => (Number.isSafeInteger(v) && v > 0 ? v : 0);
+  const app = r.via === 'app' && id(r.installation) > 0 && id(r.repositoryId) > 0;
+  const writeOk = r.writeOk === true;
   return {
     provider, repo, on: r.on === true,
     since: iso(r.since), etag: typeof r.etag === 'string' ? r.etag.slice(0, 200) : '',
@@ -93,7 +105,10 @@ function cleanRecord(r) {
     error: typeof r.error === 'string' ? r.error.slice(0, 200) : '',
     counts: { total: count(c.total), open: count(c.open), done: count(c.done), written: count(c.written), removed: count(c.removed) },
     by: typeof r.by === 'string' ? r.by.slice(0, 80) : '', at: iso(r.at),
-    write: r.write === true, writeBy: typeof r.writeBy === 'string' ? r.writeBy.slice(0, 80) : '', writeAt: iso(r.writeAt),
+    write: app && writeOk && r.write === true, writeBy: typeof r.writeBy === 'string' ? r.writeBy.slice(0, 80) : '', writeAt: iso(r.writeAt),
+    via: app ? 'app' : 'public', installation: app ? r.installation : 0, repositoryId: app ? r.repositoryId : 0, writeOk: app && writeOk,
+    linkBy: app && typeof r.linkBy === 'string' ? r.linkBy.slice(0, 80) : '', linkAt: app ? iso(r.linkAt) : '',
+    appError: app && typeof r.appError === 'string' ? r.appError.slice(0, 300) : '',
   };
 }
 
@@ -399,18 +414,6 @@ const isPulledKey = (key) => WORK_KEY.test(key) || MILESTONE_KEY.test(key);
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) --------------------------------------------------------
 
-// ISSUES_GITHUB_WRITE: the repositories this server may change, `owner/name` comma separated; on a host with several
-// environments each is `<environment slug>:owner/name`. Unset or empty: none. Case does not matter in a repository's name.
-const WRITE_ENTRY = /^(?:([a-z0-9][a-z0-9-]{0,40}):)?([A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100})$/;
-function writeListOf(spec) {
-  return String(spec || '').split(',').map((t) => WRITE_ENTRY.exec(t.trim())).filter(Boolean).map((m) => ({ slug: m[1] || '', repo: m[2].toLowerCase() }));
-}
-// Whether the list `spec` lets the environment `slug` (on a `hosted` server) write to `repo`.
-function writeAllowed(spec, { hosted = false, slug = '', repo = '' } = {}) {
-  const want = String(repo).toLowerCase();
-  return Boolean(want) && writeListOf(spec).some((e) => e.repo === want && (hosted ? e.slug === slug && slug !== '' : e.slug === ''));
-}
-
 // The fields of a piece of work by who owns them when a space writes back: GitHub's own that go out (column and done, title,
 // tags), the space's own that stay here, and everything else (notes, source, kind, parent, id, ...) which is GitHub's and
 // read-only. `by` is set by the write itself.
@@ -502,7 +505,7 @@ function olderThanStored(stored, rec) {
 
 // One write call to the service, its trouble as a refusal: { ok: true, answer } or { ok: false, status, error, restUntil? } where
 // `status` is the one this server answers a person with. `call(ask)` is one adapter member bound to its arguments; `ask` is the
-// guarded one. Never logs or returns the token.
+// guarded one. Never logs or returns a token.
 async function writeCall(adapter, call, { fetchImpl, now = Date.now() } = {}) {
   const ask = getter(adapter, { fetchImpl }).ask;
   let a;
@@ -514,12 +517,13 @@ async function writeCall(adapter, call, { fetchImpl, now = Date.now() } = {}) {
   if (a.status === 200 || a.status === 201) return a.bad ? { ok: false, status: 502, error: SAY.bad(adapter.name) } : { ok: true, answer: a };
   if (a.limited) {
     const until = restUntil(a.wait, now);
-    return { ok: false, status: 429, restUntil: until, error: SAY.writeWait(adapter.name, Math.max(1000, until - now)) };
+    return { ok: false, status: 429, restUntil: until, served: a, error: SAY.writeWait(adapter.name, Math.max(1000, until - now)) };
   }
-  if (a.status === 401) return { ok: false, status: 502, error: SAY.token(adapter.name) };
-  if (a.status === 404) return { ok: false, status: 404, notFound: true, error: SAY.gone(adapter.name) };
-  if (a.status >= 500 || a.status === 0) return { ok: false, status: 502, error: SAY.writeSilent(adapter.name) };
-  return { ok: false, status: 502, error: SAY.writeRefused(adapter.name, a.message) };
+  if (a.status === 301) return { ok: false, served: a, status: 502, moved: true, error: SAY.moved(adapter.name) };
+  if (a.status === 401) return { ok: false, served: a, status: 502, unauthorized: true, error: SAY.token(adapter.name) };
+  if (a.status === 404) return { ok: false, served: a, status: 404, notFound: true, error: SAY.gone(adapter.name) };
+  if (a.status >= 500 || a.status === 0) return { ok: false, served: a, status: 502, error: SAY.writeSilent(adapter.name) };
+  return { ok: false, served: a, status: 502, error: SAY.writeRefused(adapter.name, a.message) };
 }
 
 // The clean "owner/name" from what was typed or pasted (the adapter knows its service's address), or '' when it is not one.
@@ -530,6 +534,6 @@ function cleanRepo(adapter, raw) {
 
 module.exports = {
   IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  isPulledKey, cleanRepo, SAY, writeListOf, writeAllowed, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  isPulledKey, cleanRepo, SAY, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };

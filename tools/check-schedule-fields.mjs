@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { launch, Tab, startServer, stopServer, freePort, findBrowser, sleep } from './shots.mjs';
 import { stopBrowser } from './browser-launch.mjs';
 
@@ -39,7 +40,9 @@ if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 
 const PASSWORD = 'testpass1234';
 const REPO = 'o/r';
-const TOKEN = 'ghp_checkfieldstoken0123456789abcdef';
+// The app's credentials for world B, made fresh on each run (never written to the repository); the stand-in answers the app's two calls.
+const PEM = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs1', format: 'pem' });
+const LINK = { installation: 5, repositoryId: 55, writeOk: true };
 
 // ---- a small stand-in for GitHub: a list of issues, every request kept ----
 const seen = [];
@@ -49,9 +52,14 @@ const issues = [
   { number: 3, title: 'Nothing like an area', state: 'closed', labels: [], created_at: '2026-01-06T00:00:00Z', closed_at: '2026-01-07T00:00:00Z', updated_at: '2026-01-07T00:00:00Z' },
 ].map((i) => ({ closed_at: null, milestone: null, body: 'private', user: { login: 'someone' }, assignees: [], html_url: `https://github.com/${REPO}/issues/${i.number}`, ...i }));
 const fake = http.createServer((req, res) => {
-  seen.push({ method: req.method, url: req.url });
   req.resume();
   res.writeHead(200, { 'content-type': 'application/json' });
+  if (req.url === '/app') return res.end(JSON.stringify({ slug: 'fields-check', name: 'Fields check' }));
+  if (/^\/app\/installations\/\d+\/access_tokens$/.test(req.url)) {
+    res.statusCode = 201;
+    return res.end(JSON.stringify({ token: 'ghs_checkfieldsinstallation0123456789', expires_at: new Date(Date.now() + 3600000).toISOString(), repositories: [{ id: LINK.repositoryId, full_name: REPO }] }));
+  }
+  seen.push({ method: req.method, url: req.url });
   res.end(/\/issues(\?|$)/.test(req.url) ? JSON.stringify(issues) : '[]');
 });
 await new Promise((r) => fake.listen(0, '127.0.0.1', r));
@@ -59,7 +67,7 @@ await new Promise((r) => fake.listen(0, '127.0.0.1', r));
 const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'check-schedule-fields-a-'));
 const dirB = fs.mkdtempSync(path.join(os.tmpdir(), 'check-schedule-fields-b-'));
 const serverA = await startServer(dirA, await freePort(), 'first', {});
-const serverB = await startServer(dirB, await freePort(), 'first', { ISSUES_TEST_STANDIN: `http://127.0.0.1:${fake.address().port}`, ISSUES_GITHUB_TOKEN: TOKEN, ISSUES_GITHUB_WRITE: REPO, ISSUES_TEST_GAP_MS: '500' });
+const serverB = await startServer(dirB, await freePort(), 'first', { ISSUES_TEST_STANDIN: `http://127.0.0.1:${fake.address().port}`, ISSUES_GITHUB_APP_CLIENT_ID: 'Iv1.fields', ISSUES_GITHUB_APP_CLIENT_SECRET: 'fieldssecret0123456789', ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n'), ISSUES_TEST_GAP_MS: '500' });
 
 const jars = new Map();
 function api(server) {
@@ -341,7 +349,7 @@ try {
   B.must(await B.call('PATCH', '/api/modules/schedule', { enabled: true, allSpaces: true }), 'enable');
   const SB = B.must(await B.call('POST', '/api/spaces', { name: 'Bug Squash', starter: false }), 'space').space.id;
   B.must(await B.call('PUT', '/api/weather/terms/issues-standin', { accept: true }), 'terms');
-  B.must(await B.call('PUT', `/api/spaces/${SB}/issues-pull`, { on: true, repo: REPO, provider: 'issues-standin' }), 'follow');
+  B.must(await B.call('PUT', `/api/spaces/${SB}/issues-pull`, { on: true, repo: REPO, provider: 'issues-standin', testLink: LINK }), 'follow');
   const gotPulled = async () => { for (let i = 0; i < 60; i += 1) { const l = (await B.call('GET', `/api/modules/schedule/data?scope=space&space=${SB}`)).json.items.filter((x) => x.key.startsWith('plan:gh-')); if (l.length >= 3) return true; await B.call('POST', `/api/spaces/${SB}/issues-pull/now`, {}); await sleep(700); } return false; };
   ok(await gotPulled(), 'the three issues are pulled');
   B.must(await B.call('PUT', `/api/spaces/${SB}/issues-pull`, { write: true }), 'writing on');
