@@ -827,7 +827,10 @@ test('one page holds the list and the map: no id twice, the list mounted once, a
   // The built page carries both, and there is no second page for the list.
   const built = createRequire(import.meta.url)('../server/module-build.js').buildModule(new URL('../modules/maps', import.meta.url).pathname);
   const files = unzipSync(built.zip);
-  assert.deepEqual([...files.keys()].sort(), ['canvas.html', 'module.json', 'page.html'], 'there is no second page for the list');
+  // Beside the pages, the zip carries the library the server's actions run from, under src/ and with no page among it.
+  const names = [...files.keys()];
+  assert.deepEqual(names.filter((n) => !n.startsWith('src/')).sort(), ['canvas.html', 'module.json', 'page.html'], 'there is no second page for the list');
+  assert.ok(names.includes(built.manifest.actions.server) && names.filter((n) => n.startsWith('src/')).every((n) => /^src\/maps-lib-[a-z0-9-]+\.(js|json)$/.test(n)), 'the rest is the actions library');
   const text = files.get('page.html').toString('utf8');
   assert.ok(text.includes('async function runList(env)') && text.includes('async function runMap(env)') && text.includes('function listModel('), 'the built page has the list and the map');
   assert.ok(text.includes('LIB_TYPES') && text.indexOf('const LIB_TYPES') < text.indexOf('function listModel('), 'the types library is ahead of the list model');
