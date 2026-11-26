@@ -163,6 +163,7 @@ thin strip under the top bar shows how the space is going. It is the same on eve
   main phase's name is set heavier. A pin marks today, with the day of the month.
 - **The countdown**, one chip: "35 days to Trip", "1 day to Trip", or "Trip starts today" on the main phase's first
   day. It is gone once the main phase is under way, and then the sentence says "Trip · day 3 of 10".
+- **The weather**, a chip among the facts, when the Weather module is on, a service is chosen and accepted, and the space has a place ([Modules](userguide-modules.md), "Weather"): the day's icon, its high and the place's name, such as "12° Lisbon" (a later day starts with its weekday). It shows today while the main phase is under way, the main phase's first day before it, and nothing after it. Press it for the day, the words with the high and low, the chance of rain, the service's credit and a button that opens the module the place comes from (**Open Itinerary**, for example). It is the first chip to give way when the line is short. At 760 pixels wide and below it is a row in the phase sheet instead.
 - **Needs action**, at the right end, only when something does: "2 need action", or "1 needs action". Press it for
   the list: a heading for each module, a line saying how many ("2 to vote in"), and under it each entry. Pick one to
   open it. For now Polls reports the open polls in the space that you have not voted in; its count is what Polls last

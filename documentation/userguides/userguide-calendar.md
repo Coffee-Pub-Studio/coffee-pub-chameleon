@@ -73,6 +73,10 @@ Days inside a dated phase of the space are tinted with the phase's colour (see "
 
 To see this space's events alone in your own calendar app, make an address for the space on your profile's **Calendars** tab; see "Your calendar in a calendar app" in [Accounts, roles and permissions](userguide-accounts.md).
 
+## The weather on a space's days
+
+In a space's Calendar, the days can show the weather of the space's place, when the Weather module is on, a service is chosen and its terms are accepted ([Modules](userguide-modules.md), "Weather"). The place is the destination of the first module in the space that has one, such as the Itinerary's destination; a space with no destination, or a person who may not see the module that has it, shows nothing. A day shows a small icon with its high, such as "18°": on the week's day headings, at the top of the Day view, on each heading in the Agenda and in the Month's cells. In the Month on a phone the cells are dots, so the weather is in the Agenda only. Press it for the words, the high and low, the chance of rain for a forecast and the service's credit. A service gives forecasts only some days ahead (MET Norway about 10), so a day that has passed or is further out shows nothing. The Global Calendar and the environment's calendar show no weather.
+
 ## Settings
 
 On your profile page, under Module settings, **Open on** chooses the view the Calendar opens on: Month, Week, Day or Agenda. If you had chosen Month + list, which is gone, it opens on Month. On a wider screen, Global Calendar opens on the same view when it is Month, Week or Day, and on Month for Agenda, until you pick a view there.
