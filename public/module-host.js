@@ -2271,6 +2271,10 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
       return api('POST', `/api/spaces/${encodeURIComponent(spaceId)}/issues-pull/now`, {});
     },
+    async 'issues.create'({ title, column }) {
+      if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
+      return (await api('POST', `/api/spaces/${encodeURIComponent(spaceId)}/issues`, { title: String(title ?? ''), column: String(column ?? '') })).item;
+    },
     // Set up for this space (space-setup.js): whether this person may set it up as an owner (the owner, the admin), and a way to
     // open its panel on a tab. The page does what the space switcher's Set up does (app:enter-space, action `setup`); the
     // panel's own rules decide the rest. Only inside a space, never for a guest.

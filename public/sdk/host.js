@@ -5333,12 +5333,15 @@
 
     // The space's issue pull (plan-github-pull.md): a repository's issues pulled into Planner - Projects by the server.
     // status() -> { on, provider, name, repo, last, next, error, counts: { total, open, done, written, removed } | null, pulling }
-    // (`last` and `next` ISO times or '', `error` one sentence or ''); pullNow() -> the same after a pull, for someone with the
-    // plan's edit. Both only inside a space; they throw with the server's status and sentence (429 too soon or the service asked
-    // to wait, 409 not on or its terms not accepted, 502 the service failed).
+    // (`last` and `next` ISO times or '', `error` one sentence or '', `write` whether changes made here go to the service);
+    // pullNow() -> the same after a pull, for someone with the plan's edit. Both only inside a space; they throw with the server's
+    // status and sentence (429 too soon or the service asked to wait, 409 not on or its terms not accepted, 502 the service failed).
+    // create({ title, column }) opens an issue on the service (a space that writes back, for someone with the plan's write_out) and
+    // resolves to the work as stored ({ key, value, version }); it throws with the server's status and sentence as well.
     issues: {
       status: () => call('issues.status', {}),
       pullNow: () => call('issues.pullNow', {}),
+      create: (o) => call('issues.create', { title: o && o.title, column: o && o.column }),
     },
 
     // Set up for the space. can() -> whether this person is an owner (or the admin) here, who may follow a repository and so on;
