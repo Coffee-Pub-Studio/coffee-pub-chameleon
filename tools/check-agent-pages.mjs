@@ -962,11 +962,11 @@ async function main() {
         expect((await adm('POST', `/api/modules/bundled/${id}/install`, {})).status === 201, `review: ${id} did not install`);
         expect((await adm('PATCH', `/api/modules/${id}`, { enabled: true, allSpaces: true })).status === 200, `review: ${id} is not on`);
       }
-      // Polls with a delete action, as an upload of the next version (step 8 declares the bundled modules' own).
+      // Polls as an upload of the next version, with its delete action (the bundled manifest declares it; added only if not).
       const src = path.join(dir, 'upload-polls');
       fs.cpSync(path.join(process.cwd(), 'modules', 'polls'), src, { recursive: true });
       const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
-      manifest.actions.provides.push({ name: 'deletePoll', label: 'Delete a poll', description: 'Deletes a poll and its votes.', effect: 'delete', input: { poll: 'ref:polls:poll' } });
+      if (!manifest.actions.provides.some((a) => a.name === 'deletePoll')) manifest.actions.provides.push({ name: 'deletePoll', label: 'Delete a poll', description: 'Deletes a poll and its votes.', effect: 'delete', input: { poll: 'ref:polls:poll' } });
       manifest.version = '99.0.0';
       delete manifest.actions.server;
       fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest));

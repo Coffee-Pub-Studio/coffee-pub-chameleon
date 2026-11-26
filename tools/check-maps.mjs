@@ -542,7 +542,10 @@ test('Maps owns the places: its manifest declares what Places declared, and noth
   assert.ok(zipFiles);
   assert.ok(!bundledModules(path.join(root, 'modules')).some((m) => m.id === 'places'), 'Places is not a bundled module');
   const built = buildModule(path.join(root, 'modules', 'maps'));
-  assert.equal(built.fileCount, 3, 'module.json, page.html, canvas.html: one page holds the list and the map');
+  // Beside the pages, the zip carries the library the server's actions run from (actions.server, less actions.pageOnly).
+  const { libraryFrom } = createRequire(import.meta.url)('../server/module-build.js');
+  const run = libraryFrom(fs.readdirSync(path.join(root, 'modules', 'maps', 'src')), 'maps', (f) => read(f), { leaveOut: built.manifest.actions.pageOnly });
+  assert.equal(built.fileCount, 3 + run.files.length + run.data.length, 'module.json, page.html, canvas.html and the actions library: one page holds the list and the map');
   // No reader for the old id: nowhere in the code, the manifests, the templates or the checks is a place pointed at as module "places".
   const bad = /module: ?'places'|"module": ?"places"|ref:places:|\/modules\/places|modules\/places\/|from=places|'places:(?:place|addPlace|setPlacePoint)/;
   const skip = new Set(['tools/check-maps.mjs', 'tools/check-maps-list.mjs', 'tools/check-names-allow.json']); // the list check feeds a stale pointer on purpose
