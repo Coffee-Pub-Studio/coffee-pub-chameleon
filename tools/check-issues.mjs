@@ -269,7 +269,7 @@ await test('the gate is read from the code, and each part of it matters', () => 
   const inPull = (cut) => (t) => t.slice(0, from) + cut(t.slice(from));
   for (const [name, cut, delCut] of [
     ['the owner', inPull((t) => t.replace('if (!who.user || who.user.agent || !hasOwnerRights(who.user)) return', 'if (!who.user) return'))],
-    ['the terms on turning on', inPull((t) => t.replace('if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name) });\n  // A pulled', '// A pulled'))],
+    ['the terms on turning on', inPull((t) => t.replace('if (!serviceTerms.accepted(adapter)) return res.status(409).json({ error: issuesLib.SAY.terms(adapter.name, word(\'module\', { many: true, cap: true })) });\n  // A pulled', '// A pulled'))],
     ['the empty plan', inPull((t) => t.replace('if (others.length) return', 'if (false) return'))],
     ['the edit for Pull now', inPull((t) => t.replace("issuePullPlace(req, res, 'own')", "issuePullPlace(req, res, 'read')"))],
     ['the terms on a pull', inPull((t) => t.replace("if (!serviceTerms.accepted(adapter)) return issuePulls.set", 'if (false) return issuePulls.set'))],
