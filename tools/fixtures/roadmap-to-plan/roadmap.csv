@@ -1,0 +1,8 @@
+# A small roadmap for tools/check-roadmap-to-plan.mjs: a comment line first, as the real file has.
+Issue,URL,Area,Title,Release status,Phase,Start date,Target date
+2,https://github.com/Drowbe/coffee-pub-chameleon/issues/2,Home,first-time experience [next],Not gating (proposed),5 Later / ideas,2027-01-25,2027-04-23
+27,https://github.com/Drowbe/coffee-pub-chameleon/issues/27,Server,"host console, requests answer 404 [bug]","Gating (proposed, high confidence)",1 Before the freeze,2026-11-16,2026-12-18
+29,https://github.com/Drowbe/coffee-pub-chameleon/issues/29,Verify,canvas in a real call,"Gating (proposed, high confidence)",4 Real-call tests,2026-12-21,
+31,https://github.com/Drowbe/coffee-pub-chameleon/issues/31,Server,no dates yet,Not gating (proposed),1 Before the freeze,,
+40,https://github.com/Drowbe/coffee-pub-chameleon/issues/40,Ideas,closed or not in the space,Not gating (proposed),5 Later / ideas,2027-01-25,2027-04-23
+41,https://github.com/Drowbe/other-repo/issues/41,Ideas,another repository,Not gating (proposed),5 Later / ideas,2027-01-25,2027-04-23
