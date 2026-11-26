@@ -4,6 +4,24 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Changes made in Planner - Projects can go to GitHub, and cards keep their order (2026-11-26)
+
+Written from the code on `main` at `db558457` (pull requests #1182, #1183, #1185 and #1186, steps 1, 2, 4 and 5 of [plan-github-two-way](documentation/plans/plan-github-two-way.md)), read as code. No real write has been made to GitHub, and no page was looked at in a browser for this entry. The roadmap fields, **Update by id** and the import (steps 6 and 7) are not built and are not described here; step 3 (#1184) is a held draft. The documents: [Planner - Projects guide](documentation/userguides/userguide-planner-projects.md), [Settings reference](documentation/userguides/userguide-settings-reference.md), [Modules API](documentation/api/api-modules.md), [Module SDK](documentation/api/api-module-sdk.md) and [Modules architecture](documentation/architecture/architecture-modules.md).
+
+#### Added
+
+- **An owner can let a space change GitHub.** Under **Follows GitHub** in Planner - Projects' settings, **Changes here go to GitHub** is a switch for the environment's owner, off to start and dimmed with a reason when the server is not set up. With it on, someone allowed to **Change it on GitHub** (a new permission: moderators yes, members and guests no, owners always, agents only when an owner ticks the Agent row) can move work between columns (the `priority:` labels), close and reopen it, rename it, add and remove tags (labels) and open a new issue with **+**. Never sent: the description, comments, assignees, a delete, days, owners or order. A change shows on GitHub as the account that owns the server's token. The plan keeps a change only when GitHub accepts it; a refused change puts the card back with one sentence, and if the same field changed on GitHub meanwhile, GitHub's version wins and says so.
+- **Two server settings for it.** `ISSUES_GITHUB_TOKEN` must now be a fine-grained token with **Issues: read and write** on the one repository when writing is on (read-only otherwise), and `ISSUES_GITHUB_WRITE` lists the repositories the server may change (`owner/name`, comma separated, case-insensitive; `<environment slug>:owner/name` on a host with several environments; unset or empty means nothing is written). Neither is in `docker-compose.yml`. A new section of the Planner - Projects guide, "Turn on writing to GitHub", gives the steps.
+- **Agents can change GitHub through the plan.** An agent's `setColumn`, `setDone` and `updateEntry` on pulled work go to GitHub as a person's do, one entry at a time; `deleteEntry` is refused; its **Undo** is another write to GitHub and is refused when the change is mixed with GitHub's own.
+- **`host.issues.create({ title, column })`** in the SDK, and `write` and `canWrite` in `host.issues.status()` and `GET /api/spaces/:id/issues-pull`; `POST /api/spaces/:id/issues` makes the issue; `PUT /api/spaces/:id/issues-pull` takes `write`.
+- **Order inside a column.** Work has a stored `rank`; cards run by it, then by end day. Drag a card up or down (a line shows where it lands), press **Alt+Up** or **Alt+Down**, or use the card menu's **Move up**, **Move down**, **Move to top** and **Move to bottom**; the live line says "Moved to position 2 of 5 in Now." `host.ui.board`'s `onMove` now gives `before` (the card it lands in front of), its `labels` take `moveUp`, `moveDown`, `moveTop`, `moveBottom`, `position`, `atTop` and `atBottom`, and `setColumn` takes an optional `before`. The order is the plan's own and is never sent to GitHub. This overturns the kanban plan's lean that order is not stored.
+
+#### Changed
+
+- Planner - Projects is at **0.1.22** (0.1.20 to 0.1.22 across these steps).
+
+Checked by tool on 2026-11-26: `node tools/check-issues.mjs` (41 groups, against the stand-in), `node tools/check-agent-matrix.mjs` (16 passed), `node tools/check-board.mjs` (259 checks) and `npm run check:module -- schedule` (17 of 18; the failure is `check-names` in a container running as root, which is not this work's). Not verified: a real write to GitHub (the first move, close and reopen and new issue are Thomas's, on his server), GitHub's real rate-limit and 422 answers, the Planner - Projects page and board in a browser at 1280 and 390 pixels in light and dark, a screen reader, and a real call. Known gap: an agent adding work to a two-way space is still refused ("This comes from GitHub. Change it there."); the plan wants it to make an issue.
+
 ### Following a GitHub repository is one step (2026-11-26)
 
 #### Changed

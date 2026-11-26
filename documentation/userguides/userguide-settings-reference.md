@@ -124,11 +124,14 @@ Beside it in the file, a commented `security_opt` line names the seccomp profile
 
 ## Following a GitHub repository
 
-A space can follow a public GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). It works with no setting here: the owner enters the repository (as `owner/name` or its address) and chooses **Follow this repository** in the space's **Set up**, and the plan must be empty first. A token only raises GitHub's limit from 60 requests an hour to 5,000.
+A space can follow a public GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). Reading works with no setting here: the owner enters the repository (as `owner/name` or its address) and chooses **Follow this repository** in the space's **Set up**, and the plan must be empty first. A token only raises GitHub's limit from 60 requests an hour to 5,000. Changing GitHub from the plan (["Turn on writing to GitHub"](userguide-planner-projects.md)) needs a token that can write and the allow list below, and both are set here.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `ISSUES_GITHUB_TOKEN` | unset | A GitHub personal access token that can read public repositories. The server sends it only to `api.github.com`, in the request's authorization header, and never writes it to a log, a page or a space. Leave it out unless GitHub's limit is reached. It is not in `docker-compose.yml`; add the line under `environment:`. |
+| `ISSUES_GITHUB_TOKEN` | unset | A GitHub token. To read only, a personal access token that can read public repositories (or none). To write, a fine-grained token for the one repository with **Issues: read and write**. The server sends it only to `api.github.com`, in the request's authorization header, and never writes it to a log, a page, a space or an answer. A change shows on GitHub as the account that owns the token. Never paste it in Chat or an issue. It is not in `docker-compose.yml`; add the line under `environment:`, then recreate the container. |
+| `ISSUES_GITHUB_WRITE` | unset | The repositories this server may change, as `owner/name` separated by commas; case does not matter. On a host with several environments each entry is `<environment slug>:owner/name`, and an entry without a slug counts for none of them. Unset or empty means nothing is written, whatever a space's switch says. It is read at each call, so a change takes effect without a restart. It is not in `docker-compose.yml` either. |
+
+A space's own switch, **Changes here go to GitHub**, is the owner's and is off to start; it can be turned on only when both settings above allow the repository.
 
 ## Other
 

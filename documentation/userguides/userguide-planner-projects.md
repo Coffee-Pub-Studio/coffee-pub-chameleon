@@ -60,7 +60,7 @@ Under a template that measures its phases by goals, a phase is done when every e
 
 The Board is the third view, beside **Timeline** and **List**. Choose **Board** in the view switch, or set **Opens on** to **Board** in the module's settings (see "Set it up"). It shows work only: a milestone is done when its work is, and a note has no done.
 
-Each column is a stage of the work. A space starts with **To do**, **Doing** and **Done**, or, under the Gaming template, **Inbox**, **Now**, **Next**, **Later** and **Done**. The count of cards sits beside each column's name. Inside a column, cards run by their end day (the ones with no day last), then in the order of the List.
+Each column is a stage of the work. A space starts with **To do**, **Doing** and **Done**, or, under the Gaming template, **Inbox**, **Now**, **Next**, **Later** and **Done**. The count of cards sits beside each column's name. Inside a column, cards run in the order people have put them in (see "Order inside a column"); work nobody has placed yet comes after that, by its end day (the ones with no day last), then in the order of the List.
 
 **The card** says the work's title, its end day or "No date" (with **Late** when it is past), who is doing it, up to two tags and "and N more", the milestone it is under, and "Waits on" the first thing it waits on while that is not done.
 
@@ -68,9 +68,19 @@ Each column is a stage of the work. A space starts with **To do**, **Doing** and
 
 1. Drag it to another column; or
 2. choose the **...** on the card, then **Move to** and the column; or
-3. with the card focused, press **Alt+Left** or **Alt+Right** to move it one column.
+3. with the card focused, press **Alt+Left** or **Alt+Right** to move it one column. It lands at the end of that column.
 
 **Enter** on a focused card opens it to edit; the **...** menu also has **Edit** and **Delete**. Up and Down walk the cards in a column, Left and Right go to the next column. A screen reader hears, for example, "Moved "Write the brief" to Now." Someone without the right to change the plan sees the board and has no moves.
+
+### Order inside a column
+
+The order of cards in a column is kept, so the top of **Now** can be the next thing to do. It is the plan's own: it is shared by everyone and never sent to GitHub. It needs **Add and change the plan**.
+
+1. Drag a card up or down inside its column. A line shows where it will land: before or after the card you are over.
+2. Or, with the card focused, press **Alt+Up** or **Alt+Down** to move it one place.
+3. Or choose the **...** on the card, then **Move up**, **Move down**, **Move to top** or **Move to bottom**.
+
+A screen reader hears, for example, "Moved to position 2 of 5 in Now.", or "Already at the top." when there is nowhere to go. Dropping a card on another column puts it where the line shows, in that column. Work with no place yet sits below the work that has one. On a phone there is no dragging: use the card's **...** menu. An [agent](userguide-agents.md) moving a piece of work to a column may also name the work to put it in front of.
 
 **Add work to a column.** The **+** in a column's heading opens the form for new work in that column.
 
@@ -101,7 +111,7 @@ Each change to the columns shows an **Undo** for 30 seconds, which puts back the
 
 ## Follow a GitHub repository
 
-A space's plan can show a public GitHub repository's issues as work, so the plan matches what is on GitHub. It goes one way, from GitHub to the space: nothing here changes GitHub.
+A space's plan can show a public GitHub repository's issues as work, so the plan matches what is on GitHub. It goes one way, from GitHub to the space, until an owner also turns on writing (see "Turn on writing to GitHub" below); until then nothing here changes GitHub.
 
 **Who:** the environment's owner turns it on or off. The server's administrator accepts GitHub's terms once, first (see [Modules](userguide-modules.md), "The terms").
 
@@ -118,13 +128,65 @@ The line under the button says how it stands: "Not following. Enter a repository
 
 **What you see.** The status bar starts with "From GitHub, pulled 3 minutes ago, 12 open of 40" (or, after a failure, the reason and "Trying again at 14:20."), and **Pull now** for anyone who may change the plan; it waits a minute between pulls. The server also pulls by itself about every 10 minutes. Each issue is a piece of work with its number ("#157") and a link, and its menu has **Open on GitHub** (a new tab). A closed issue is in **Done**; an open one is in **Now**, **Next** or **Later** when it has the label `priority: now`, `priority: next` or `priority: later`, and otherwise in **Inbox**. A GitHub milestone is a milestone, and its other labels are tags (when there is room, 20) or are named in the work's notes. Its days are the day the issue was made and the day it closed.
 
-**It is read-only.** While it is on, nobody can add to, change, move or delete the plan or its board, or clear it: the page shows the work with no edit controls, and it says "This comes from GitHub. Change it there." The same sentence answers an agent that tries. To move work between columns, change its `priority:` label on GitHub (the repository can run a workflow that keeps the labels in step with a project board; that is the repository's setting, not Chameleon's).
+**It is read-only.** While it is on, nobody can add to, change, move or delete the plan or its board, or clear it: the page shows the work with no edit controls, and it says "This comes from GitHub. Change it there." The same sentence answers an agent that tries. To move work between columns, change its `priority:` label on GitHub (the repository can run a workflow that keeps the labels in step with a project board; that is the repository's setting, not Chameleon's), or ask an owner to turn on writing, below.
 
 **Failures** show in the status bar: "GitHub's terms are not accepted on this server. The administrator accepts them in Manage, Modules, Service terms.", "No such repository, or it is private.", "GitHub refused the token set on this server.", "GitHub asked to wait." (it tries again after the time GitHub names), "GitHub did not answer." and "This plan holds at most 1000 entries; the rest are not pulled." The server's administrator can raise GitHub's limit with a token ([Settings reference](userguide-settings-reference.md), "Following a GitHub repository"). Only public repositories can be followed; nothing about you or the space goes to GitHub.
 
+## Turn on writing to GitHub
+
+Following is one way until an owner turns on writing. With it on, some changes made in Planner - Projects are made on GitHub too. It is off to start, and it needs three things set up by whoever runs the server before the switch can be turned on.
+
+**Who:** the environment's owner. The person who runs the server does steps 1 to 3.
+
+1. **Make a token on GitHub.** In GitHub, open **Settings**, **Developer settings**, **Personal access tokens**, **Fine-grained tokens**, and make one for the one repository you follow, with **Issues** set to **Read and write** (GitHub adds **Metadata: read**). Choose an expiry; GitHub makes you. Never paste the token in Chat, an issue or a document.
+2. **Give it to the server.** Set it as `ISSUES_GITHUB_TOKEN` in the server's environment, and name the repository in `ISSUES_GITHUB_WRITE` as `owner/name` (see [Settings reference](userguide-settings-reference.md), "Following a GitHub repository"). Several repositories are separated by commas, and case does not matter. On a host with several environments, write each as `<environment slug>:owner/name`. If `ISSUES_GITHUB_WRITE` is not set, or is empty, nothing is written anywhere. The server reads it at each call, so only the token needs a restart.
+3. **Recreate the container** so the server sees the new variables.
+4. **Follow the repository**, if the space does not yet (see "Follow a GitHub repository").
+5. Open the space's **Set up**, then the **Settings** tab, and find **Follows GitHub** in Planner - Projects' section. Under the repository's name, turn on **Changes here go to GitHub**. The line under it reads "Moves, closes, titles and tags made here change the issues on GitHub, as the account that owns this server's token."
+
+If the switch is dimmed, the line says "This server is not set up to change GitHub for this repository." The token or the allow list is missing, or the repository is not in it. If you turn it on with no token, it says "No token is set on this server."
+
+**Who may change GitHub from here.** The permission **Change it on GitHub** (on the Roles tab, under **Module: Planner - Projects**): moderators have it by default, members and guests do not, and owners always may. Someone with **Add and change the plan** but not this sees pulled work read-only, as before. An [agent](userguide-agents.md) can change GitHub only when an owner ticks that row in the Agent column; it is off to start.
+
+**What goes to GitHub.**
+
+| In Planner - Projects | On GitHub |
+|---|---|
+| Moving work to **Now**, **Next** or **Later** | the label `priority: now`, `priority: next` or `priority: later` is put on, and the other priority label comes off |
+| Moving work to **Inbox** | the priority label comes off |
+| Moving work to **Done**, or its **Close** | the issue is closed as completed |
+| Moving work out of **Done**, or its **Reopen** | the issue is opened again, and the column's label put on |
+| A new title | the issue's title |
+| Adding or removing a tag | that label (it must already exist on GitHub, else "GitHub has no label called ...") |
+| **+** in a column | a new issue with that title and the column's label, and an empty description |
+
+Never sent: the description, comments, who it is assigned to, and a delete (GitHub cannot delete from here; the menu says **Close** in place of **Delete**). A title longer than the plan holds (120 characters) is not written back: "This title is longer than the plan holds. Change it on GitHub." The days, who is doing it and the order inside a column stay in the plan and are not sent.
+
+**The change shows on GitHub as the account that owns the token**, not as the person who made it. Chameleon keeps who did it in its own record (an issue made here records the person, and an agent's changes are listed under **What it changed**).
+
+**What you see.**
+
+- The status bar gains "Changes go to GitHub" beside the "From GitHub" line.
+- A card moved, ticked, renamed or tagged is drawn at once, but the plan keeps the change only when GitHub accepts it. If GitHub refuses, the card goes back where it was, a short message gives the reason, and the status bar shows "Not changed on GitHub" for a few seconds with the sentence when you hover it.
+- A piece of work's menu says **Close** (or **Reopen** once it is done), and the **+** in a column asks "Add an issue to GitHub" for a title (hint "Area: what is wrong") and makes the issue.
+- In the work's form, the title, the tags and **Done** can be changed; the rest is read-only with the line "The title, tags and Done change on GitHub. The rest comes from there."
+
+**When GitHub and the plan disagree.** If the same field was changed on GitHub since the plan last pulled it (a close, a new title, other labels), GitHub wins: nothing is sent, the card shows GitHub's version, and it says "This changed on GitHub a moment ago. It now shows GitHub's version." A change to a different field goes ahead. The other sentences:
+
+- "GitHub did not answer. Nothing was changed; try again."
+- "GitHub asked to wait. Try again in 3 minutes." (the plan, and the pull, rest until then)
+- "GitHub refused the token set on this server." (the token has expired or lost its right; the person who runs the server makes a new one)
+- "GitHub refused the change: <its reason>."
+- "This server may not change GitHub for this repository." and "Only someone allowed to change GitHub can change this."
+- "That issue is not on GitHub any more."
+
+Changes are sent one at a time, about a second apart, so a long drag of many cards is a little slow. A refused change leaves the plan as it was.
+
+**To turn it off,** switch **Changes here go to GitHub** off, or choose **Stop following**. Pulled work is read-only again, or yours again after **Stop following**. Removing the repository from `ISSUES_GITHUB_WRITE` stops every write at once.
+
 ## Where else it shows
 
-It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same. An [agent](userguide-agents.md) added to the space can also add entries, tick a milestone or work done, change an entry's title, days or notes, and move a piece of work to a column of the board. What an agent does is done at once, with no one needing to open the plan, and it is listed under **What it changed** with **Undo**; an entry it adds records the agent, not a person, as who added it.
+It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same. An [agent](userguide-agents.md) added to the space can also add entries, tick a milestone or work done, change an entry's title, days or notes, and move a piece of work to a column of the board (in front of another piece of work if it says which). What an agent does is done at once, with no one needing to open the plan, and it is listed under **What it changed** with **Undo**; an entry it adds records the agent, not a person, as who added it.
 
 ## Who sees what
 
