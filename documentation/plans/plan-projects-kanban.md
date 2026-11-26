@@ -15,7 +15,13 @@
 
 ## Decisions
 
-None yet. Each question below has a recommendation; the contract is written on the recommendations so it can be built as soon as Thomas agrees or changes them.
+Thomas, 2026-11-26:
+
+1. **The board is a shared SDK piece, `host.ui.board`** (core, beside the outline), not drawn inside the module.
+2. **On a phone the board is stacked sections with Done folded**, no drag, as the List behaves.
+3. **The columns are not decided.** Thomas: "we need to discuss this as it is foundational and bigger than a 'choose one'." Nothing is built until the status model is settled; the contract below stays written on the recommendation (B) only as a draft.
+
+The other questions below still hold their recommendations, not yet confirmed.
 
 ## The questions, with a recommendation each
 
