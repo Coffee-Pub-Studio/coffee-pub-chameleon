@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -242,7 +242,14 @@
     "work": { "one": "piece of work", "many": "pieces of work", "a": "a piece of work" },
     "note": { "one": "note", "many": "notes", "a": "a note" },
     "owner": { "one": "owner", "many": "owners", "a": "an owner" },
-    "tag": { "one": "tag", "many": "tags", "a": "a tag" }
+    "tag": { "one": "tag", "many": "tags", "a": "a tag" },
+    "board-inbox": { "one": "Inbox", "many": "Inboxes", "a": "an Inbox" },
+    "board-now": { "one": "Now", "many": "Now", "a": "a Now" },
+    "board-next": { "one": "Next", "many": "Next", "a": "a Next" },
+    "board-later": { "one": "Later", "many": "Later", "a": "a Later" },
+    "board-done": { "one": "Done", "many": "Done", "a": "a Done" },
+    "board-todo": { "one": "To do", "many": "To do", "a": "a To do" },
+    "board-doing": { "one": "Doing", "many": "Doing", "a": "a Doing" }
   },
   "starter": true,
   "settings": [
@@ -286,7 +293,8 @@
       "default": "timeline",
       "options": [
         { "value": "timeline", "label": "Timeline" },
-        { "value": "list", "label": "List" }
+        { "value": "list", "label": "List" },
+        { "value": "board", "label": "Board" }
       ],
       "help": "The view a person sees first. Their own choice wins once they pick one, and a phone opens on the List."
     },

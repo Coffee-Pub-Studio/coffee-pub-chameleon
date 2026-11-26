@@ -94,3 +94,15 @@ button.link-chip:hover { background: var(--fill-selected); }
 
 /* ---- the entry: the editor window (host.ui.editor). The SDK draws the dialog and the form. ---- */
 #f-delete { margin-left: auto; }
+
+/* ---- the Board: host.ui.board draws the columns; this is what a card says inside ---- */
+#view-board { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding: var(--mf-inset); }
+#board { flex: 1 1 auto; min-height: 0; }
+.bd { display: grid; gap: var(--space-1); min-width: 0; }
+.bd-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: var(--text-primary); font-size: var(--text-14); font-weight: var(--weight-strong); }
+.bd.done .bd-title { color: var(--text-muted); text-decoration: line-through; }
+.bd-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); color: var(--text-muted); font-size: var(--text-12); overflow-wrap: anywhere; }
+.bd-late { color: var(--danger); font-weight: var(--weight-strong); }
+.bd-wait { color: var(--text-primary); font-weight: var(--weight-strong); }
+.bd-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.bd-under { color: var(--text-muted); font-size: var(--text-11); overflow-wrap: anywhere; }

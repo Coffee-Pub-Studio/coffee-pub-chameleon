@@ -395,14 +395,22 @@ function scBoardValue(board) {
   return out;
 }
 // The template's default board for a `boardColumns` value (anything else is the default, `stages`).
-function scDefaultBoard(set) {
+// `label` (optional) is the module's own word lookup (host.util.label, ctx.util.label): a column's name is the template's word for
+// `board-<id>` ("board-inbox") when it has one, else the English name above, so a template can rename the default columns.
+function scDefaultBoard(set, label) {
   const rows = SC_BOARD_SETS[set] || SC_BOARD_SETS.stages;
-  return { id: 'main', name: 'Board', field: 'column', columns: rows.map(([id, label, done]) => (done ? { id, label, done: true } : { id, label })) };
+  const name = (id, plain) => {
+    const key = `board-${id}`;
+    let w = '';
+    try { w = typeof label === 'function' ? label(key) : ''; } catch (err) { w = ''; }
+    return typeof w === 'string' && w.trim() && w !== key ? scLine(w, SC_COLUMN_LABEL_MAX) || plain : plain;
+  };
+  return { id: 'main', name: 'Board', field: 'column', columns: rows.map(([id, plain, done]) => (done ? { id, label: name(id, plain), done: true } : { id, label: name(id, plain) })) };
 }
 // The space's board: the stored `board:main` when it reads, else the template's default. `stored` is the value under `board:main`
 // or null/undefined; `set` the `boardColumns` setting.
-function scBoardFrom(stored, set) {
-  return scCleanBoard('main', stored) || scDefaultBoard(set);
+function scBoardFrom(stored, set, label) {
+  return scCleanBoard('main', stored) || scDefaultBoard(set, label);
 }
 // The column a piece of work is in: its own when the board has it, else the first done column if it is done, else the first
 // column without the flag. Nothing is written until the work is next changed.

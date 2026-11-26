@@ -45,7 +45,7 @@ function scOrderAtEnd(entries, parent, between) {
 function scBoardOf(ctx) {
   const row = ctx.list(SC_BOARD_PREFIX).find((r) => r.key === `${SC_BOARD_PREFIX}main`);
   const settings = ctx.settings && typeof ctx.settings === 'object' ? ctx.settings : {};
-  return scBoardFrom(row ? row.value : null, settings.boardColumns);
+  return scBoardFrom(row ? row.value : null, settings.boardColumns, (k) => ctx.util.label(k));
 }
 const scRef = (ctx, id) => ({ module: 'schedule', kind: 'plan', id, scope: 'space', space: ctx.space.id });
 const scWrite = (e) => ({ key: SC_PREFIX + e.id, value: scValue(e) });

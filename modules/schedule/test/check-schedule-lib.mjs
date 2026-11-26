@@ -207,7 +207,7 @@ test('the manifest', () => {
   assert.equal(manifest.guards.keys[0].need, 'columns', 'a board is written only by whoever has the columns right');
   assert.equal(manifest.uploads, undefined, 'no uploads');
   assert.equal(manifest.starter, true);
-  assert.deepEqual(Object.keys(manifest.labels), ['plan', 'milestone', 'work', 'note', 'owner', 'tag']);
+  assert.deepEqual(Object.keys(manifest.labels), ['plan', 'milestone', 'work', 'note', 'owner', 'tag', 'board-inbox', 'board-now', 'board-next', 'board-later', 'board-done', 'board-todo', 'board-doing']);
   const marks = Object.fromEntries(manifest.settings.map((s) => [s.key, [s.type, s.scope, s.template, s.default]]));
   assert.deepEqual(marks, {
     datesRequired: ['boolean', 'space', 'driven', true],

@@ -64,8 +64,10 @@
   // --- state ---------------------------------------------------------------------------------------------------------
   const state = {
     entries: new Map(), // id -> { e, version }
+    boardRaw: null, // the stored `board:main` (null: the template's default columns), and its version
+    boardVersion: undefined,
     people: [],
-    settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', tags: [] },
+    settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', boardColumns: 'stages', tags: [] },
     phases: [],
     links: new Map(), // id -> [summary] (what links to each entry: To-do's tasks and the rest)
     view: '',
@@ -126,19 +128,37 @@
   };
   async function loadEntries() {
     state.entries.clear();
-    for (const it of await host.storage.list(SC_PREFIX)) remember(it.key.slice(SC_PREFIX.length), it.value, it.version);
+    state.boardRaw = null;
+    state.boardVersion = undefined;
+    const [rows, boards] = await Promise.all([host.storage.list(SC_PREFIX), host.storage.list(SC_BOARD_PREFIX)]);
+    for (const it of rows) remember(it.key.slice(SC_PREFIX.length), it.value, it.version);
+    for (const it of boards) takeBoard(it.key, it.value, it.version, false);
+  }
+  const BOARD_KEY = `${SC_BOARD_PREFIX}main`;
+  // The board the space has: the stored one when it reads, else the template's default columns in the template's words (the
+  // same answer the server's setColumn reads, scBoardOf).
+  const currentBoard = () => scBoardFrom(state.boardRaw, state.settings.boardColumns, (k) => label(k));
+  function takeBoard(key, value, version, deleted) {
+    if (key !== BOARD_KEY) return false;
+    state.boardRaw = deleted ? null : value;
+    state.boardVersion = deleted ? undefined : version;
+    return true;
   }
   let drawSoon = 0;
   const redraw = () => { if (!state.loaded || drawSoon) return; drawSoon = requestAnimationFrame(() => { drawSoon = 0; render(); }); };
   host.on('change', (e) => {
+    if (e.scope !== 'spaces' && e.scope !== 'person' && e.scope !== 'environment' && takeBoard(String(e.key), e.value, e.version, e.deleted)) { redraw(); return; }
     if (!String(e.key).startsWith(SC_PREFIX) || e.scope === 'spaces' || e.scope === 'person' || e.scope === 'environment') return;
     remember(String(e.key).slice(SC_PREFIX.length), e.deleted ? null : e.value, e.version);
     redraw();
   });
   host.on('changes', (e) => {
     if (e.scope === 'spaces' || e.scope === 'person' || e.scope === 'environment') return;
-    const changes = (Array.isArray(e.changes) ? e.changes : []).filter((c) => String(c.key).startsWith(SC_PREFIX));
-    if (!changes.length) return;
+    const all = Array.isArray(e.changes) ? e.changes : [];
+    const boardChange = all.find((c) => String(c.key) === BOARD_KEY);
+    if (boardChange) { if (!boardChange.deleted && boardChange.value === undefined) { if (state.loaded) loadEntries().then(render).catch(() => {}); return; } takeBoard(BOARD_KEY, boardChange.value, boardChange.version, boardChange.deleted); }
+    const changes = all.filter((c) => String(c.key).startsWith(SC_PREFIX));
+    if (!changes.length) { if (boardChange) redraw(); return; }
     if (changes.some((c) => !c.deleted && c.value === undefined)) { if (state.loaded) loadEntries().then(render).catch(() => {}); return; }
     for (const c of changes) remember(String(c.key).slice(SC_PREFIX.length), c.deleted ? null : c.value, c.version);
     redraw();
@@ -213,11 +233,12 @@
   const VIEW_OPTIONS = () => [
     { id: 'timeline', label: 'Timeline', icon: 'chart-gantt' },
     { id: 'list', label: 'List', icon: 'list' },
+    { id: 'board', label: 'Board', icon: 'table-columns' },
   ];
   let viewSwitch = null;
   const VIEW_KEY = `schedule-view:${info.context.spaceId || ''}`;
   function showView(next) {
-    state.view = next === 'list' ? 'list' : 'timeline';
+    state.view = next === 'list' || next === 'board' ? next : 'timeline';
     try { localStorage.setItem(VIEW_KEY, state.view); } catch (err) { /* not remembered */ }
     host.menu.close();
     render();
@@ -240,7 +261,8 @@
     hide($('body'), empty); // the empty notice sits at the top, with no empty block above it
     hide($('view-timeline'), empty || state.view !== 'timeline');
     hide($('view-list'), empty || state.view !== 'list');
-    if (empty) renderEmpty(); else { $('msg').hidden = true; if (state.view === 'timeline') renderTimeline(); else renderList(); }
+    hide($('view-board'), empty || state.view !== 'board');
+    if (empty) renderEmpty(); else { $('msg').hidden = true; if (state.view === 'timeline') renderTimeline(); else if (state.view === 'board') renderBoard(); else renderList(); }
     hydrate(root);
     chrome();
   }
@@ -261,12 +283,21 @@
     $('msg').hidden = false;
   }
 
+  // The name of the board column work is in, when it is not the board's first column (so the List and the Timeline agree with the Board).
+  function columnName(e) {
+    if (e.kind !== 'work') return '';
+    const b = currentBoard();
+    const at = scColumnOf(e, b);
+    return at && b.columns[0] && at.id !== b.columns[0].id ? at.label : '';
+  }
   // The words under an entry's title: its dates, owners, phase and what it waits on.
   function subWords(e) {
     const parts = [];
     const when = span(e);
     if (when) parts.push(when);
     else if (e.kind !== 'note') parts.push('No date');
+    const col = columnName(e);
+    if (col) parts.push(col);
     if (e.owners.length) parts.push(e.owners.map((k) => nameOf(k) || 'Someone who left').join(', '));
     const ph = e.phase && phaseOf(e.phase);
     if (ph) parts.push(ph.label);
@@ -384,14 +415,114 @@
   async function toggleDone(id) {
     const had = state.entries.get(id);
     if (!had || !canEdit || had.e.kind === 'note') return;
-    const e = { ...had.e };
-    if (e.kind === 'milestone') { e.ticked = !e.done; e.done = e.ticked; } else e.done = !e.done;
-    try { await saveEntry(e, had.version); } catch (err) { say(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be saved.'); }
+    // The tick is the rule's (scSetDone): a milestone's `ticked`, and work moving to the board's done or open column with it.
+    const r = scSetDone(had.e, !had.e.done, { label: (k) => kindWord(k), board: currentBoard() });
+    if (r.problem) { say(r.problem); return; }
+    try { await saveEntry(r.entry, had.version); } catch (err) { say(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be saved.'); }
   }
   async function moveEntry(m) {
     const had = state.entries.get(m.id);
     if (!had || !canEdit) return;
     try { await saveEntry({ ...had.e, parent: m.parent || null, order: m.order }, had.version); } catch (err) { say(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be moved.'); render(); }
+  }
+
+  // --- the Board ----------------------------------------------------------------------------------------------------------------
+  // The work as cards in the board's columns (host.ui.board; plan-projects-kanban.md). A card is work only. Inside a column the
+  // order is not stored: the end day (none last), then the place in the outline. A move runs the setColumn handler of the actions
+  // library in the page (carried below), the same one the server runs for an agent, so both give the same writes and refusals.
+  let board = null;
+  let boardAsk = 0;
+  const BOARD_FOLD_KEY = `schedule-board-folds:${info.context.spaceId || ''}`;
+  function boardCards(b) {
+    const order = new Map(scOrdered(list()).map((x, i) => [x.entry.id, i]));
+    const day = (e) => e.end || e.start || '';
+    return list().filter((e) => e.kind === 'work').sort((x, y) => {
+      const a = day(x);
+      const c = day(y);
+      if (a !== c) return !a ? 1 : !c ? -1 : a < c ? -1 : 1;
+      return (order.get(x.id) || 0) - (order.get(y.id) || 0);
+    }).map((e) => ({ id: e.id, column: scColumnOf(e, b).id, title: e.title }));
+  }
+  // What a card says inside, as plain text and spans: the title, the end day with "Late" and who is doing it, up to two tags, the
+  // milestone it is under, and a "Waits on" mark when something it waits on is not done.
+  function drawCard(card, el) {
+    const e = entry(card.id);
+    if (!e) return;
+    const wrap = document.createElement('div');
+    wrap.className = `bd${e.done ? ' done' : ''}`;
+    const title = document.createElement('span');
+    title.className = 'bd-title';
+    title.textContent = e.title;
+    wrap.append(title);
+    const meta = document.createElement('div');
+    meta.className = 'bd-meta';
+    const add = (cls, text) => { const s = document.createElement('span'); if (cls) s.className = cls; s.textContent = text; meta.append(s); };
+    const endDay = e.end || e.start;
+    add('', endDay ? dayShort(endDay) : 'No date');
+    if (scLate(e, today())) add('bd-late', 'Late');
+    if (e.owners.length) add('', e.owners.map((k) => nameOf(k) || 'Someone who left').join(', '));
+    if (state.settings.dependencies) {
+      const waiting = e.waitsOn.map(entry).filter((w) => w && !w.done);
+      if (waiting.length) add('bd-wait', `Waits on ${waiting[0].title}${waiting.length > 1 ? ` and ${waiting.length - 1} more` : ''}`);
+    }
+    wrap.append(meta);
+    const tags = e.tags.map(tagOf).filter(Boolean);
+    if (tags.length) {
+      const row = document.createElement('div');
+      row.className = 'bd-tags';
+      for (const t of tags.slice(0, 2)) {
+        const c = document.createElement('span');
+        c.className = 'tag';
+        if (t.color) c.style.setProperty('--tone', t.color);
+        c.textContent = t.label;
+        row.append(c);
+      }
+      if (tags.length > 2) { const more = document.createElement('span'); more.className = 'hint'; more.textContent = `and ${tags.length - 2} more`; row.append(more); }
+      wrap.append(row);
+    }
+    const under = e.parent ? entry(e.parent) : null;
+    if (under && under.kind === 'milestone') {
+      const u = document.createElement('span');
+      u.className = 'bd-under';
+      u.textContent = under.title;
+      wrap.append(u);
+    }
+    el.append(wrap);
+  }
+  function cardMenu(card) {
+    if (!canEdit) return [];
+    return [
+      { id: 'edit', label: 'Edit', icon: 'pen', onClick: () => openEditor(card.id) },
+      { id: 'delete', label: 'Delete', icon: 'trash', danger: true, onClick: () => confirmDelete(card.id) },
+    ];
+  }
+  function renderBoard() {
+    const b = currentBoard();
+    const cards = boardCards(b);
+    const columns = b.columns.map((c) => ({ id: c.id, label: c.label, done: Boolean(c.done) }));
+    if (!board) {
+      board = host.ui.board($('board'), {
+        name: cap(label('plan')),
+        columns,
+        cards,
+        foldKey: BOARD_FOLD_KEY,
+        canMove: () => canEdit,
+        canAdd: () => canEdit,
+        card: drawCard,
+        menu: cardMenu,
+        onOpen: (c) => openEditor(c.id),
+        onAdd: (columnId) => openEditor(null, { kind: 'work', column: columnId }),
+        onMove: (m) => moveCard(m),
+      });
+    } else board.set(cards, columns);
+  }
+  async function moveCard(m) {
+    if (!canEdit || !carried) return;
+    const ask = ++boardAsk;
+    try { await carried.setColumn({ ref: pointer(m.id), column: m.column }, {}); } catch (err) {
+      say(err && err.message ? err.message : 'It could not be moved.', 'danger');
+      if (ask === boardAsk) render();
+    }
   }
 
   // --- the Timeline --------------------------------------------------------------------------------------------------------
@@ -429,9 +560,10 @@
       bar.style.setProperty('--w', `${r.w}px`);
       const cutWords = r.cut === 'both' ? ', runs past both ends of the Timeline' : r.cut === 'start' ? ', starts before the Timeline' : r.cut === 'end' ? ', runs past the end of the Timeline' : '';
       if (r.cut) bar.classList.add(`cut-${r.cut}`);
-      const what = `${cap(kindWord(e.kind))}: ${e.title}, ${span(e)}${e.done ? ', done' : ''}${cutWords}`;
+      const colName = columnName(e);
+      const what = `${cap(kindWord(e.kind))}: ${e.title}, ${span(e)}${colName ? `, ${colName}` : ''}${e.done ? ', done' : ''}${cutWords}`;
       bar.setAttribute('aria-label', what);
-      bar.dataset.tip = `${e.title} · ${span(e)}`;
+      bar.dataset.tip = `${e.title} · ${span(e)}${colName ? ` · ${colName}` : ''}`;
       el.querySelector('.tl-label').setAttribute('aria-label', what);
       for (const b of el.querySelectorAll('[data-action="open"]')) b.addEventListener('click', () => openEditor(e.id));
       return el;
@@ -563,9 +695,11 @@
     if (id && !found) return;
     if (!id && !canEdit) return;
     const s = seed || {};
-    const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null });
+    // A "+" in a board column opens new work in that column (its done flag with it, so the Done box starts as the column says).
+    const seedCol = s.column ? currentBoard().columns.find((c) => c.id === s.column) : null;
+    const shown = found ? found.e : scClean('new', { kind: s.kind || 'work', title: s.title || '', start: s.start || '', end: s.end || '', notes: s.notes || '', parent: s.parent || null, ref: s.ref || null, ...(seedCol ? { column: seedCol.id, done: Boolean(seedCol.done) } : {}) });
     const readOnly = !canEdit;
-    state.editing = { id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent };
+    state.editing = { id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
     $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
     $('f-readonly').textContent = readOnly ? `You can look at the ${label('plan')} but not change it.` : '';
     hide($('f-readonly'), !readOnly);
@@ -639,7 +773,8 @@
       owners: ownersPick ? ownersPick.get() : [],
       waitsOn: checked($('f-waits')),
       ticked: kind === 'milestone' && $('f-done').checked,
-      done: kind === 'work' ? $('f-done').checked : kind === 'milestone' ? (ed.id ? (entry(ed.id) || {}).done : false) : undefined,
+      column: kind === 'work' ? ed.column : undefined,
+      done: kind === 'work' ? Boolean(ed.wasDone) : kind === 'milestone' ? (ed.id ? (entry(ed.id) || {}).done : false) : undefined,
       progress: ed.id ? (entry(ed.id) || {}).progress : null,
       phase: $('f-phase').value,
       tags: checked($('f-tags')),
@@ -653,11 +788,17 @@
     if ($('f-start').value && !scIsDay($('f-start').value)) { editorError('The start is a day from 1900 to 2200, such as 2026-10-14.'); return; }
     if (kind === 'work' && $('f-end').value && !scIsDay($('f-end').value)) { editorError('The end is a day from 1900 to 2200, such as 2026-10-14.'); return; }
     if (kind === 'work' && $('f-start').value && $('f-end').value && $('f-end').value < $('f-start').value) { editorError('The end is before the start.'); return; }
+    // The Done box is the tick (scSetDone): work moves to the board's done column when ticked, and out of it when not.
+    let toSave = draft;
+    if (kind === 'work' && $('f-done').checked !== Boolean(draft.done)) {
+      const r = scSetDone(draft, $('f-done').checked, { label: (k) => kindWord(k), board: currentBoard() });
+      if (r.entry) toSave = r.entry;
+    }
     const problem = scProblem(draft, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
     if (problem) { editorError(problem); (draft.title ? $('f-start') : $('f-title')).focus(); return; }
     $('f-save').disabled = true;
     try {
-      await saveEntry(draft, ed.version);
+      await saveEntry(toSave, ed.version);
       editor.close();
     } catch (err) {
       if (err && err.status === 409) {
@@ -686,15 +827,16 @@
   // runner carries an agent's (the manifest's actions.server). The handler reads what the SDK gives both ways (ctx.settings,
   // ctx.util.label, order and rollup, ctx.space.phases) and answers everything an edit's save does: the entry, the milestones'
   // done and progress, and the link to what it was made from. They run under the rights of the page that carries them (canEdit).
+  let carried = null; // the handlers, carried out in this page (set below, before anything is drawn)
   const REFUSED = `You may not add to the ${label('plan')} here.`;
   const CHANGE_REFUSED = `You may not change the ${label('plan')} here.`;
   // Once a request's writes are made, they show at once.
   async function afterAction({ writes }) {
-    for (const w of writes) remember(String(w.key).slice(SC_PREFIX.length), w.value, w.version);
+    for (const w of writes) if (!takeBoard(String(w.key), w.value, w.version, false)) remember(String(w.key).slice(SC_PREFIX.length), w.value, w.version);
     render();
   }
-  if (host.actions && host.actions.provide && host.actions.fromLibrary) {
-    const carried = host.actions.fromLibrary(ACTION_HANDLERS, { after: afterAction });
+  if (host.actions && host.actions.provide && host.actions.fromLibrary) carried = host.actions.fromLibrary(ACTION_HANDLERS, { after: afterAction });
+  if (carried) {
     host.actions.provide(Object.fromEntries(Object.entries(carried).map(([name, fn]) => [name, (input, by) => {
       if (!canEdit) throw new Error(name.startsWith('add') ? REFUSED : CHANGE_REFUSED);
       return fn(input, by);
@@ -735,7 +877,7 @@
   async function exportPlan() {
     if (!state.entries.size) { say('There is nothing in the plan to export yet.'); return; }
     try {
-      const body = JSON.stringify(scExportFile(list(), { module: info.module.id }), null, 2);
+      const body = JSON.stringify(scExportFile(list(), { module: info.module.id, boards: [currentBoard()] }), null, 2);
       await deliver(new Blob([body], { type: 'application/json' }), scExportName(today()));
     } catch (err) { say('This browser would not save the file.', 'danger'); }
   }
@@ -746,7 +888,18 @@
   }
   const storedNow = (id) => { const x = state.entries.get(id); return x ? { id, value: scValue(x.e), version: x.version } : null; };
   // Puts back what an import changed: the entries it made come off, the ones it replaced or removed return. Others' work is left.
+  async function writeBoard(value) {
+    const saved = await host.storage.set(BOARD_KEY, value, state.boardVersion === undefined ? {} : { version: state.boardVersion });
+    state.boardRaw = value;
+    state.boardVersion = saved && saved.version;
+  }
   async function putBack(plan) {
+    if (plan.board) {
+      try {
+        if (plan.board.was) await writeBoard(plan.board.was);
+        else if (state.boardRaw) { await host.storage.delete(BOARD_KEY, { version: state.boardVersion }); state.boardRaw = null; state.boardVersion = undefined; }
+      } catch (err) { /* read again on its change */ }
+    }
     for (const id of plan.created) {
       const x = state.entries.get(id);
       if (!x) continue;
@@ -763,10 +916,16 @@
     await settleMilestones();
     render();
   }
-  async function applyImport(entries, mode) {
+  // `newBoard`: the file's board to store first (the columns right, `columns`, is asked of the server by that write: a refusal is the
+  // server's own sentence and nothing has been written yet).
+  async function applyImport(entries, mode, newBoard) {
     const plan = { created: [], was: [] };
     importing = true;
     try {
+      if (newBoard) {
+        plan.board = { was: state.boardRaw };
+        await writeBoard(scBoardValue(newBoard));
+      }
       const keep = new Set(entries.map((e) => e.id));
       for (const e of entries) {
         const had = storedNow(e.id);
@@ -840,8 +999,12 @@
     if (!ok) return;
     let entries;
     try {
-      entries = scImportEntries(parsed.entries, { mode, existing: list(), newId: () => host.util.id(), orderAfter: (prev) => host.util.order(prev, null), by: info.user.key });
-      const plan = await applyImport(entries, mode);
+      // The file's board is stored when it replaces the plan, or when the plan has no board of its own yet; an Add to a plan whose
+      // board was edited keeps that board (work in a column it does not have lands in its first column, as scColumnOf says).
+      const fileBoard = parsed.boards && parsed.boards[0] ? parsed.boards[0] : null;
+      const newBoard = fileBoard && (mode === 'replace' || !state.boardRaw) ? fileBoard : null;
+      entries = scImportEntries(parsed.entries, { mode, existing: list(), newId: () => host.util.id(), orderAfter: (prev) => host.util.order(prev, null), by: info.user.key, board: newBoard || currentBoard() });
+      const plan = await applyImport(entries, mode, newBoard);
       offerUndo(plan, mode === 'add' ? `Added ${words}.` : `Replaced the ${label('plan')} with ${words}.`);
     } catch (err) {
       say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
@@ -881,7 +1044,8 @@
       datesRequired: s.datesRequired !== false,
       dependencies: s.dependencies !== false,
       progressBy: s.progressBy === 'work' ? 'work' : 'milestones',
-      defaultView: s.defaultView === 'list' ? 'list' : 'timeline',
+      defaultView: s.defaultView === 'list' || s.defaultView === 'board' ? s.defaultView : 'timeline',
+      boardColumns: s.boardColumns === 'priority' ? 'priority' : 'stages',
       tags: (Array.isArray(s.tags) ? s.tags : []).filter((t) => t && typeof t.id === 'string' && typeof t.label === 'string'),
     };
   }
@@ -918,8 +1082,8 @@
       // The view: the person's own choice, else the List on a phone, else the plan's default.
       let mine = '';
       try { mine = localStorage.getItem(VIEW_KEY) || ''; } catch (err) { /* none */ }
-      state.view = mine === 'list' || mine === 'timeline' ? mine : narrow ? 'list' : state.settings.defaultView;
-      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
+      state.view = mine === 'list' || mine === 'timeline' || mine === 'board' ? mine : narrow ? 'list' : state.settings.defaultView;
+      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'right-left', 'file-export', 'file-import', 'file-circle-check', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', 'table-columns', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
       state.loaded = true;
       render();
       loadLinks().catch(() => {});
