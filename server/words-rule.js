@@ -165,7 +165,9 @@ function splitJs(text, onString = null, offset = 0) {
       i = stop;
       lastSignificant = c;
     } else if (c === '`') {
-      templates.push(handedTo(i));
+      // A template that is a script's own source (it says 'use strict', as the action runner's RUN does) is code: its
+      // comments and its strings are the script's, not sentences.
+      templates.push(handedTo(i) || (/['"]use strict['"]/.test(text.slice(i + 1, readTemplate(i + 1))) ? 'code' : null));
       templateInfo.push({ id: (templateCount += 1), before: text.slice(Math.max(0, i - 80), i), pieces: 0, inside: templateInfo.length ? templateInfo[templateInfo.length - 1].id : null });
       emit('`', 'code');
       templateChunk(i + 1);
@@ -264,7 +266,7 @@ const VOCABULARY_KEYS = WORDS.KEYS.filter((k) => !WORDS.FIXED.includes(k));
 const vocabularyForms = () => VOCABULARY_KEYS.flatMap((k) => [WORDS.DEFAULTS[k].one, WORDS.DEFAULTS[k].many]);
 // A form as a word of its own: not part of a name (module.json, module-settings, spaceId), a path, or a {space}
 // placeholder for fill().
-const VOCABULARY_WORD = new RegExp(`(?<![\\w.\\-/{$])(?<!\\{[aA] )(?<!\\{[aA]n )(?:${vocabularyForms().map(escapeRe).join('|')})(?![\\w\\-/}]|\\.\\w)`, 'gi');
+const VOCABULARY_WORD = new RegExp(`(?<![\\w.\\-/{$=])(?<!\\{[aA] )(?<!\\{[aA]n )(?:${vocabularyForms().map(escapeRe).join('|')})(?![\\w\\-/}]|\\.\\w)`, 'gi');
 const MANY_FORMS = new Set(VOCABULARY_KEYS.concat(WORDS.FIXED).map((k) => WORDS.DEFAULTS[k].many));
 const ALL_FORMS = new Set(WORDS.KEYS.flatMap((k) => [WORDS.DEFAULTS[k].one, WORDS.DEFAULTS[k].many]));
 // A placeholder with an article ({a space}): fill() fills it only for a singular form it knows.
@@ -277,6 +279,26 @@ const READ_CONTEXT = /(?:\.(?:title|placeholder|textContent|innerText|ariaLabel|
 // The keys a page, the SDK, a module or the server names: word('space'...), util.word('space'...), data-word="space".
 const WORD_KEY_USE = /(?:\bword\(\s*|\bdata-word=\s*|\bdataset\.word\s*=\s*)(['"`])([^'"`]*)\1/g;
 
+// Whether a form found at `index` of `text` names something other than the level: a field or value named in double quotes
+// ("objects", as a JSON answer's field), a field in a shape written in braces ({ object, reason }, { module, kind, id }), or
+// JavaScript's and JSON's type ("one JSON object", and "is not an object", "must be an object", "as an object" with nothing
+// after it but a mark or by, with or of). A value after "=" (scope=space) is left out by VOCABULARY_WORD itself.
+const SHAPE_FIELD = /^(?:"[\w?.]+"|[\w?.]+)(?:\s*:\s*(?:"[^"]*"|'[^']*'|[\w.]+|\[\.\.\.\]))?$/;
+function notTheLevel(text, index, token) {
+  const end = index + token.length;
+  if (text[index - 1] === '"' && text[end] === '"') return true;
+  const before = text.slice(0, index);
+  if (/^objects?$/i.test(token) && /\bJSON $/.test(before)) return true;
+  if (token === 'object' && /\b(?:be|is|not|as) an $/i.test(before) && /^(?:$|[.,;:)]|\s+(?:by|with|of)\b)/.test(text.slice(end))) return true;
+  const open = text.lastIndexOf('{', index);
+  const close = text.indexOf('}', end);
+  if (open !== -1 && close !== -1 && text.lastIndexOf('}', index) < open && (text.indexOf('{', end) === -1 || text.indexOf('{', end) > close)) {
+    const inside = text.slice(open + 1, close);
+    if (/[,:]/.test(inside) && inside.split(',').every((part) => SHAPE_FIELD.test(part.trim()))) return true;
+  }
+  return false;
+}
+
 // Whether one form found in a string (or template piece) is a word a person reads, from the string's shape and where
 // it was handed. A string that is only the form in lower case ('space', 'guests') is a key, unless it is handed to
 // something a person reads or joined to other text with +; ids, CSS classes and keys never have a space, a capital or
@@ -287,6 +309,10 @@ function readAsWord(piece, m) {
   const next = body.slice(m.index + token.length);
   const prev = body.slice(0, m.index);
   if (piece.handed === 'code') return false; // a class name, id or selector
+  if (notTheLevel(body, m.index, token)) return false;
+  // The last of a word's own three forms in a module's table of them ([one, many, 'a one'], as a module's fallback labels
+  // are written): the module's own word, read through its labels, not the level's.
+  if (piece.template === null && next === '' && new RegExp(`\\[\\s*'${escapeRe(token)}',\\s*'[^']*',\\s*$`).test(before) && /^an? $/i.test(prev)) return false;
   if (token !== token.toLowerCase()) return true; // 'Spaces', 'SPACES', 'Space:'
   if (/\s/.test(body) && !isNameList(body)) return true; // a sentence, "Your ", " spaces", "Space: "
   if (/^[,;!?)]/.test(next) || /^:(\s|$)/.test(next) && next.length > 1 || /\($/.test(prev)) return true;
@@ -397,7 +423,7 @@ function manifestVocabularyScan(text, manifestTexts) {
     const quoted = JSON.stringify(value).slice(1, -1);
     const line = Math.max(1, lines.findIndex((l) => l.includes(quoted.slice(0, 60))) + 1);
     const record = (token) => hits.push({ line, token, lineText: lines[line - 1] || '' });
-    for (const m of value.matchAll(VOCABULARY_WORD)) record(m[0]);
+    for (const m of value.matchAll(VOCABULARY_WORD)) if (!notTheLevel(value, m.index, m[0])) record(m[0]);
     for (const m of value.matchAll(ARTICLE_PLACEHOLDER)) {
       const name = m[1].toLowerCase();
       if (MANY_FORMS.has(name) || !ALL_FORMS.has(name)) record(m[0]);

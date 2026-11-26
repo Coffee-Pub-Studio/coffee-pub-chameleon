@@ -21,7 +21,10 @@
  * ('space') is a key unless it is handed to a title, placeholder, aria-label, alt, text or label, joined to other text
  * with +, or written right before a template's ${. Class names and selectors are not read. Neither are strings handed
  * to a log call (the host operator's, in the host's words), with everything inside their ${}, nor strings or templates
- * about module.json (the manifest's code names). A {a spaces} or {a trip} placeholder, which fill() leaves as it is,
+ * about module.json (the manifest's code names), nor a field or value in double quotes or in a { a, b } shape, JSON's
+ * type ("a JSON object", "is not an object"), a value after = (scope=space), a template that is a script's own source
+ * ('use strict') or the last of a module's own [one, many, 'a one'] forms (server/words-rule.js notTheLevel).
+ * A {a spaces} or {a trip} placeholder, which fill() leaves as it is,
  * fails too. HTML text and the attributes a person reads are read as words. Allow-list entries for it use the level
  * "word". It also checks that every key a word() call or a data-word attribute names is in the vocabulary, with both
  * its forms. *
@@ -180,6 +183,7 @@ const fail = (message) => { failed += 1; console.error(message); };
 function report(mode, files, allow) {
   const results = scan(mode, files, allow);
   const rows = [];
+  const problems = [];
   for (const level of LEVELS) {
     const state = level[mode];
     if (!state) continue;
@@ -189,13 +193,15 @@ function report(mode, files, allow) {
     const failing = state === 'enforce' ? hits.filter(enforcedHere) : [];
     const where = level.enforceIn ? ` in ${level.enforceIn.join(' and ')}${level.waitingIn ? ` but ${level.waitingIn.length} tools` : ''}; ${hits.length - failing.length} elsewhere reported until step ${level.reportUntil}` : '';
     rows.push(`  ${level.id.padEnd(12)}${state.padEnd(8)}${String(hits.length).padStart(6)} in ${String(fileCount).padStart(3)} files  (${allowed} allowed; enforced from step ${level.step}${where})`);
-    if (failing.length) fail(`check-names: ${mode} level "${level.id}" is enforced${level.enforceIn ? ` in ${level.enforceIn.join(' and ')}` : ''} and has ${failing.length} old name${failing.length === 1 ? '' : 's'} left (run with --list=${level.id})`);
+    // One problem per old name left, each on its own line, so the count at the end is the lines it printed.
+    for (const h of failing) problems.push(`check-names: ${h.file}:${h.line} has the old name "${h.token}" (${mode} level "${level.id}", enforced${level.enforceIn ? ` in ${level.enforceIn.join(' and ')}` : ''}); rename it, or allow it by meaning in tools/check-names-allow.json`);
     if (listArg && (!listLevel || listLevel === level.id)) {
       for (const h of hits) rows.push(`      ${h.file}:${h.line}  ${h.token}`);
     }
   }
   console.log(`check-names: ${mode}, ${files.length} files`);
   for (const r of rows) console.log(r);
+  for (const message of problems) fail(message);
 }
 
 // --- the vocabulary rule (plan-environment-templates.md, "check-names --words") -----------------------------------
@@ -246,7 +252,8 @@ function vocabularyReport(files, allow) {
     const enforced = VOCABULARY_ENFORCED.includes(dir);
     console.log(`  ${dir.padEnd(12)}${(enforced ? 'enforce' : 'report').padEnd(8)}${String(hits.length).padStart(6)} in ${String(new Set(hits.map((h) => h.file)).size).padStart(3)} files  (${allowed} allowed)`);
     if (listArg && (!listLevel || listLevel === VOCABULARY_LEVEL)) for (const h of hits) console.log(`      ${h.file}:${h.line}  ${h.token}`);
-    if (enforced && hits.length) fail(`check-names: ${dir} has ${hits.length} level or role word${hits.length === 1 ? '' : 's'} typed into what a person reads; use word() (run with --words --list=${VOCABULARY_LEVEL})`);
+    // One problem per typed word, each on its own line, so the count at the end is the lines it printed.
+    if (enforced) for (const h of hits) fail(`check-names: ${h.file}:${h.line} types the level or role word "${h.token}" into what a person reads; use word(), a {${h.token}} placeholder or host.util.word`);
   }
   for (const b of badKeys) fail(`check-names: ${b}`);
   for (const key of WORDS.KEYS) {
@@ -441,6 +448,33 @@ function wordsCheck() {
     assert.deepEqual(got, ['1:space', '2:space', '3:members', '4:spaces', '5:space', '6:space', '7:SPACES', '8:Space', '9:owner', '10:guest', '11:member', '12:{a spaces}', '12:{an trip}', '13:space', '14:space', '15:module', '16:space']);
     const html = '<p>Spaces</p><b title="owner">x</b><script>const t = \'no such space\';</script><p data-fill>{a guests}</p>';
     assert.deepEqual(vocabularyHits('public/scratch.html', html, []).hits.map((h) => h.token), ['Spaces', 'owner', 'space', '{a guests}']);
+  });
+  // The type, a quoted name, a shape, a value after "=", a script's own source and a module's table of a word's forms are not the
+  // level (issue #1150); each probe beside its clean twin is still caught, so a rule that grew would show here.
+  test('JSON\'s type, a quoted name, a shape, scope=space, a script\'s source and a word\'s forms are not the level; a typed word beside them is', () => {
+    const caught = [
+      "throw new Error('Pick an object first.');",
+      "res.json({ error: 'This is an object you made.' });",
+      "const t = 'Name the \"space it is in\"';",
+      "const s = `{ id } is in this space`; const n = `{ note: the module is full }`;",
+      "const r = `ask with scope=space, in this space`;",
+      "const j = 'A JSON file for each space';",
+      "const src = `// the space's own data`;",
+      "const w = { owner: ['owner', 'owners', 'an owner of it'] };",
+    ];
+    const clean = [
+      "if (typeof raw !== 'object') return 'it is not an object';",
+      "res.json({ error: 'Send { object, reason } as JSON.' }); const p = `a pointer: { module, kind, id, scope: \"space\", space }.`;",
+      "const a = 'The answer was not one JSON object with \"objects\" and \"unread\".'; const b = `${x} must be an object by key.`;",
+      "res.json({ error: `The weather is for ${w}: ask with scope=space.` });",
+      "const w = { owner: ['owner', 'owners', 'an owner'] };",
+      "const RUN = `;(function () { 'use strict'; // the module's environment objects for this space",
+      "  const from = (scope) => (scope === 'environment' ? shared : data); })();`;",
+    ];
+    const got = vocabularyHits('server/scratch.js', [...caught, ...clean].join('\n'), []).hits.map((h) => `${h.line}:${h.token}`);
+    assert.deepEqual(got, ['1:object', '2:object', '3:space', '4:space', '4:module', '5:space', '6:space', '7:space', '8:owner']);
+    const manifest = JSON.stringify({ id: 'demo', name: 'Demo', description: 'Reads { module, kind } and \"space\" values; one per space, never JSON objects.' }, null, 2);
+    assert.deepEqual(manifestVocabularyHits('modules/demo/module.json', manifest, []).hits.map((h) => h.token), ['space']);
   });
   test('a manifest\'s text a person reads: every form is a word; keys, ids, scopes and placeholders are not', () => {
     const manifest = JSON.stringify({
