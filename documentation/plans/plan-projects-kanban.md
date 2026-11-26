@@ -4,6 +4,8 @@
 
 **Status:** Decided by Thomas, 2026-11-26; not yet built. From GitHub issue #1144, Thomas, 2026-11-26: "another ask for Planner - Projects, a kanban view (a board of columns, one per status, with the work as cards to move between them)." The columns were then discussed the same day as "foundational and bigger than a 'choose one'", against two references: Thomas's own board (Inbox, Now, Next, Later, Done: a priority horizon, with a count per column, a "..." menu and a "+" to add into a column) and a friend's dense board (columns as stages, swimlanes by epic, filters, WIP counts, density zoom, a time axis), which is not to be copied whole. The earlier recommendation of three fixed columns (To do, Doing, Done) is replaced by the decisions below.
 
+**Progress:** Step 2 is built (try build, 2026-11-26): `host.ui.board` in `public/sdk/host.js`, its `board` block in `public/sdk/system.css`, `tools/check-board.mjs` (in `npm run check`) and a Board entry with a live piece on the Design System page. It takes cards as `{ id, column, title? }` and draws each card's inside through `card(card, contentEl)`; `set(cards, columns?)` redraws; a move into a folded column opens it; the stacked layout starts every done column folded and does not keep that choice. Rows are accepted and not drawn. Steps 1, 3, 4 and 5 are not built.
+
 ## What it is today
 
 - **Planner - Projects** is `modules/schedule` (0.1.12). It holds milestones, work and notes (`SC_KINDS`), each stored under `SC_PREFIX` (`plan:`) in the space's module data. Its views are **Timeline** and **List**, on the toolbar through `host.ui.viewSwitch` (`schedule.js`); the view a person picks is kept in their browser (`schedule-view:<space>`), and the `defaultView` setting offers Timeline or List.
