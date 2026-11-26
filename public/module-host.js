@@ -437,6 +437,11 @@ document.addEventListener('app:theme', () => {
   const theme = readTheme();
   for (const target of mounted) target.send('theme', theme);
 });
+// Set up closed (space.js leaveSetup): every module hears the SDK's 'setup' event ({ open: false }), so one whose state a setting
+// changes at once (the Projects pull's Follow button) looks again without a reload.
+document.addEventListener('app:setup-closed', () => {
+  for (const target of mounted) target.send('setup', { open: false });
+});
 let activeDrag = null; // { source, ref, layers, timer }
 
 // The browser's time zone (IANA), sent with every ask so the AI's "today" is the asker's.
@@ -2265,6 +2270,24 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'issues.pullNow'() {
       if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
       return api('POST', `/api/spaces/${encodeURIComponent(spaceId)}/issues-pull/now`, {});
+    },
+    // Set up for this space (space-setup.js): whether this person may set it up as an owner (the owner, the admin), and a way to
+    // open its panel on a tab. The page does what the space switcher's Set up does (app:enter-space, action `setup`); the
+    // panel's own rules decide the rest. Only inside a space, never for a guest.
+    async 'setup.can'() {
+      if (scope !== 'space' || !spaceId || keyed || guestToken) return false;
+      try {
+        const me = (await api('GET', '/api/me')).user;
+        return Boolean(me) && ['owner', 'admin'].includes(me.role);
+      } catch (err) {
+        return false;
+      }
+    },
+    async 'setup.open'({ tab }) {
+      if (scope !== 'space' || !spaceId || keyed || guestToken) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
+      const wanted = typeof tab === 'string' && /^[a-z]{1,20}$/.test(tab) ? tab : '';
+      document.dispatchEvent(new CustomEvent('app:enter-space', { cancelable: true, detail: { id: spaceId, action: 'setup', tab: wanted } }));
+      return true;
     },
     // Lookups answered by the server (a module that declares `"lookups": ["flight"]`): a flight from the schedule this server
     // learned from saved flights, an airport by its code, and teaching it a saved flight. Only `flight` exists today.

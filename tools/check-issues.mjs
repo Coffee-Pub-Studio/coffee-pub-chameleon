@@ -121,6 +121,20 @@ await test('GitHub\'s answer read as records: pull requests skipped, no person, 
   assert.deepEqual(GITHUB.waitOf(h({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000', 'x-poll-interval': '120' })), { resetAt: 1800000000000, pollMs: 120000 });
   assert.equal(GITHUB.validRepo(REPO), true);
   for (const bad of ['', 'nope', 'a/b/c', '-a/b', 'a/..', 'a/.', 'a b/c', 'https://github.com/a/b']) assert.equal(GITHUB.validRepo(bad), false, bad);
+  for (const [typed, want] of [
+    ['o/r', 'o/r'], ['  o/r  ', 'o/r'], ['https://github.com/o/r', 'o/r'], ['https://www.github.com/o/r', 'o/r'], ['github.com/o/r', 'o/r'],
+    ['HTTPS://GitHub.com/o/r', 'o/r'], ['https://github.com/o/r/', 'o/r'], ['https://github.com/o/r.git', 'o/r'],
+    ['https://github.com/o/r/issues', 'o/r'], ['https://github.com/o/r/issues/12', 'o/r'], ['https://github.com/o/r/tree/main', 'o/r'],
+    ['https://github.com/o/r?tab=readme', 'o/r'], ['https://github.com/o/r#readme', 'o/r'], ['https://github.com/o/r.git/', 'o/r'],
+    ['git@github.com:o/r.git', 'o/r'], ['git@github.com:o/r', 'o/r'], ['my-org1/some_repo.js', 'my-org1/some_repo.js'],
+  ]) assert.equal(GITHUB.repoFrom(typed), want, typed);
+  for (const bad of ['', '   ', 'nope', 'a/b/c', '-a/b', 'a/..', 'a b/c', 'http://github.com/o/r', 'https://gitlab.com/o/r', 'https://github.com.evil.example/o/r',
+    'https://evil.example/github.com/o/r', 'https://github.com/o', 'https://github.com/', 'https://github.com', 'github.com', 'git@gitlab.com:o/r.git',
+    'ftp://github.com/o/r', '//github.com/o/r', 'https://user@github.com/o/r', 'https://github.com//r', 'https://github.com/o/..', null, 7]) assert.equal(GITHUB.repoFrom(bad), '', String(bad));
+  const { cleanRepo } = require('../server/issues.js');
+  assert.equal(cleanRepo(GITHUB, 'https://github.com/o/r/issues/3'), 'o/r');
+  assert.equal(cleanRepo(GITHUB, 'https://gitlab.com/o/r'), '');
+  assert.equal(cleanRepo(null, 'o/r'), '');
 });
 
 await test('only GitHub is registered, unless the check names its stand-in', () => {
@@ -403,7 +417,7 @@ await live('the gate: only an owner turns it on, the terms first, only into an e
   assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'service-terms.json'), 'utf8')).services['issues-standin'].by, 'admin');
   ok(await putKey(S.bugs, 'plan:hand', { kind: 'work', title: 'By hand', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia), 'work by hand');
   const full = await call('PUT', P(S.bugs), { token: S.admin, body: on });
-  assert.deepEqual([full.status, full.json.error], [409, 'Clear the plan first, or use a new space.']);
+  assert.deepEqual([full.status, full.json.error], [409, 'Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space.']);
   ok(await call('DELETE', `/api/modules/schedule/data/plan%3Ahand?scope=space&space=${S.bugs}`, { token: S.mia }), 'gone again');
   assert.equal(gh.seen.length, 0);
 });

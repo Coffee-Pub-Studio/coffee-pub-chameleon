@@ -363,10 +363,10 @@ function sameValue(a, b) {
 // Whether a key of the plan is the pull's own (a piece of work or a milestone it wrote).
 const isPulledKey = (key) => WORK_KEY.test(key) || MILESTONE_KEY.test(key);
 
-// "owner/name" as typed, trimmed, or '' when it is not one for that adapter.
+// The clean "owner/name" from what was typed or pasted (the adapter knows its service's address), or '' when it is not one.
 function cleanRepo(adapter, raw) {
-  const t = typeof raw === 'string' ? raw.trim() : '';
-  return adapter && adapter.validRepo(t) ? t : '';
+  const repo = adapter ? adapter.repoFrom(raw) : '';
+  return repo && adapter.validRepo(repo) ? repo : '';
 }
 
 module.exports = {

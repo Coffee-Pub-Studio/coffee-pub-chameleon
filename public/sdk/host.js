@@ -5341,6 +5341,13 @@
       pullNow: () => call('issues.pullNow', {}),
     },
 
+    // Set up for the space. can() -> whether this person is an owner (or the admin) here, who may follow a repository and so on;
+    // open(tab?) opens the space's Set up panel on that tab ('modules' for a module's settings). Both only inside a space.
+    setup: {
+      can: () => call('setup.can', {}),
+      open: (tab) => call('setup.open', { tab }),
+    },
+
     // Lookups asked of the server (for a module whose manifest declares `"lookups": ["flight"]`):
     //   flight(number, date)        -> { flights: [{ object, line, sameWeekday, lastSeen }] }, empty when nothing is known;
     //                                  throws with the server's error ("bad number", "bad date", or the limit's sentence)
@@ -6210,7 +6217,7 @@
     // 'toolbar' ({ id, value?, x? }) for a toolbar item (x: a button's left edge across the module, for a menu under it), 'nav' ({ id }) for one of the module's nav-bar tools,
     // 'change' ({ key, value, version, deleted, scope, spaceId, by })
     // whenever stored data changes, 'changes' ({ changes: [{ key, value, version, deleted, by }], cleared?, restored?, scope, spaceId, by })
-    // when many keys changed at once (a Clear, its Undo; without a 'changes' listener each comes as a 'change' in one pass, with batch: { count, last }, so a module can draw on the last only), 'library' ({ op: 'added'|'renamed'|'removed'|'thumb', id, module, spaceId }) when a library file changed (to the library module itself, e.g. the Vault, and to a module approved to link to its files; host.ui.fileChips already listens), 'markers' when another module's marker objects changed (host.objects.markers), 'schedule' ({ key, payload }) when a schedule fires, 'theme' (the new theme),
+    // when many keys changed at once (a Clear, its Undo; without a 'changes' listener each comes as a 'change' in one pass, with batch: { count, last }, so a module can draw on the last only), 'library' ({ op: 'added'|'renamed'|'removed'|'thumb', id, module, spaceId }) when a library file changed (to the library module itself, e.g. the Vault, and to a module approved to link to its files; host.ui.fileChips already listens), 'markers' when another module's marker objects changed (host.objects.markers), 'schedule' ({ key, payload }) when a schedule fires, 'theme' (the new theme), 'setup' ({ open: false }) when the space's Set up panel closed (a setting there that acts at once may have changed what the module shows),
     // 'reconnected' (no data) after the host's event stream dropped and came back, once per drop: events were missed meanwhile, so read
     // again what you show from stored data. Only in a space (also in a sandboxed frame, as a message with no data).
     // 'moved' ({ mode }) after the host moved the module between docked and floating (the SDK reopens an open editor window itself),

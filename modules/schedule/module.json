@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -327,9 +327,9 @@
       "type": "text",
       "scope": "space",
       "follows": "issues",
-      "maxLength": 100,
+      "maxLength": 200,
       "default": "",
-      "help": "A public repository on GitHub, as owner/name, whose issues this plan shows as work, one way. Anything already in the plan must be cleared first, and pulled work can be changed only on GitHub. An {owner} turns it on and off, once the administrator has accepted GitHub's terms under Service terms in Manage, {Modules}."
+      "help": "A public repository on GitHub, as owner/name or the address of the repository, whose issues this plan shows as work, one way. Anything already in the plan must be cleared first, and pulled work can be changed only on GitHub. Press Follow this repository to start it, with no Save needed. An {owner} turns it on and off, once the administrator has accepted GitHub's terms under Service terms in Manage, {Modules}."
     }
   ]
 }

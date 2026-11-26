@@ -2,6 +2,7 @@
 // exports:
 //   { id, name, terms, origin, needsToken: false, tokenEnv?, allowHttp?, pollMs, fullEveryMs, nowGapMs?,
 //     validRepo(repo) -> whether "owner/name" is a repository's name there,
+//     repoFrom(raw) -> the clean "owner/name" from what a person typed or pasted (their address for it too), or "",
 //     list({ repo, since, etag, token, page }, get) -> { status, etag, records, more, wait, bad? } }
 // `list` asks for one page: `page` is the address the last page's `more` gave (null for the first), `since` an ISO time (only
 // what changed after it), `etag` the first page's last etag (sent back so an unchanged answer is a 304). `get(url, headers)` is
@@ -28,7 +29,7 @@ const ID = /^[a-z][a-z0-9-]{0,23}$/;
 
 function valid(p) {
   return p && typeof p === 'object' && ID.test(p.id) && typeof p.name === 'string' && p.name && p.needsToken === false
-    && typeof p.list === 'function' && typeof p.validRepo === 'function' && typeof p.origin === 'string'
+    && typeof p.list === 'function' && typeof p.validRepo === 'function' && typeof p.repoFrom === 'function' && typeof p.origin === 'string'
     && (p.allowHttp ? /^https?:\/\//.test(p.origin) : /^https:\/\//.test(p.origin))
     && typeof p.terms === 'string' && /^https:\/\//.test(p.terms)
     && Number.isFinite(p.pollMs) && p.pollMs >= 0 && Number.isFinite(p.fullEveryMs) && p.fullEveryMs >= 0

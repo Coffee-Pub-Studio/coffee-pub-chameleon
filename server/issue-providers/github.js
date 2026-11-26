@@ -21,6 +21,27 @@ const ORIGIN = 'https://api.github.com';
 const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const PER_PAGE = 100;
 
+// "owner/name" from what a person typed or pasted: owner/name itself, a github.com address (https, or none; with or without www.,
+// a trailing slash, .git, or a deeper path, query or hash such as /issues/12 or /tree/main: the first two segments count), or
+// git@github.com:owner/name.git. '' for anything else, including any other host and plain http.
+const ADDRESS = /^(?:https:\/\/)?(?:www\.)?github\.com\//i;
+function repoFrom(raw) {
+  const t = typeof raw === 'string' ? raw.trim() : '';
+  if (!t || t.length > 300) return '';
+  let path = t;
+  let address = false;
+  const ssh = /^git@github\.com:(.+)$/i.exec(t);
+  if (ssh) { path = ssh[1]; address = true; }
+  else if (ADDRESS.test(t)) { path = t.replace(ADDRESS, ''); address = true; }
+  else if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(t) || /^(?:www\.)?github\.com$/i.test(t)) return '';
+  const parts = path.split(/[?#]/)[0].split('/');
+  if (!address && parts.length !== 2) return '';
+  const [owner, rest] = parts;
+  if (!owner || !rest) return '';
+  const repo = `${owner}/${rest.replace(/\.git$/i, '')}`;
+  return REPO.test(repo) && !/\/\.{1,2}$/.test(repo) ? repo : '';
+}
+
 const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, n) : '');
 const stamp = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : '');
 const day = (v) => stamp(v).slice(0, 10);
@@ -89,6 +110,7 @@ function makeAdapter({ id, name, origin, terms, allowHttp = false, pollMs, fullE
     tokenEnv: 'ISSUES_GITHUB_TOKEN', // the environment variable the server reads the token from; optional for a public repository
     pollMs,
     fullEveryMs,
+    repoFrom,
     validRepo: (repo) => typeof repo === 'string' && REPO.test(repo) && !/\/\.{1,2}$/.test(repo),
     // One page of the list. `page`: the address `more` gave, or null for the first. `etag` is sent only on the first page.
     // `get(url, headers)` is the core's (server/issues.js): it asks only this adapter's origin, caps the answer and the time,
@@ -129,5 +151,6 @@ module.exports = makeAdapter({
 });
 module.exports.makeAdapter = makeAdapter;
 module.exports.record = record;
+module.exports.repoFrom = repoFrom;
 module.exports.nextPage = nextPage;
 module.exports.waitOf = waitOf;
