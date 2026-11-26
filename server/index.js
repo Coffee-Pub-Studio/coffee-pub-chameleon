@@ -13892,11 +13892,20 @@ const issueFlightKey = (env, spaceId) => `${env.slug || ''}|${spaceId}`;
 
 // Why a person may not write `key` of the module where ctx works (null for a whole Clear or its Undo), or null: the space's plan
 // is filled by an issue pull that is on, and only the pull writes its plan and its board.
-function pulledRefusal(ctx, key) {
+// `given` is the value a write would store (a write's own check only): a change to stored pulled work (`plan:gh-<n>`) that touches
+// only the space's own fields (issuesLib.OWN_FIELDS) is let through, writing back on or off, since it sends nothing to the service.
+function pulledRefusal(ctx, key, given) {
   if (ctx.who.system === 'issues' || ctx.manifest.id !== issuesLib.MODULE_ID || ctx.scope !== 'space' || !ctx.spaceId) return null;
   const rec = issuePulls.get(ctx.spaceId);
   if (!rec || !rec.on) return null;
   if (key !== null && !/^(plan|board):/.test(String(key))) return null;
+  if (key !== null && given !== undefined && issuesLib.WORK_KEY.test(String(key))) {
+    const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
+    if (had && given && typeof given === 'object' && !Array.isArray(given)) {
+      const d = issuesLib.diffWork(had.value, given);
+      if (d.own && !d.foreign.length && d.column === null && d.title === null && !d.tags.add.length && !d.tags.remove.length) return null;
+    }
+  }
   const adapter = issueAdapterOf(rec.provider);
   return { status: 403, error: `This comes from ${adapter ? adapter.name : 'another service'}. Change it there.` };
 }
@@ -15281,7 +15290,7 @@ app.put('/api/modules/:id/data/:key', async (req, res) => {
 // `expected` 409, too big 413). Starter content (fillStarter) is written through this too.
 function putModuleValue(ctx, key, given, { expected = null, tz, asker = '' } = {}) {
   // A plan an issue pull fills is the pull's to write (plan-github-pull.md, decisions 4 and 9).
-  const pulled = pulledRefusal(ctx, key);
+  const pulled = pulledRefusal(ctx, key, given);
   if (pulled) return pulled;
   // A copy of another module's object (GitHub #857): not there for whoever may not see its original, and changed only by
   // whoever may change the original (copyWriteRefusal, below, once the value is known).
