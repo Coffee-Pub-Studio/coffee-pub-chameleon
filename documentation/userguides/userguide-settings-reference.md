@@ -151,13 +151,28 @@ A space's own switch, **Changes here go to GitHub**, is the owner's and is off t
 
 You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own. The steps assume you have never opened GitHub's developer settings. The labels in the form's **Identifying and authorizing users**, **Post installation** and **Webhook** sections were confirmed against a live GitHub session on 2026-11-27. The rest were written from memory of GitHub's pages and were not checked: the **Permissions** section, the **Where can this GitHub App be installed?** choice, and the **Install App**, key and secret buttons. If a label on your screen differs, report it so this page can be corrected.
 
+#### One app per server, one connection per space
+
+The server has one GitHub app. Its identity (client ID, client secret and private key) lives in the compose file, set once by the administrator, and nobody else ever sees it. A self-hosted server registers one app. A host with environments registers one app for the whole host, and its Redirect URI and Setup URL are the one address on the product host, the same for every environment.
+
+A space stores only which installation and which repository it follows, never a secret. So space A can follow a repository in one GitHub account and space B a repository in another, all through the same app.
+
+When an owner of a space wants to follow a repository, they do this themselves:
+
+1. Open **Set up**, then **Modules**, then **Follows GitHub**, and choose **Connect to GitHub**.
+2. Sign in to GitHub as themselves. GitHub asks them once to authorize the app.
+3. If the app is not yet installed on the account or organization that holds the repository, install it there on GitHub. The owner needs the right to install apps in that account or organization.
+4. Back in Chameleon, pick the repository and choose **Follow**.
+
+For this to work, other people must be able to install your app. Register it for **Any account** (step 7 of part 2).
+
 There are six parts: get the address from Chameleon, register the app, collect three values, give them to Chameleon, install the app on a repository, and connect a space.
 
-#### 1. Get the callback address from Chameleon
+#### 1. Get the address from Chameleon
 
 1. Sign in to Chameleon as the administrator.
 2. Open **Manage**, then **Modules**, and find **Service terms**. On a server with several environments, use the host console's **Server** page instead.
-3. Find the line "On GitHub, enter this address as both the callback URL and the setup URL:". Under it is one address: `<your server's address>/api/issues-link/back`, or `https://<the product host>/api/issues-link/back` on a host with environments.
+3. Find the line "On GitHub, enter this address as both the Redirect URI and the Setup URL:". Under it is one address: `<your server's address>/api/issues-link/back`, or `https://<the product host>/api/issues-link/back` on a host with environments.
 4. Choose **Copy**. Keep this address on your clipboard, or come back to it: you paste it twice in part 2, once as GitHub's **Redirect URI** and once as its **Setup URL**. It is the same for every environment, because GitHub matches it exactly.
 
 #### 2. Register the app on GitHub
@@ -186,7 +201,9 @@ Fill in the form:
    - **Redirect on update**: leave it unticked.
 5. Section **Webhook**: untick **Active**. Leave **Webhook URL** and **Secret** empty. Chameleon does not use webhooks. It pulls every 10 minutes, and **Pull now** is there for sooner.
 6. **Permissions**: open **Repository permissions**. Set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub sets for you. Leave everything else at **No access**, including every account and organization permission. Asking for more later makes every installer approve it again.
-7. **Where can this GitHub App be installed?**: choose **Only on this account** when every repository followed is the app owner's own. A host that lets other people connect their own repositories chooses **Any account**. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
+7. **Where can this GitHub App be installed?**: choose **Any account**. Choose it on every server where anyone other than the app's owner will connect a repository, which is the purpose of the app: each space's owner connects their own repository, in their own GitHub account or organization. With **Only on this account**, nobody but the app's owner can install the app, so no one else can connect. Choose **Only on this account** only on a server where every connected repository belongs to the app's owner. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
+
+   If you registered the app as private, open its page on GitHub (your profile picture, **Settings**, **Developer settings**, **GitHub Apps**, **Edit**), scroll to the bottom and, under the danger zone, choose **Make public**. This label is written from memory and was not confirmed on GitHub; if you do not find it, look for the same choice by another name.
 8. Choose **Create GitHub App**.
 
 #### 3. Collect the three values
