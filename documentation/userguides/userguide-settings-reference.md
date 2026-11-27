@@ -149,7 +149,7 @@ A space's own switch, **Changes here go to GitHub**, is the owner's and is off t
 
 ### Register the GitHub app
 
-You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own. The steps assume you have never opened GitHub's developer settings. GitHub's own screen labels below are written from memory of GitHub's current pages and were not checked against a live GitHub session. If a label on your screen differs, report it so this page can be corrected.
+You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own. The steps assume you have never opened GitHub's developer settings. The labels in the form's **Identifying and authorizing users**, **Post installation** and **Webhook** sections were confirmed against a live GitHub session on 2026-11-27. The rest were written from memory of GitHub's pages and were not checked: the **Permissions** section, the **Where can this GitHub App be installed?** choice, and the **Install App**, key and secret buttons. If a label on your screen differs, report it so this page can be corrected.
 
 There are six parts: get the address from Chameleon, register the app, collect three values, give them to Chameleon, install the app on a repository, and connect a space.
 
@@ -158,7 +158,7 @@ There are six parts: get the address from Chameleon, register the app, collect t
 1. Sign in to Chameleon as the administrator.
 2. Open **Manage**, then **Modules**, and find **Service terms**. On a server with several environments, use the host console's **Server** page instead.
 3. Find the line "On GitHub, enter this address as both the callback URL and the setup URL:". Under it is one address: `<your server's address>/api/issues-link/back`, or `https://<the product host>/api/issues-link/back` on a host with environments.
-4. Choose **Copy**. Keep this address on your clipboard, or come back to it: you paste it twice in part 2. It is the same for every environment, because GitHub matches it exactly.
+4. Choose **Copy**. Keep this address on your clipboard, or come back to it: you paste it twice in part 2, once as GitHub's **Redirect URI** and once as its **Setup URL**. It is the same for every environment, because GitHub matches it exactly.
 
 #### 2. Register the app on GitHub
 
@@ -176,14 +176,18 @@ Fill in the form:
 
 1. **GitHub App name**: a name that no one else on GitHub has used. This is the name people see. Every change made from Chameleon shows on GitHub as the app's short name followed by `[bot]` (for an app whose address is `github.com/apps/chameleon-example`, the author is `chameleon-example[bot]`), with the app's picture. At most 34 characters.
 2. **Homepage URL**: your Chameleon address.
-3. **Callback URL**: paste the address you copied in part 1. Add no second callback.
-4. **Expire user authorization tokens**: leave it ticked.
-5. **Request user authorization (OAuth) during installation**: leave it unticked.
-6. **Setup URL**: paste the same address again.
-7. **Webhook**: untick **Active**. Chameleon does not use webhooks. It pulls every 10 minutes, and **Pull now** is there for sooner.
-8. **Permissions**: open **Repository permissions**. Set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub sets for you. Leave everything else at **No access**, including every account and organization permission. Asking for more later makes every installer approve it again.
-9. **Where can this GitHub App be installed?**: choose **Only on this account** when every repository followed is the app owner's own. A host that lets other people connect their own repositories chooses **Any account**. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
-10. Choose **Create GitHub App**.
+3. Section **Identifying and authorizing users**:
+   - **Redirect URI**: choose **Add redirect URI** if no row is showing, and paste the address you copied in part 1. GitHub takes up to 10; use only this one. Leave **Allow wildcard matching** unticked. If an empty second row appears, ignore it or choose **Delete** beside it.
+   - **Expire user authorization tokens**: leave it ticked.
+   - **Request user authorization (OAuth) during installation**: leave it unticked. Ticking it takes away the **Setup URL**.
+   - **Enable Device Flow**: leave it unticked.
+4. Section **Post installation**:
+   - **Setup URL (optional)**: paste the same address again, the one you used as the **Redirect URI**.
+   - **Redirect on update**: leave it unticked.
+5. Section **Webhook**: untick **Active**. Leave **Webhook URL** and **Secret** empty. Chameleon does not use webhooks. It pulls every 10 minutes, and **Pull now** is there for sooner.
+6. **Permissions**: open **Repository permissions**. Set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub sets for you. Leave everything else at **No access**, including every account and organization permission. Asking for more later makes every installer approve it again.
+7. **Where can this GitHub App be installed?**: choose **Only on this account** when every repository followed is the app owner's own. A host that lets other people connect their own repositories chooses **Any account**. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
+8. Choose **Create GitHub App**.
 
 #### 3. Collect the three values
 
@@ -246,6 +250,7 @@ The space must have an empty plan, or one that holds only this repository's own 
 | "This link has run out. Go back and press Connect to GitHub again." | Owner | Press **Connect to GitHub** again and pick the repository within 15 minutes. |
 | "The GitHub app is no longer installed on owner/name. Install it again and press Connect to GitHub, or stop following." | Owner | Install the app on the repository again (part 5), then press **Connect to GitHub**. |
 | "The GitHub app is paused for owner/name on GitHub." | Owner, administrator | The repository's owner resumes the app on GitHub, under the app's installation settings. |
+| GitHub refuses the sign-in when you press **Connect to GitHub** | Administrator | The **Redirect URI** on the app must be identical to the address on the **Service terms** line, character for character (scheme, host, path, no trailing slash added). Correct it on the app's page on GitHub. |
 | "That repository is not in your list. Press Connect to GitHub again." | Owner | Install the app on the repository (part 5) and make sure you can see it on GitHub, then press **Connect to GitHub** again. |
 | "You can read this repository on GitHub but not change it, so changes stay read only here." or "The GitHub app may not change this repository." | Owner | Someone who can write to the repository on GitHub connects it, or accept read-only following. |
 
