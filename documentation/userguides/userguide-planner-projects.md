@@ -19,7 +19,7 @@ Who can: anyone who may **See the plan** (members, guests and moderators by defa
 | **Opens on** | The view a space opens on, **Timeline**, **List** or **Board** | The template's start; you may change it |
 | **Board columns** | The columns the board starts with: **To do, Doing, Done** or **Inbox, Now, Next, Later, Done**. They stay until someone edits the columns; after that the board keeps its own | The template's start (Gaming: Inbox, Now, Next, Later, Done) |
 | **Tags** | The tags an entry may carry (the Gaming template seeds story threads) | The template's start; you may change it |
-| **Follows GitHub** | A public GitHub repository, as `owner/name` or its address, whose issues this plan shows as work. See "Follow a GitHub repository" | Not set by a template |
+| **Follows GitHub** | A GitHub repository whose issues this plan shows as work, connected through the server's GitHub app (or, for a public one, followed read only). It is a control, not a typed value. See "Follow a GitHub repository" | Not set by a template |
 
 ## Add to the plan
 
@@ -111,42 +111,46 @@ Each change to the columns shows an **Undo** for 30 seconds, which puts back the
 
 ## Follow a GitHub repository
 
-A space's plan can show a public GitHub repository's issues as work, so the plan matches what is on GitHub. It goes one way, from GitHub to the space, until an owner also turns on writing (see "Turn on writing to GitHub" below); until then nothing here changes GitHub.
+A space's plan can show a GitHub repository's issues as work, so the plan matches what is on GitHub. It goes one way, from GitHub to the space, until an owner also turns on writing (see "Turn on writing to GitHub" below); until then nothing here changes GitHub.
 
-**Who:** the environment's owner turns it on or off. The server's administrator accepts GitHub's terms once, first (see [Modules](userguide-modules.md), "The terms").
+**Who:** the environment's owner connects, follows and stops. Before that the server's administrator does two things once: accepts GitHub's terms, and registers Chameleon as an app on GitHub ([Settings reference](userguide-settings-reference.md), "Register the GitHub app"). The owner of the repository, or an administrator of its organization, installs that app on the repository.
 
-1. The administrator opens **Manage**, then **Modules**, finds **Service terms**, reads GitHub's terms and chooses **Accept**.
-2. The owner opens the space's **Set up**, then the **Settings** tab, and finds **Follows GitHub** in Planner - Projects' section.
-3. Enter the repository as `owner/name` (such as `Drowbe/coffee-pub-chameleon`) or paste its address from your browser (such as `https://github.com/Drowbe/coffee-pub-chameleon`, or the address of one of its issues), then choose **Follow this repository**. That is the whole step: it does not wait for **Save**. The box then shows the repository's `owner/name`.
-4. The space must have an empty plan, or one that holds only this repository's own pulled work. Otherwise it says "Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space." Do that, or make a new space, and choose **Follow this repository** again.
-5. Following makes the board exactly **Inbox**, **Now**, **Next**, **Later** and **Done**, and pulls at once.
-6. To stop, choose **Stop following** and confirm. The work stays in the plan as your own and can be changed again.
+1. The administrator opens **Manage**, then **Modules**, finds **Service terms**, reads GitHub's terms, ticks the box and chooses **Accept** (see [Modules](userguide-modules.md), "The terms"). The same section shows whether the GitHub app works.
+2. The owner opens the space's **Set up**, then the **Settings** tab, and finds **Follows GitHub** in Planner - Projects' section. It says "Follow a GitHub repository: its issues become this plan." Choose **Connect to GitHub**.
+3. GitHub opens in the same tab. The first time, it asks you to authorize the app; later it sends you straight back. You paste nothing.
+4. Back in **Set up**, a list shows the repositories the app is installed on that you can reach on GitHub, newest first. A private one is marked **Private**. One you can read but not change says "You can read this repository but not change it." Choose **Follow** beside the one you want. That is the whole step: it does not wait for **Save**. The box then shows "Following owner/name, last pulled" with the time.
+5. The space must have an empty plan, or one that holds only this repository's own pulled work. Otherwise it says "Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space." Do that, or make a new space, and choose **Follow** again.
+6. Following makes the board exactly **Inbox**, **Now**, **Next**, **Later** and **Done**, and pulls at once.
+7. To stop, choose **Stop following** and confirm. The work stays in the plan as your own and can be changed again.
 
-The line under the button says how it stands: "Not following. Enter a repository and press Follow this repository.", "Waiting for the first pull from GitHub.", "Following owner/name, last pulled" with the time, or the reason it failed.
+**The list lasts 15 minutes.** If you wait longer, or reload and come back late, it says "This link has run out. Go back and press Connect to GitHub again." Only the person who pressed **Connect to GitHub**, in that space, sees the list, and Chameleon keeps nothing of your GitHub sign-in: it reads your repositories once, then lets the sign-in go.
 
-**From the empty plan.** On an empty plan the owner also sees **Follow a GitHub repository**. It opens **Set up** on the settings of modules, where the steps above begin. When **Set up** closes, the plan looks again at once, so what you followed shows without a reload.
+**A repository that is not in the list.** Under the list, **Is your repository not here?** opens a short help. Choose **Install on GitHub** (a new tab), install the app on the repository, then choose **Connect to GitHub** again. If the repository belongs to someone else, only they, or an administrator of their organization, can install the app on it. Choose **Copy** beside the address shown, send it to them, and press **Connect to GitHub** again once it is installed. You must also be able to see the repository on GitHub, or it never appears for you.
+
+**A private repository.** The app can read one. The list says: "A private repository's issue titles and labels will be seen by everyone who can see this plan." Only the titles and labels are pulled, but they are then visible to anyone who sees the plan, so follow a private repository only when that is acceptable. It is your choice.
+
+**A public repository, read only, with no app.** Under the list, and on its own when you have not connected, a folded **Follow a public repository (read only)** takes `owner/name` or a pasted address (such as `https://github.com/Drowbe/coffee-pub-chameleon`, or the address of one of its issues). Choose **Follow read only**. It needs no app and no install, and nothing here can ever change GitHub. GitHub allows 60 such requests an hour for the whole server, which is enough for about ten spaces. A repository followed through the app has 5,000 an hour. A space that follows read only shows **Connect to GitHub** beside **Stop following**: use it to link the same repository through the app, so you can turn on writing.
+
+**On a server with no GitHub app.** An owner there sees no **Connect to GitHub**. The line says "This server has no GitHub app." and the folded public box is open, so a public repository can still be followed read only. The administrator can fix this under "Register the GitHub app" in the Settings reference. If the app is set up but not working, the line says "The GitHub app on this server is not working. The administrator checks its settings."
 
 **What you see.** The status bar starts with "From GitHub, pulled 3 minutes ago, 12 open of 40" (or, after a failure, the reason and "Trying again at 14:20."), and **Pull now** for anyone who may change the plan; it waits a minute between pulls. The server also pulls by itself about every 10 minutes. Each issue is a piece of work with its number ("#157") and a link, and its menu has **Open on GitHub** (a new tab). A closed issue is in **Done**; an open one is in **Now**, **Next** or **Later** when it has the label `priority: now`, `priority: next` or `priority: later`, and otherwise in **Inbox**. A GitHub milestone is a milestone, and its other labels are tags (when there is room, 20) or are named in the work's notes. Its days are the day the issue was made and the day it closed.
 
-**It is read-only.** While it is on, nobody can add to, change, move or delete the plan or its board, or clear it: the page shows the work with no edit controls, and it says "This comes from GitHub. Change it there." The same sentence answers an agent that tries. To move work between columns, change its `priority:` label on GitHub (the repository can run a workflow that keeps the labels in step with a project board; that is the repository's setting, not Chameleon's), or ask an owner to turn on writing, below.
+**It is read-only** until writing is turned on. While following, nobody can add to, change, move or delete the plan or its board, or clear it: the page shows the work with no edit controls, and it says "This comes from GitHub. Change it there." The same sentence answers an agent that tries. To move work between columns, change its `priority:` label on GitHub, or ask an owner to turn on writing, below.
 
-**Failures** show in the status bar: "GitHub's terms are not accepted on this server. The administrator accepts them in Manage, Modules, Service terms.", "No such repository, or it is private.", "GitHub refused the token set on this server.", "GitHub asked to wait." (it tries again after the time GitHub names), "GitHub did not answer." and "This plan holds at most 1000 entries; the rest are not pulled." The server's administrator can raise GitHub's limit with a token ([Settings reference](userguide-settings-reference.md), "Following a GitHub repository"). Only public repositories can be followed; nothing about you or the space goes to GitHub.
+**Failures** show in the line and the status bar: "GitHub's terms are not accepted on this server. The administrator accepts them in Manage, Modules, Service terms.", "No such repository, or it is private." (a public read-only follow of a repository GitHub does not show), "GitHub refused this server's access.", "GitHub asked to wait." (it tries again after the time GitHub names), "GitHub did not answer." and "This plan holds at most 1000 entries; the rest are not pulled." When the app was taken off the repository: "The GitHub app is no longer installed on owner/name. Install it again and press Connect to GitHub, or stop following." When GitHub, or its owner, paused it: "The GitHub app is paused for owner/name on GitHub." A public repository still reads without the app meanwhile; a private one does not. After a reinstall, press **Connect to GitHub** again: Chameleon does not link a reinstalled app by itself.
 
 ## Turn on writing to GitHub
 
-Following is one way until an owner turns on writing. With it on, some changes made in Planner - Projects are made on GitHub too. It is off to start, and it needs three things set up by whoever runs the server before the switch can be turned on.
+Following is one way until an owner turns on writing. With it on, some changes made in Planner - Projects are made on GitHub too. It is off to start. It needs the repository to be followed through **Connect to GitHub**, and it needs you to have the right to change that repository's issues on GitHub.
 
-**Who:** the environment's owner. The person who runs the server does steps 1 to 3.
+**Who:** the environment's owner turns it on. The administrator registers the app once for the server ([Settings reference](userguide-settings-reference.md), "Register the GitHub app"); there is no token to make and nothing to set per repository.
 
-1. **Make a token on GitHub.** In GitHub, open **Settings**, **Developer settings**, **Personal access tokens**, **Fine-grained tokens**, and make one for the one repository you follow, with **Issues** set to **Read and write** (GitHub adds **Metadata: read**). Choose an expiry; GitHub makes you. Never paste the token in Chat, an issue or a document.
-2. **Give it to the server.** Set it as `ISSUES_GITHUB_TOKEN` in the server's environment, and name the repository in `ISSUES_GITHUB_WRITE` as `owner/name` (see [Settings reference](userguide-settings-reference.md), "Following a GitHub repository"). Several repositories are separated by commas, and case does not matter. On a host with several environments, write each as `<environment slug>:owner/name`. If `ISSUES_GITHUB_WRITE` is not set, or is empty, nothing is written anywhere. The server reads it at each call, so only the token needs a restart.
-3. **Recreate the container** so the server sees the new variables.
-4. **Follow the repository**, if the space does not yet (see "Follow a GitHub repository").
-5. Open the space's **Set up**, then the **Settings** tab, and find **Follows GitHub** in Planner - Projects' section. Under the repository's name, turn on **Changes here go to GitHub**. The line under it reads "Moves, closes, titles and tags made here change the issues on GitHub, as the account that owns this server's token."
+1. **Follow the repository through the app** (see "Follow a GitHub repository"). A repository followed read only cannot be written.
+2. Open the space's **Set up**, then the **Settings** tab, and find **Follows GitHub**. Under the repository's name, turn on **Changes here go to GitHub**. The line under it reads "Moves, closes, titles and tags made here change the issues on GitHub. GitHub shows them as <app name>, <app-slug>[bot]."
 
-If the switch is dimmed, the line says "This server is not set up to change GitHub for this repository." The token or the allow list is missing, or the repository is not in it. If you turn it on with no token, it says "No token is set on this server."
+The switch is dimmed when you could not change the repository on GitHub when you connected it (you had read access only, or a role that cannot change issues). The line then says "You can read this repository on GitHub but not change it, so changes stay read only here." Someone who can change it on GitHub connects it again. This is checked once, when the repository is linked; if your access on GitHub changes later, it holds until the space is linked again. A refusal otherwise reads "Connect this repository through the GitHub app to change it from here." (the space follows read only) or "The GitHub app may not change this repository."
 
-**Who may change GitHub from here.** The permission **Change it on GitHub** (on the Roles tab, under **Module: Planner - Projects**): moderators have it by default, members and guests do not, and owners always may. Someone with **Add and change the plan** but not this sees pulled work read-only, as before. An [agent](userguide-agents.md) can change GitHub only when an owner ticks that row in the Agent column; it is off to start.
+**Who may change GitHub from here.** The permission **Change it on GitHub** (on the Roles tab, under **Module: Planner - Projects**): moderators have it by default, members and guests do not, and owners always may. Someone with **Add and change the plan** but not this sees pulled work read-only, as before. An [agent](userguide-agents.md) can change GitHub only when an owner ticks that row in the Agent column; it is off to start. Only the owner can link the repository or turn the switch on; a moderator, member, guest or agent cannot.
 
 **What goes to GitHub.**
 
@@ -160,9 +164,9 @@ If the switch is dimmed, the line says "This server is not set up to change GitH
 | Adding or removing a tag | that label (it must already exist on GitHub, else "GitHub has no label called ...") |
 | **+** in a column | a new issue with that title and the column's label, and an empty description |
 
-Never sent: the description, comments, who it is assigned to, and a delete (GitHub cannot delete from here; the menu says **Close** in place of **Delete**). A title longer than the plan holds (120 characters) is not written back: "This title is longer than the plan holds. Change it on GitHub." The days, who is doing it and the order inside a column stay in the plan and are not sent.
+Never sent: the description, comments, who it is assigned to, and a delete (GitHub cannot delete from here; the menu says **Close** in place of **Delete**). Neither your name nor the space's or environment's name is written into GitHub. A title longer than the plan holds (120 characters) is not written back: "This title is longer than the plan holds. Change it on GitHub." The days, who is doing it and the order inside a column stay in the plan and are not sent.
 
-**The change shows on GitHub as the account that owns the token**, not as the person who made it. Chameleon keeps who did it in its own record (an issue made here records the person, and an agent's changes are listed under **What it changed**).
+**The change shows on GitHub as the app**, `<app-slug>[bot]`, with the app's own picture, not as the person who made it. Chameleon keeps who did it in its own record (an issue made here records the person, and an agent's changes are listed under **What it changed**).
 
 **What you see.**
 
@@ -175,14 +179,14 @@ Never sent: the description, comments, who it is assigned to, and a delete (GitH
 
 - "GitHub did not answer. Nothing was changed; try again."
 - "GitHub asked to wait. Try again in 3 minutes." (the plan, and the pull, rest until then)
-- "GitHub refused the token set on this server." (the token has expired or lost its right; the person who runs the server makes a new one)
+- "The GitHub app on this server is not working. The administrator checks its settings." (the app's key or secret was refused)
 - "GitHub refused the change: <its reason>."
-- "This server may not change GitHub for this repository." and "Only someone allowed to change GitHub can change this."
+- "Only someone allowed to change GitHub can change this."
 - "That issue is not on GitHub any more."
 
 Changes are sent one at a time, about a second apart, so a long drag of many cards is a little slow. A refused change leaves the plan as it was.
 
-**To turn it off,** switch **Changes here go to GitHub** off, or choose **Stop following**. Pulled work is read-only again, or yours again after **Stop following**. Removing the repository from `ISSUES_GITHUB_WRITE` stops every write at once.
+**To turn it off,** switch **Changes here go to GitHub** off, or choose **Stop following**. Pulled work is read-only again, or yours again after **Stop following**. Uninstalling the app on GitHub stops every write at once; only the repository's owner can do that, and Chameleon never does.
 
 ## Where else it shows
 

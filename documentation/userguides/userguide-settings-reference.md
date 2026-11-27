@@ -124,14 +124,61 @@ Beside it in the file, a commented `security_opt` line names the seccomp profile
 
 ## Following a GitHub repository
 
-A space can follow a public GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"). Reading works with no setting here: the owner enters the repository (as `owner/name` or its address) and chooses **Follow this repository** in the space's **Set up**, and the plan must be empty first. A token only raises GitHub's limit from 60 requests an hour to 5,000. Changing GitHub from the plan (["Turn on writing to GitHub"](userguide-planner-projects.md)) needs a token that can write and the allow list below, and both are set here.
+A space can follow a GitHub repository's issues in Planner - Projects ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository"), and can change them on GitHub ("Turn on writing to GitHub"). The server connects through one GitHub App that you register once (below). Reading a public repository with no app needs nothing here: the owner can follow it read only, and GitHub allows 60 such requests an hour for the whole server.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `ISSUES_GITHUB_TOKEN` | unset | A GitHub token. To read only, a personal access token that can read public repositories (or none). To write, a fine-grained token for the one repository with **Issues: read and write**. The server sends it only to `api.github.com`, in the request's authorization header, and never writes it to a log, a page, a space or an answer. A change shows on GitHub as the account that owns the token. Never paste it in Chat or an issue. It is not in `docker-compose.yml`; add the line under `environment:`, then recreate the container. |
-| `ISSUES_GITHUB_WRITE` | unset | The repositories this server may change, as `owner/name` separated by commas; case does not matter. On a host with several environments each entry is `<environment slug>:owner/name`, and an entry without a slug counts for none of them. Unset or empty means nothing is written, whatever a space's switch says. It is read at each call, so a change takes effect without a restart. It is not in `docker-compose.yml` either. |
+| `ISSUES_GITHUB_APP_CLIENT_ID` | unset | The app's client ID, from its page on GitHub. It is not a secret. |
+| `ISSUES_GITHUB_APP_CLIENT_SECRET` | unset | The app's client secret. The server uses it only to finish an owner's sign-in while connecting a repository, and to let that sign-in go again. Without it the app is off. |
+| `ISSUES_GITHUB_APP_KEY_FILE` | unset | The path, inside the container, of the app's private key (the `.pem` file GitHub gives). Use this one: a key runs over several lines. Set exactly one of this and `ISSUES_GITHUB_APP_KEY`. |
+| `ISSUES_GITHUB_APP_KEY` | unset | The key's text itself, with `\n` for each line break. Only if you cannot mount a file. Exactly one of the two. |
 
-A space's own switch, **Changes here go to GitHub**, is the owner's and is off to start; it can be turned on only when both settings above allow the repository.
+All four are read once, at start, so changing one needs the container recreated. None is in `docker-compose.yml`; add them under `environment:`. They are the host's: on a server with several environments one app serves every environment. The key and the secret are never written to a log, a page, a space's data or an answer, and the key is not kept as text after it is read.
+
+With none of the four set, the app is off, nothing is logged, and **Service terms** says "GitHub app: not set up." With some set, the start-up log says what is wrong, and the app stays off:
+
+| Log line | Why |
+|---|---|
+| `The GitHub app needs ISSUES_GITHUB_APP_CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET and one of ISSUES_GITHUB_APP_KEY_FILE or ISSUES_GITHUB_APP_KEY. The GitHub app is off.` | At least one is set but the client ID, the secret or a key is missing. |
+| `Set only one of ISSUES_GITHUB_APP_KEY_FILE and ISSUES_GITHUB_APP_KEY. The GitHub app is off.` | Both key variables are set. |
+| `The GitHub app's private key could not be read. The GitHub app is off.` | The file is missing or not readable, or the text is not an RSA private key. Nothing of it is logged. |
+
+A value that is set and complete but wrong shows later. If GitHub refuses the key (a wrong client ID, or a key that was deleted), **Service terms** says "GitHub app: not working. Check its settings on the server.", spaces linked through the app are read as public repositories with no changes sent, and an owner pressing **Connect to GitHub** reads "The GitHub app on this server is not working. The administrator checks its settings." The server asks GitHub again after 5 minutes. A wrong client secret is seen only when someone connects a repository: GitHub does not finish the sign-in and the owner reads "GitHub did not finish connecting. Go back and press Connect to GitHub again."
+
+A space's own switch, **Changes here go to GitHub**, is the owner's and is off to start. It can be turned on only for a repository connected through the app by someone who could change it on GitHub.
+
+### Register the GitHub app
+
+You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own.
+
+1. **Create the app.** On GitHub, open **Settings**, then **Developer settings**, then **GitHub Apps**, then **New GitHub App**. Make it under the account or organization that should own it.
+2. **Name it.** At most 34 characters, and unique on all of GitHub. This is the name people see: every change made from Chameleon shows on GitHub as the app's short name followed by `[bot]` (for an app with the address `github.com/apps/chameleon-example`, `chameleon-example[bot]`), with the app's picture.
+3. **Homepage URL.** Your server's address, or the repository's.
+4. **Get the address Chameleon wants.** As the administrator, open **Manage**, then **Modules**, and find **Service terms** (on a server with several environments, the host console's **Server** page). Under GitHub it shows one address, with **Copy**: `<your server's address>/api/issues-link/back`, or `https://<the product host>/api/issues-link/back` on a host with environments. It is the same for every environment, because GitHub matches it exactly.
+5. **Callback URL and Setup URL.** Paste that one address into both. Leave any "wildcard" or extra callback off.
+6. **Sign-in settings.** Leave **Request user authorization (OAuth) during installation** off. Turn **Expire user authorization tokens** on. Leave **Enable Device Flow** off.
+7. **Webhook.** Untick **Active**. Chameleon does not use webhooks; it pulls every 10 minutes, and **Pull now** is there for sooner.
+8. **Permissions.** Under **Repository permissions**, set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub adds by itself. Set nothing else: no contents, no pull requests, no account or organization permissions, no events. Asking for more later makes every installer approve it again.
+9. **Where it can be installed.** Choose **Any account** when other people's repositories will be connected: a host with several environments, or a server whose owners use their own GitHub accounts. Choose **Only on this account** when every repository followed is the app owner's own. For Thomas's own server, which follows his own repositories, pick **Only on this account**; for a host, pick **Any account**. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
+10. Choose **Create GitHub App**.
+11. **Make the key and the secret.** On the app's page, under **Private keys**, choose **Generate a private key**: GitHub downloads a `.pem` file. Under **Client secrets**, choose **Generate a new client secret** and copy it at once, since GitHub shows it only once. The **Client ID** is at the top of the page.
+12. **Give them to the server.** Keep the `.pem` file out of the repository and out of any file you share. Mount it into the container read-only and set the three variables, for example under the `chameleon` service:
+
+   ```
+   volumes:
+     - /path/on/your/server/chameleon-app.pem:/run/secrets/github-app.pem:ro
+   environment:
+     ISSUES_GITHUB_APP_CLIENT_ID: "CHANGE_ME_CLIENT_ID"
+     ISSUES_GITHUB_APP_CLIENT_SECRET: "CHANGE_ME_CLIENT_SECRET"
+     ISSUES_GITHUB_APP_KEY_FILE: "/run/secrets/github-app.pem"
+   ```
+
+13. **Restart.** Recreate the container. Check that the start-up log has none of the lines above, and that **Service terms** now says "GitHub app: <name>, working." That line appears after the server has first asked GitHub about the app.
+14. **Accept GitHub's terms** under **Service terms**, if you have not.
+15. **Install the app on the repository.** On the app's public page on GitHub, choose **Install**, pick the account, and choose the repository (or **Only select repositories**). The repository's owner, or an administrator of its organization, does this; the app can be installed on a repository without Chameleon knowing.
+16. **Connect the space.** An owner opens the space's **Set up**, the **Settings** tab, **Follows GitHub**, and chooses **Connect to GitHub** ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository").
+
+Never type a key or secret into a chat, an issue, a document or a command you will share. To rotate them, make a new key or secret on the app's page, change the variables and recreate the container.
 
 ## Other
 
