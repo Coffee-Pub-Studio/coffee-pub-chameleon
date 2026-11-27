@@ -542,8 +542,15 @@ await test('trouble with a mint: not installed, repository out of it, paused, ke
   g = await APP.token(STANDIN, { installation: 9, repositoryId: 999, write: true });
   assert.deepEqual([g.kind, gh.app.length], ['broken', asked], 'then the server does not ask again for a while');
   assert.equal(APP.refusal(), 'The GitHub app on this server is not working. The administrator checks its settings.');
+  assert.deepEqual(APP.status(STANDIN), { state: 'broken', name: '', slug: '' }, 'a 401 marks the app broken: the pull view says so, with no name');
   startApp();
   assert.equal(APP.refusal(), '', 'a restart reads it again');
+  assert.deepEqual(APP.status(STANDIN), { state: 'unchecked', name: '', slug: '' }, 'configured and not yet asked');
+  await APP.ensureApp(STANDIN, Date.now());
+  assert.deepEqual(APP.status(STANDIN), { state: 'working', name: 'Chameleon Check', slug: 'chameleon-check' }, 'after the app answered');
+  APP.start({}, () => {});
+  assert.deepEqual(APP.status(STANDIN), { state: 'off', name: '', slug: '' }, 'nothing configured');
+  startApp();
 });
 
 await test('one service rest for every environment: a repository\'s limit rests every space on it, whichever environment', () => {
@@ -861,7 +868,7 @@ await live('set up: Planner - Projects on, a member, an agent and a guest link',
 
 await live('the gate: only an owner turns it on, the terms first, only into an empty plan', async () => {
   const on = { on: true, repo: REPO, provider: 'issues-standin' };
-  assert.deepEqual(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads the status').json, { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling: false, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', app: null });
+  assert.deepEqual(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads the status').json, { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling: false, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', appState: 'unchecked', app: null });
   const mia = await call('PUT', P(S.bugs), { token: S.mia, body: on });
   assert.equal(mia.status, 403, 'a member');
   assert.match(mia.json.error, /^Only an owner can turn the pull from .+ on or off\.$/);
@@ -1068,7 +1075,7 @@ await live('writing: only an owner turns it on, and only for a space linked thro
   ok(await call('DELETE', `/api/modules/schedule/data?scope=space&space=${S.other}`, { token: S.admin }), 'the other plan is empty', 200).status;
   const other = ok(await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin' } }), 'follows another repository, no link');
   assert.deepEqual(view(other), [false, false], 'not linked: no writing');
-  assert.deepEqual([other.json.via, other.json.writeOk, other.json.appError, other.json.app], ['public', false, '', null]);
+  assert.deepEqual([other.json.via, other.json.writeOk, other.json.appError, other.json.appState, other.json.app], ['public', false, '', 'working', { name: 'Chameleon Check', slug: 'chameleon-check' }]);
   const no = await call('PUT', P(S.other), { token: S.admin, body: { write: true } });
   assert.deepEqual([no.status, no.json.error], [409, 'Connect this repository through the GitHub app to change it from here.']);
   assert.equal((await call('PUT', P(S.other), { token: S.admin, body: { on: true, repo: 'other/repo', provider: 'issues-standin', write: true } })).status, 409, 'turning both on at once');
@@ -1870,6 +1877,21 @@ await live('the link: refused at the start when the server has no working app, o
   assert.equal((await call('POST', `/api/spaces/${S.other}/issues-link`, { token: S.admin, body: { provider: 'nowhere' } })).status, 400, 'no such service');
 });
 
+await live('the pull view tells whether the server has a working GitHub app, with no request to GitHub, and nothing secret', async () => {
+  // Before the app was ever asked it said 'unchecked' (the first group); the mints since have asked it: working, with its name.
+  const shown = [];
+  for (const [who, url] of [['admin', P(S.other)], ['mia', P(S.other)], ['guest', `${P(S.bugs)}?guest=${encodeURIComponent(S.guest)}`]]) {
+    const r = ok(await call('GET', url, { token: who === 'admin' ? S.admin : who === 'mia' ? S.mia : undefined }), `${who} reads the view`);
+    shown.push(r.json);
+    assert.deepEqual([r.json.appState, r.json.app], ['working', { name: 'Chameleon Check', slug: 'chameleon-check' }], `${who}: the state and the app's public name`);
+    assert.deepEqual(Object.keys(r.json.app), ['name', 'slug']);
+    assert.ok(!('private' in r.json), 'the record does not know if the repository is private');
+  }
+  assert.ok(shown.every((v) => JSON.stringify(v) === JSON.stringify({ ...v })), 'plain data');
+  const before = gh.app.length;
+  await call('GET', P(S.other), { token: S.admin });
+  assert.equal(gh.app.length, before, 'reading the view asks GitHub nothing');
+});
 await live('no secret is in an answer, the data, the record, the log or a request but the one that carries it', async () => {
   const jwts = [...gh.jwts];
   await stop();

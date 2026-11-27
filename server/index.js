@@ -14069,15 +14069,19 @@ function pullIssuesQueued(env, spaceId) {
   return run;
 }
 
-// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling, write, canWrite, via, writeOk, appError, app }
+// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling, write, canWrite, via, writeOk, appError, appState, app }
 // (`write`: changes made here go to the service; `canWrite`: the space is linked through the app by someone who may write there;
-// `app`: { name, slug } once the app has answered, else null). Never the etag, a token or an installation or repository id.
+// `appState`: this server's GitHub app, as the Service terms say it ('off' | 'broken' | 'working' | 'unchecked'), worked out with no
+// request to GitHub; `app`: { name, slug } once the app has answered, else null). Never the etag, a token or an installation or repository id.
 function issuePullView(spaceId) {
+  const st = issueApp.status(issueAppAdapter());
+  const appState = st.state;
+  const app = st.state === 'working' ? { name: st.name, slug: st.slug } : null;
   const rec = issuePulls.get(spaceId);
   const pulling = issuesInFlight.has(issueFlightKey(currentEnvironment(), spaceId));
-  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', app: null };
+  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', appState, app };
   const adapter = issueAdapterOf(rec.provider);
-  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling, write: rec.on && rec.write, canWrite: issueCanWrite(adapter) && rec.via === 'app' && rec.writeOk, via: rec.via, writeOk: rec.writeOk, appError: rec.via === 'app' ? rec.appError : '', app: rec.via === 'app' && adapter ? issueApp.appOf(adapter) : null };
+  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling, write: rec.on && rec.write, canWrite: issueCanWrite(adapter) && rec.via === 'app' && rec.writeOk, via: rec.via, writeOk: rec.writeOk, appError: rec.via === 'app' ? rec.appError : '', appState, app };
 }
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) -----------------------------------------------------
