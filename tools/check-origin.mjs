@@ -50,7 +50,10 @@ await test('the rule runs for every write before any body is parsed, and no path
   const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
   const mount = src.indexOf('app.use((req, res, next) => (WRITE_METHODS.has(req.method) ? sameOriginOnly(req, res, next) : next()));');
   assert.ok(mount > 0, 'sameOriginOnly is mounted for every write');
-  const firstParser = src.search(/app\.use\(express\.(json|text|raw|urlencoded)\(/);
+  // Parsers are built as consts (jsonBody, settingsJson, rawZip ...) and mounted through a wrapper (agent-token hold), so find the
+  // first one however it is mounted; a missing match must fail, not pass as -1.
+  const firstParser = src.search(/express\.(json|text|raw|urlencoded)\(/);
+  assert.ok(firstParser > 0, 'a body parser is found');
   assert.ok(mount < firstParser, 'before the first body parser');
   assert.ok(mount < src.indexOf('if (BASE_DOMAIN) {\n  app.use((req, res, next) => {'), 'before the door, so the host console is covered too');
   assert.match(src, /const WRITE_METHODS = new Set\(\['POST', 'PUT', 'PATCH', 'DELETE'\]\);/);
@@ -268,9 +271,15 @@ try {
     assert.equal(info.productSiteUrl, null, 'no PRODUCT_SITE_URL, no link');
   });
   await test('hiding a template takes it out of the templates the start page offers; showing it brings it back', async () => {
+    // The expected list comes from the bundled files, in the loader's order (server/templates.js: file names sorted), so a template
+    // added later needs no edit here, and a server that drops or invents one no longer matches.
+    const bundled = fs.readdirSync(path.join(ROOT, 'templates')).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', f), 'utf8')).id);
+    assert.ok(bundled.includes('default') && bundled.includes('travel') && bundled.length > 2, 'the bundled templates were read');
+    const offered = async () => (await call('GET', '', '/api/product')).json.templates.map((t) => t.id);
+    assert.deepEqual(await offered(), bundled, 'before hiding: every bundled template is offered');
     const hide = await call('PATCH', 'admin', '/api/host/templates/travel', { headers: same('admin'), body: { hidden: true } });
     assert.equal(hide.status, 200, hide.text);
-    assert.deepEqual((await call('GET', '', '/api/product')).json.templates.map((t) => t.id), ['default', 'games']);
+    assert.deepEqual(await offered(), bundled.filter((id) => id !== 'travel'), 'hidden travel is the only one gone');
     const show = await call('PATCH', 'admin', '/api/host/templates/travel', { headers: same('admin'), body: { hidden: false } });
     assert.equal(show.status, 200, show.text);
     assert.ok((await call('GET', '', '/api/product')).json.templates.some((t) => t.id === 'travel'), 'shown again');
