@@ -149,36 +149,107 @@ A space's own switch, **Changes here go to GitHub**, is the owner's and is off t
 
 ### Register the GitHub app
 
-You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own.
+You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own. The steps assume you have never opened GitHub's developer settings. GitHub's own screen labels below are written from memory of GitHub's current pages and were not checked against a live GitHub session. If a label on your screen differs, report it so this page can be corrected.
 
-1. **Create the app.** On GitHub, open **Settings**, then **Developer settings**, then **GitHub Apps**, then **New GitHub App**. Make it under the account or organization that should own it.
-2. **Name it.** At most 34 characters, and unique on all of GitHub. This is the name people see: every change made from Chameleon shows on GitHub as the app's short name followed by `[bot]` (for an app with the address `github.com/apps/chameleon-example`, `chameleon-example[bot]`), with the app's picture.
-3. **Homepage URL.** Your server's address, or the repository's.
-4. **Get the address Chameleon wants.** As the administrator, open **Manage**, then **Modules**, and find **Service terms** (on a server with several environments, the host console's **Server** page). Under GitHub it shows one address, with **Copy**: `<your server's address>/api/issues-link/back`, or `https://<the product host>/api/issues-link/back` on a host with environments. It is the same for every environment, because GitHub matches it exactly.
-5. **Callback URL and Setup URL.** Paste that one address into both. Leave any "wildcard" or extra callback off.
-6. **Sign-in settings.** Leave **Request user authorization (OAuth) during installation** off. Turn **Expire user authorization tokens** on. Leave **Enable Device Flow** off.
-7. **Webhook.** Untick **Active**. Chameleon does not use webhooks; it pulls every 10 minutes, and **Pull now** is there for sooner.
-8. **Permissions.** Under **Repository permissions**, set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub adds by itself. Set nothing else: no contents, no pull requests, no account or organization permissions, no events. Asking for more later makes every installer approve it again.
-9. **Where it can be installed.** Choose **Any account** when other people's repositories will be connected: a host with several environments, or a server whose owners use their own GitHub accounts. Choose **Only on this account** when every repository followed is the app owner's own. For Thomas's own server, which follows his own repositories, pick **Only on this account**; for a host, pick **Any account**. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
+There are six parts: get the address from Chameleon, register the app, collect three values, give them to Chameleon, install the app on a repository, and connect a space.
+
+#### 1. Get the callback address from Chameleon
+
+1. Sign in to Chameleon as the administrator.
+2. Open **Manage**, then **Modules**, and find **Service terms**. On a server with several environments, use the host console's **Server** page instead.
+3. Find the line "On GitHub, enter this address as both the callback URL and the setup URL:". Under it is one address: `<your server's address>/api/issues-link/back`, or `https://<the product host>/api/issues-link/back` on a host with environments.
+4. Choose **Copy**. Keep this address on your clipboard, or come back to it: you paste it twice in part 2. It is the same for every environment, because GitHub matches it exactly.
+
+#### 2. Register the app on GitHub
+
+The app is made in your account's own settings, not in a repository's settings. A repository's **Settings**, then **Integrations**, then **GitHub Apps** page only lists apps already installed on that repository and has no button to add one. If that is where you are, you are in the wrong place. To go straight to the right page, open `https://github.com/settings/apps/new`. For an organization, open `https://github.com/organizations/<organization>/settings/apps/new` instead, with the organization's name in place of `<organization>`.
+
+To reach it by clicking:
+
+1. Sign in to GitHub. Choose your profile picture at the top right.
+2. Choose **Settings** in the menu that opens. This is your account's settings, not a repository's.
+3. In the left sidebar, scroll to the bottom and choose **Developer settings**.
+4. In the left sidebar, choose **GitHub Apps**.
+5. Choose **New GitHub App**.
+
+Fill in the form:
+
+1. **GitHub App name**: a name that no one else on GitHub has used. This is the name people see. Every change made from Chameleon shows on GitHub as the app's short name followed by `[bot]` (for an app whose address is `github.com/apps/chameleon-example`, the author is `chameleon-example[bot]`), with the app's picture. At most 34 characters.
+2. **Homepage URL**: your Chameleon address.
+3. **Callback URL**: paste the address you copied in part 1. Add no second callback.
+4. **Expire user authorization tokens**: leave it ticked.
+5. **Request user authorization (OAuth) during installation**: leave it unticked.
+6. **Setup URL**: paste the same address again.
+7. **Webhook**: untick **Active**. Chameleon does not use webhooks. It pulls every 10 minutes, and **Pull now** is there for sooner.
+8. **Permissions**: open **Repository permissions**. Set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub sets for you. Leave everything else at **No access**, including every account and organization permission. Asking for more later makes every installer approve it again.
+9. **Where can this GitHub App be installed?**: choose **Only on this account** when every repository followed is the app owner's own. A host that lets other people connect their own repositories chooses **Any account**. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
 10. Choose **Create GitHub App**.
-11. **Make the key and the secret.** On the app's page, under **Private keys**, choose **Generate a private key**: GitHub downloads a `.pem` file. Under **Client secrets**, choose **Generate a new client secret** and copy it at once, since GitHub shows it only once. The **Client ID** is at the top of the page.
-12. **Give them to the server.** Keep the `.pem` file out of the repository and out of any file you share. Mount it into the container read-only and set the three variables, for example under the `chameleon` service:
 
+#### 3. Collect the three values
+
+GitHub now shows the app's page. To reach it again later, go to your profile picture, **Settings**, **Developer settings**, **GitHub Apps**, and choose **Edit** beside the app.
+
+1. **Client ID**: near the top of the page, under **About**. It starts with `Iv`. Do not use the **App ID**, which is a plain number.
+2. **Client secret**: under **Client secrets**, choose **Generate a new client secret**. GitHub shows it once. Copy it at once and keep it somewhere private.
+3. **Private key**: under **Private keys**, choose **Generate a private key**. A `.pem` file downloads to your computer.
+
+Never type a key or secret into a chat, an issue, a document or a command you will share.
+
+#### 4. Give the three values to Chameleon
+
+1. Put the `.pem` file on the server, outside the project folder, so it can never be committed or shared.
+2. In the compose file, mount it read-only and set the three variables under the `chameleon` service. The values below are placeholders:
+
+   ```yaml
+   services:
+     chameleon:
+       volumes:
+         - /path/on/your/server/chameleon-app.pem:/run/secrets/github-app.pem:ro
+       environment:
+         ISSUES_GITHUB_APP_CLIENT_ID: "Iv_PLACEHOLDER_CLIENT_ID"
+         ISSUES_GITHUB_APP_CLIENT_SECRET: "PLACEHOLDER_CLIENT_SECRET"
+         ISSUES_GITHUB_APP_KEY_FILE: "/run/secrets/github-app.pem"
    ```
-   volumes:
-     - /path/on/your/server/chameleon-app.pem:/run/secrets/github-app.pem:ro
-   environment:
-     ISSUES_GITHUB_APP_CLIENT_ID: "CHANGE_ME_CLIENT_ID"
-     ISSUES_GITHUB_APP_CLIENT_SECRET: "CHANGE_ME_CLIENT_SECRET"
-     ISSUES_GITHUB_APP_KEY_FILE: "/run/secrets/github-app.pem"
-   ```
 
-13. **Restart.** Recreate the container. Check that the start-up log has none of the lines above, and that **Service terms** now says "GitHub app: <name>, working." That line appears after the server has first asked GitHub about the app.
-14. **Accept GitHub's terms** under **Service terms**, if you have not.
-15. **Install the app on the repository.** On the app's public page on GitHub, choose **Install**, pick the account, and choose the repository (or **Only select repositories**). The repository's owner, or an administrator of its organization, does this; the app can be installed on a repository without Chameleon knowing.
-16. **Connect the space.** An owner opens the space's **Set up**, the **Settings** tab, **Follows GitHub**, and chooses **Connect to GitHub** ([Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository").
+3. Recreate the container so it reads them. The start-up log should show none of the lines in the table above ("The GitHub app needs ...", "Set only one of ...", "The GitHub app's private key could not be read ...").
+4. Open **Manage**, then **Modules**, then **Service terms**. The GitHub line reads "GitHub app: <name>, working." once the server has asked GitHub about the app, or "GitHub app: set up, not checked yet." before that. If it reads anything else, see "If something goes wrong".
+5. Under **Service terms**, accept GitHub's terms if you have not.
 
-Never type a key or secret into a chat, an issue, a document or a command you will share. To rotate them, make a new key or secret on the app's page, change the variables and recreate the container.
+#### 5. Install the app on a repository
+
+The repository's owner, or an administrator of its organization, does this. The app can be installed on a repository without Chameleon knowing.
+
+1. Open the app's page (see part 3).
+2. In the left sidebar, choose **Install App**.
+3. Choose **Install** next to the account that owns the repository.
+4. Choose **Only select repositories**.
+5. Pick the repository from the list.
+6. Choose **Install**.
+
+Once installed, the app appears in the repository's **Settings**, then **Integrations**, then **GitHub Apps** list. That is where to check it is there, or to remove it.
+
+#### 6. Connect a space
+
+1. An owner opens the space's **Set up**, then **Modules**, and finds **Follows GitHub** in Planner - Projects' section.
+2. Choose **Connect to GitHub**. GitHub opens in the same tab. Sign in if asked; this happens once, and later it sends you straight back.
+3. Back in **Set up**, a list shows the repositories the app is installed on that you can reach. Choose **Follow** next to the repository.
+
+The space must have an empty plan, or one that holds only this repository's own pulled work. If not, the page says "Clear the plan first (in Planner - Projects, Export and import, then Clear), or use a new space." (with the space word of your environment). Clear the plan or make a new space, then choose **Follow** again. More on this step is in [Planner - Projects](userguide-planner-projects.md), "Follow a GitHub repository".
+
+#### If something goes wrong
+
+| What you see | Who sees it | What to do |
+|---|---|---|
+| "GitHub app: not set up." or "This server has no GitHub app." | Administrator, owner | Do parts 3 and 4. The owner asks the administrator. |
+| "GitHub app: not working. Check its settings on the server." or "The GitHub app on this server is not working. The administrator checks its settings." | Administrator, owner | Check the client ID is the one starting with `Iv`, and that the key is the app's current one (a deleted key stops working). Fix the variables, recreate the container, and wait 5 minutes for the server to ask GitHub again. |
+| "GitHub did not finish connecting. Go back and press Connect to GitHub again." | Owner | Press **Connect to GitHub** again. If it repeats, the administrator checks the client secret: a wrong one is seen only here. |
+| "This link has run out. Go back and press Connect to GitHub again." | Owner | Press **Connect to GitHub** again and pick the repository within 15 minutes. |
+| "The GitHub app is no longer installed on owner/name. Install it again and press Connect to GitHub, or stop following." | Owner | Install the app on the repository again (part 5), then press **Connect to GitHub**. |
+| "The GitHub app is paused for owner/name on GitHub." | Owner, administrator | The repository's owner resumes the app on GitHub, under the app's installation settings. |
+| "That repository is not in your list. Press Connect to GitHub again." | Owner | Install the app on the repository (part 5) and make sure you can see it on GitHub, then press **Connect to GitHub** again. |
+| "You can read this repository on GitHub but not change it, so changes stay read only here." or "The GitHub app may not change this repository." | Owner | Someone who can write to the repository on GitHub connects it, or accept read-only following. |
+
+To rotate the key or the secret, make a new one on the app's page, change the variables and recreate the container.
 
 ## Other
 
