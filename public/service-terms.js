@@ -88,7 +88,7 @@ export function wireServiceTerms(route, where = 'single') {
     head.append(el('span', 'weather-terms-app-line', words[app.state] || words.off), tag);
     box.append(head);
     if (typeof app.callback === 'string' && /^https?:\/\//.test(app.callback)) {
-      box.append(el('p', 'sdk-hint', 'On GitHub, enter this address as both the callback URL and the setup URL:'));
+      box.append(el('p', 'sdk-hint', 'On GitHub, enter this address as both the Redirect URI and the Setup URL:'));
       const row = el('div', 'weather-terms-address');
       row.append(el('code', 'weather-terms-callback', app.callback));
       const copy = el('button', 'btn btn-small', 'Copy');
