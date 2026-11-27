@@ -3,7 +3,7 @@
 // space's), the page a space's moderators use (module-settings.html) and the profile page (a person's own); and,
 // without the cards' Saves (`draft: true`), in the Set up panel's modules tab, whose own Save sends them. The
 // server decides who may change what; this only draws what it is given.
-import { api, escapeHtml, word, accessKeyHeaders } from '/brand.js';
+import { api, escapeHtml, word, accessKeyHeaders, hasOwnerRights } from '/brand.js';
 import { confirmDialog } from '/confirm.js';
 import { colourFields } from '/colour-field.js';
 import { listControl, readList, wireList, listWords } from '/list-rows.js';
@@ -62,78 +62,211 @@ function control(def, draft = false) {
   if (def.type === 'url') return `${head}<input id="${id}" type="url" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="500" placeholder="https://"></label>`;
   if (def.type === 'number') return `${head}<input id="${id}" type="number" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" ${def.min !== undefined ? `min="${def.min}"` : ''} ${def.max !== undefined ? `max="${def.max}"` : ''} step="any"></label>`;
   if (def.type === 'color') return `${head}<input id="${id}" type="text" data-colour-field data-key="${escapeHtml(def.key)}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(def.value) ? def.value : '#000000')}"></label>`;
-  // A repository the space follows (`follows: "issues"`): the box (no data-key: it is never part of Save, the pull's own record on the
-  // server is the truth and the box shows it), one button that follows or stops following at once, and one line saying how it stands,
-  // all filled in by wireFollows once the card is drawn. With no space yet the block is left out.
-  if (def.follows === 'issues') {
-    return `${head}<input id="${id}" type="text" data-follows-input maxlength="${def.maxLength || 100}" autocapitalize="off" spellcheck="false" placeholder="owner/name or the repository's address"></label><div class="follows-pull" data-follows="${escapeHtml(def.key)}"><div class="row"><button type="button" class="btn btn-primary btn-small" data-follows-toggle hidden></button></div><p class="hint" data-follows-line role="status" aria-live="polite">Looking...</p><div data-follows-write hidden><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(def.key)}"><span class="sdk-choice-text" data-follows-write-label>Changes here go to GitHub</span></label><p class="hint" id="follows-write-${escapeHtml(def.key)}" data-follows-write-line role="status" aria-live="polite"></p></div></div>`;
-  }
+  // A repository the space follows (`follows: "issues"`): one block, drawn by wireFollows once the card is drawn (plan-github-app.md,
+  // section 14). It shows one thing to do at a time and has no part in Save: the server's record is the truth. With no space yet the
+  // block is left out.
+  if (def.follows === 'issues') return `<div class="follows-pull" data-follows="${escapeHtml(def.key)}" data-follows-maxlength="${Number(def.maxLength) || 200}"><span class="field-label">${escapeHtml(def.label)}</span><div data-follows-body><p class="hint" role="status">Looking...</p></div></div>`;
   return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"></label>`;
 }
 
-// The "Follows GitHub" block under a repository box (see control). It reads the space's pull (GET /api/spaces/:id/issues-pull) and has
-// one button: "Follow this repository" stores the repository typed in the box and turns the pull on in one step (PUT), "Stop following"
-// turns it off. Neither waits for Save: the box is no part of Save, the server's record is the truth and the box shows its owner/name.
-// One line says how it stands; a refusal is the server's own sentence (terms not accepted, a plan that is not empty, not the owner).
+// Where GitHub sent the person back to (space.js reads `?space=&link=&done=` from the address, takes it off the address and hands it
+// here). In memory only: `done` is the one thing that proves this browser is the one that pressed Connect, so it is never written to
+// storage, a cookie or a log. wireFollows takes it once, for its own space.
+let linkReturn = null;
+// GitHub's own address (https), or this machine's own where a check stands in for GitHub: nothing else is followed or shown as a link.
+const githubAddress = (u) => typeof u === 'string' && (/^https:\/\//.test(u) || /^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(u));
+export function holdLinkReturn(back) {
+  const text = (v) => (typeof v === 'string' && /^[A-Za-z0-9_.~-]{1,200}$/.test(v) ? v : '');
+  linkReturn = back && text(back.space) && text(back.link) && text(back.done) ? { space: back.space, link: back.link, done: back.done } : null;
+  return Boolean(linkReturn);
+}
+
+// The block under "Follows GitHub" (see control; plan-github-app.md, section 14). It reads the space's pull (GET /api/spaces/:id/issues-pull)
+// and shows one thing to do at a time:
+//   not following   Connect to GitHub (goes to GitHub, back to Set up), and, quieter, a public repository read only;
+//   back from GitHub   the repositories the person can reach, each with Follow; how to install the app on one that is not there;
+//   following   how it stands, Stop following, and the switch for changes going to GitHub (only where the person could write).
+// Every button acts at once; none waits for Save. A refusal is the server's own sentence in the line. Only an owner (and the admin) is
+// given buttons: the server refuses anyone else, and this says so instead of offering them.
 function wireFollows(box, space) {
-  const toggle = box.querySelector('[data-follows-toggle]');
-  const line = box.querySelector('[data-follows-line]');
-  const input = box.closest('.module-setting').querySelector('input[data-follows-input]');
-  const writeBox = box.querySelector('[data-follows-write]');
-  const writeInput = box.querySelector('[data-follows-write-input]');
-  const writeLine = box.querySelector('[data-follows-write-line]');
+  const body = box.querySelector('[data-follows-body]');
   const route = `/api/spaces/${encodeURIComponent(space)}/issues-pull`;
+  const linkRoute = `/api/spaces/${encodeURIComponent(space)}/issues-link`;
   const at = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); };
-  let on = false;
-  const say = (text, error = false) => { line.textContent = text; line.classList.toggle('error', error); };
-  const draw = (v) => {
-    on = Boolean(v && v.on);
-    const name = (v && v.name) || 'GitHub';
-    toggle.textContent = on ? 'Stop following' : 'Follow this repository';
-    toggle.classList.toggle('btn-primary', !on);
-    toggle.classList.toggle('btn-danger', on);
-    toggle.hidden = false;
-    if (input) {
-      input.readOnly = on;
-      if (v && v.repo && (on || !input.value)) input.value = v.repo; // the server's clean owner/name, never what was pasted
-    }
-    // The switch for changes going back: only while following, and on only when the server is set up for this repository.
-    writeBox.hidden = !on;
-    box.querySelector('[data-follows-write-label]').textContent = `Changes here go to ${name}`;
-    writeInput.checked = Boolean(on && v.write);
-    writeInput.disabled = !(on && v.canWrite);
-    writeLine.classList.remove('error');
-    writeLine.textContent = !on ? '' : v.canWrite ? `Moves, closes, titles and tags made here change the issues on ${name}, as the account that owns this server's token.` : `This server is not set up to change ${name} for this repository.`;
-    if (!on) say('Not following. Enter a repository and press Follow this repository.');
-    else if (v.error) say(v.error, true);
-    else if (v.last) say(`Following ${v.repo}, last pulled ${at(v.last)}.`);
-    else say(`Waiting for the first pull from ${name}.`);
+  const MAX = Number(box.dataset.followsMaxlength) || 200;
+  let may = false;
+  let noApp = ''; // the server's sentence when it has no working app (it answers this only when Connect is pressed; the pull's answer names the app only while following)
+  let back = linkReturn && linkReturn.space === space ? linkReturn : null; // the return from GitHub, until it is used or fails
+  if (back) linkReturn = null;
+  let last = null;
+  const q = (sel) => body.querySelector(sel);
+  const say = (text, error = false) => { const line = q('[data-follows-line]'); if (line) { line.textContent = text; line.classList.toggle('error', error); } };
+  const focusLine = () => { const line = q('[data-follows-line]'); if (line) { line.tabIndex = -1; line.focus({ preventScroll: false }); } };
+  const publicBox = (open) => `<details class="follows-public" data-follows-public${open ? ' open' : ''}><summary>Follow a public repository (read only)</summary><div class="follows-public-row"><input type="text" data-follows-input maxlength="${MAX}" autocapitalize="off" spellcheck="false" placeholder="owner/name or the repository's address" aria-label="A public repository, as owner/name or its address"><button type="button" class="btn btn-small" data-follows-public-go>Follow read only</button></div></details>`;
+  const only = `<p class="hint" data-follows-line role="status" aria-live="polite">Only ${escapeHtml(word('owner', { many: true }))} can change this.</p>`;
+
+  const draw = (v, { focus = false } = {}) => {
+    last = v;
+    if (v && v.on) drawFollowing(v);
+    else if (back && !back.failed) drawLooking();
+    else drawIdle();
+    if (focus) focusLine();
   };
-  writeInput.addEventListener('change', async () => {
-    const want = writeInput.checked;
-    writeInput.disabled = true;
-    try {
-      draw(await api('PUT', route, { write: want }));
-    } catch (err) {
-      writeInput.checked = !want;
-      writeLine.textContent = err.message;
-      writeLine.classList.add('error');
-      writeInput.disabled = false;
+
+  function drawIdle(message = '', error = false) {
+    const text = noApp
+      ? `${noApp} Connecting is not offered. You can still follow a public repository to read it. The administrator can fix this.`
+      : 'Follow a GitHub repository: its issues become this plan.';
+    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may && !noApp ? '<div class="row"><button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button></div>' : ''}${may ? publicBox(noApp) : ''}`;
+    if (!may) { body.innerHTML = only; return; }
+    say(message || text, error);
+  }
+
+  function drawLooking() {
+    body.innerHTML = '<p class="hint" data-follows-line role="status" aria-live="polite">Getting your repositories from GitHub...</p>';
+  }
+
+  // The list of repositories (the link's own, answered only to this person).
+  function drawList(list) {
+    const repos = Array.isArray(list.repositories) ? list.repositories : [];
+    const rows = repos.map((r) => `<li class="follows-repo"><span class="follows-repo-name"><strong>${escapeHtml(r.repo)}</strong>${r.private ? ' <span class="sdk-status" data-tone="neutral">Private</span>' : ''}</span><button type="button" class="btn btn-primary btn-small" data-follows-pick="${escapeHtml(String(r.repositoryId))}" aria-label="Follow ${escapeHtml(r.repo)}">Follow</button>${r.canWrite ? '' : '<span class="hint follows-repo-note">You can read this repository but not change it.</span>'}</li>`).join('');
+    const install = githubAddress(list.installUrl) ? list.installUrl : '';
+    const help = `<details class="follows-install" data-follows-install${repos.length ? '' : ' open'}><summary>Is your repository not here?</summary><p class="hint">Install the app on it on GitHub, then press Connect to GitHub again.</p><div class="row">${install ? `<a class="btn btn-small" href="${escapeHtml(install)}" target="_blank" rel="noopener noreferrer">Install on GitHub</a>` : ''}<button type="button" class="btn btn-small" data-follows-connect>Connect to GitHub</button></div>${install ? `<p class="hint">If the repository belongs to someone else, send them this address. Only they, or an administrator of their organization, can install the app on it. Then press Connect to GitHub again.</p><div class="follows-address"><code data-follows-address>${escapeHtml(install)}</code><button type="button" class="btn btn-small" data-follows-copy>Copy</button></div>` : ''}</details>`;
+    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite">${repos.length ? 'Pick the repository to follow.' : 'GitHub shows no repository the app is installed on yet.'}</p>${repos.length ? `<ul class="follows-repos" role="list">${rows}</ul>` : ''}${list.more ? '<p class="hint">This list is not complete: there are more repositories than it shows.</p>' : ''}${repos.some((r) => r.private) ? '<p class="hint">A private repository\'s issue titles and labels will be seen by everyone who can see this plan.</p>' : ''}${help}${publicBox(false)}<div class="row"><button type="button" class="btn btn-small" data-follows-cancel>Cancel</button></div>`;
+  }
+
+  function drawFollowing(v) {
+    const app = v.via === 'app';
+    const name = v.name || 'GitHub';
+    const stateLine = v.appError ? v.appError : v.error ? v.error : v.last ? `Following ${v.repo}${app ? '' : ' read only'}, last pulled ${at(v.last)}.` : `Waiting for the first pull from ${name}.`;
+    const failing = Boolean(v.appError || v.error);
+    const botName = v.app && v.app.slug ? `${v.app.slug}[bot]` : '';
+    const writeWords = !app ? '' : v.canWrite
+      ? `Moves, closes, titles and tags made here change the issues on ${name}. ${name} shows them as ${v.app && v.app.name ? `${v.app.name}, ${botName}` : 'the app'}.`
+      : `You can read this repository on ${name} but not change it, so changes stay read only here.`;
+    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may ? `<div class="row">${!app || v.appError ? '<button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button>' : ''}<button type="button" class="btn btn-danger" data-follows-stop>Stop following</button></div>` : ''}${app ? `<div data-follows-write><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(box.dataset.follows)}"><span class="sdk-choice-text">Changes here go to ${escapeHtml(name)}</span></label><p class="hint" id="follows-write-${escapeHtml(box.dataset.follows)}" data-follows-write-line role="status" aria-live="polite"></p></div>` : `<p class="hint">${may ? 'Changes stay here. Connect to GitHub to send them to GitHub.' : ''}</p>`}`;
+    say(stateLine, failing);
+    if (app) {
+      const input = q('[data-follows-write-input]');
+      input.checked = Boolean(v.write);
+      input.disabled = !(may && v.canWrite);
+      q('[data-follows-write-line]').textContent = writeWords;
     }
-  });
-  api('GET', route).then(draw).catch((err) => { toggle.hidden = true; say(err.message, true); });
-  toggle.addEventListener('click', async () => {
-    const repo = (input ? input.value : '').trim();
-    if (!on && !repo) { say('Enter the repository as owner/name, or paste its address, first.', true); return; }
-    if (on && !await confirmDialog({ title: 'Stop following?', message: 'The work already pulled stays in the plan as your own, and can be changed here again.', action: 'Stop following', kind: 'destructive' })) return;
-    toggle.disabled = true;
+  }
+
+  // Connect to GitHub: the server makes the address, and the page goes there in this tab.
+  async function connect(button) {
+    button.disabled = true;
+    say('Going to GitHub...');
     try {
-      draw(await api('PUT', route, on ? { on: false } : { on: true, repo }));
+      const { url } = await api('POST', linkRoute, {});
+      if (!githubAddress(url)) throw new Error('GitHub did not give an address to go to. Try again.');
+      location.assign(url);
     } catch (err) {
+      if (err.status === 409 && /no GitHub app|GitHub app on this server is not working/.test(err.message)) { noApp = err.message; draw(last, { focus: true }); return; }
+      say(err.message, true);
+      button.disabled = false;
+    }
+  }
+
+  async function pick(button) {
+    const id = Number(button.dataset.followsPick);
+    for (const b of body.querySelectorAll('button')) b.disabled = true;
+    say('Following...');
+    try {
+      back = null;
+      draw(await api('PUT', route, { on: true, link: listFor.link, done: listFor.done, repositoryId: id }), { focus: true });
+    } catch (err) {
+      if (err.status === 404) { listFor = null; drawIdle(err.message, true); focusLine(); return; }
+      if (listLast) drawList(listLast);
       say(err.message, true);
     }
-    toggle.disabled = false;
+  }
+
+  let listFor = null; // { link, done }: held in memory only, for Follow
+  let listLast = null;
+  async function showList() {
+    listFor = { link: back.link, done: back.done };
+    back = null;
+    try {
+      listLast = await api('GET', `${linkRoute}?link=${encodeURIComponent(listFor.link)}&done=${encodeURIComponent(listFor.done)}`);
+      drawList(listLast);
+      body.closest('.module-setting').scrollIntoView({ block: 'nearest' });
+      focusLine();
+    } catch (err) {
+      listFor = null;
+      drawIdle(err.message, true);
+      focusLine();
+    }
+  }
+
+  body.addEventListener('click', async (event) => {
+    const t = event.target.closest('button');
+    if (!t) return;
+    if (t.matches('[data-follows-connect]')) return connect(t);
+    if (t.matches('[data-follows-pick]')) return pick(t);
+    if (t.matches('[data-follows-cancel]')) { listFor = null; listLast = null; draw(last, { focus: true }); return; }
+    if (t.matches('[data-follows-copy]')) {
+      const text = (q('[data-follows-address]') || {}).textContent || '';
+      try { await navigator.clipboard.writeText(text); t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy'; }, 2500); } catch { window.prompt('Copy this:', text); }
+      return;
+    }
+    if (t.matches('[data-follows-public-go]')) {
+      const repo = (q('[data-follows-input]').value || '').trim();
+      if (!repo) { say('Enter the repository as owner/name, or paste its address, first.', true); return; }
+      t.disabled = true;
+      try {
+        listFor = null;
+        listLast = null;
+        draw(await api('PUT', route, { on: true, repo }), { focus: true });
+      } catch (err) {
+        t.disabled = false;
+        say(err.message, true);
+      }
+      return;
+    }
+    if (t.matches('[data-follows-stop]')) {
+      if (!await confirmDialog({ title: 'Stop following?', message: 'The work already pulled stays in the plan as your own, and can be changed here again.', action: 'Stop following', kind: 'destructive' })) return;
+      t.disabled = true;
+      try {
+        draw(await api('PUT', route, { on: false }), { focus: true });
+      } catch (err) {
+        t.disabled = false;
+        say(err.message, true);
+      }
+    }
   });
+  body.addEventListener('change', async (event) => {
+    const input = event.target.closest('[data-follows-write-input]');
+    if (!input) return;
+    const want = input.checked;
+    input.disabled = true;
+    try {
+      const v = await api('PUT', route, { write: want });
+      draw(v);
+      q('[data-follows-write-input]')?.focus();
+    } catch (err) {
+      input.checked = !want;
+      const line = q('[data-follows-write-line]');
+      line.textContent = err.message;
+      line.classList.add('error');
+      input.disabled = false;
+    }
+  });
+
+  (async () => {
+    try {
+      const me = await api('GET', '/api/me').catch(() => ({}));
+      may = hasOwnerRights(me.user) && !(me.user && me.user.agent);
+      const v = await api('GET', route);
+      if (back && may && !(v && v.on)) { drawLooking(); last = v; await showList(); return; }
+      back = null; // following already, or not the owner: the return has nothing to do here
+      draw(v);
+    } catch (err) {
+      body.innerHTML = `<p class="hint error" data-follows-line role="status"></p>`;
+      say(err.message, true);
+    }
+  })();
 }
 
 // A `file` setting that takes an upload (module.json `upload`): choose a file to put it here, or Clear to take it away. Both

@@ -6862,6 +6862,11 @@ body.chat-window {
 .weather-terms-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .weather-terms-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .weather-terms-actions .btn { flex: none; }
+/* The GitHub app's line (the administrator's): how it stands, and the one address to enter on GitHub, with Copy. */
+.weather-terms-app { display: flex; flex-direction: column; gap: var(--space-2); }
+.weather-terms-address { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.weather-terms-callback { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3); border: 1px solid var(--edge-hairline); border-radius: var(--radius-small); background: var(--bg-section); color: var(--text); }
+@media (max-width: 640px) { .weather-terms-address .btn { --btn-h: 44px; } }
 
 /* A masked password field with its Show/Hide button (brand.js wires any button[data-reveal]). */
 .reveal-row { flex-wrap: nowrap; }
@@ -7057,6 +7062,32 @@ body.chat-window {
 /* A module setting a template drives or seeds, wherever the form is drawn (Manage > Modules, Set up, Profile). */
 .module-setting .setting-mark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 0; }
 .module-setting .setting-mark .btn { --btn-h: 32px; }
+/* The follow control (public/module-settings.js wireFollows): one thing at a time. The repositories are rows (name and Private, then
+   Follow); the public box and the install help are quiet folds. On a phone each row stacks and every control is a 44px target. */
+.follows-pull { display: flex; flex-direction: column; gap: var(--space-2); }
+.follows-pull [data-follows-body] { display: flex; flex-direction: column; gap: var(--space-3); }
+.follows-pull p { margin: 0; }
+.follows-pull .error { color: var(--danger-text); }
+.follows-pull .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.follows-repos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--edge-hairline); border-radius: var(--radius-small); }
+.follows-repo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); }
+.follows-repo + .follows-repo { border-top: 1px solid var(--edge-hairline); }
+.follows-repo-name { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
+.follows-repo-note { flex-basis: 100%; }
+.follows-public, .follows-install { border-top: 1px solid var(--edge-hairline); padding-top: var(--space-2); }
+.follows-public > summary, .follows-install > summary { cursor: pointer; display: flex; align-items: center; min-height: 44px; color: var(--text-link, var(--accent)); font-size: var(--text-13, 13px); }
+.follows-public > summary::before, .follows-install > summary::before { content: ""; flex: none; width: 6px; height: 6px; margin: 0 var(--space-3) 2px 2px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(-45deg); }
+.follows-public[open] > summary::before, .follows-install[open] > summary::before { transform: rotate(45deg); }
+.follows-pull [data-follows-line]:focus { outline: none; }
+.follows-public > summary:focus-visible, .follows-install > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.follows-public-row, .follows-address { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.follows-public-row input { flex: 1 1 14rem; min-width: 0; }
+.follows-address code { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3); border: 1px solid var(--edge-hairline); border-radius: var(--radius-small); background: var(--bg-section); color: var(--text); }
+@media (max-width: 640px) {
+  .follows-pull .btn { --btn-h: 44px; min-height: 44px; }
+  .follows-pull input[type="text"] { min-height: 44px; }
+  .follows-repo .btn { flex: 1 1 100%; }
+}
 .module-setting[data-locked] input:disabled, .module-setting[data-locked] select:disabled { opacity: 1; cursor: default; }
 @media (max-width: 640px) {
   .tp-phase { grid-template-columns: minmax(0, 1fr) auto; } /* name and colour, then icon and Main, then the buttons */
