@@ -5,7 +5,7 @@
 // (#weather-terms-section and the ids below) and calls wireServiceTerms with its route. On a hosted server an owner sees the
 // status on the admin page and a sentence that the host's administrator accepts, with no buttons. The server's own sentences
 // are shown as they come.
-import { api } from '/brand.js';
+import { api, word } from '/brand.js';
 import { confirmDialog } from '/confirm.js';
 
 const ACCEPT_WORDS = 'I have read the terms and accept them for this server.';
@@ -65,9 +65,46 @@ export function wireServiceTerms(route, where = 'single') {
         p.append(a);
         li.append(p);
       }
+      if (may && s.id === 'github') li.append(appBlock(answer.githubApp));
       if (may) li.append(controls(s));
       list.append(li);
     }
+  }
+
+  // The GitHub app, for the administrator only (the server fills `callback` for no one else): how it stands, in one line, and the one
+  // address to enter on GitHub as both the callback and the setup address, with Copy. Never a key or a secret: the server sends none.
+  function appBlock(app) {
+    const box = el('div', 'weather-terms-app');
+    if (!app || typeof app !== 'object') return box;
+    const words = {
+      off: `GitHub app: not set up. ${word('space', { many: true, cap: true })} can follow public repositories read only.`,
+      broken: 'GitHub app: not working. Check its settings on the server.',
+      unchecked: 'GitHub app: set up, not checked yet.',
+      working: `GitHub app: ${app.name || 'the app'}, working.`,
+    };
+    const head = el('div', 'weather-terms-head');
+    const tag = el('span', 'sdk-status', app.state === 'working' ? 'Working' : app.state === 'off' ? 'Not set up' : app.state === 'broken' ? 'Not working' : 'Not checked');
+    tag.dataset.tone = app.state === 'working' ? 'ok' : app.state === 'unchecked' || app.state === 'off' ? 'neutral' : 'warn';
+    head.append(el('span', 'weather-terms-app-line', words[app.state] || words.off), tag);
+    box.append(head);
+    if (typeof app.callback === 'string' && /^https?:\/\//.test(app.callback)) {
+      box.append(el('p', 'sdk-hint', 'On GitHub, enter this address as both the callback URL and the setup URL:'));
+      const row = el('div', 'weather-terms-address');
+      row.append(el('code', 'weather-terms-callback', app.callback));
+      const copy = el('button', 'btn btn-small', 'Copy');
+      copy.type = 'button';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(app.callback);
+          say('Copied.');
+        } catch {
+          window.prompt('Copy this:', app.callback);
+        }
+      });
+      row.append(copy);
+      box.append(row);
+    }
+    return box;
   }
 
   function controls(s) {
