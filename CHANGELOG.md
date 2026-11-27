@@ -15,6 +15,7 @@ Written from the code on `main` at `3d68686b` (pull requests #1191, #1192, #1194
 - **Service terms shows the app.** For the administrator, one line ("GitHub app: <name>, working.", "not set up", "not working" or "not checked yet") and the one address to enter on GitHub as both the callback and the setup URL, with **Copy**. Never a key or a secret.
 - **The app's installation tokens** are made for one repository, with Issues and Metadata permissions only, kept in memory, and dropped when GitHub refuses them. If the app is uninstalled or paused, the space says so ("The GitHub app is no longer installed on owner/name. ...") and stops writing; a public repository goes on reading. A renamed repository is followed.
 - **"Register the GitHub app"**, a numbered checklist for the server's administrator, in the Settings reference.
+- **The checklist follows GitHub's real layout** (2026-11-27, checked against live GitHub screenshots). The client secret and private key are under **Credentials** (tabs **Client secrets** and **Key pairs**), the Client ID is on **General**, and **Make public** is under **Advanced**, in the danger zone. It also says what making the app public does and does not allow, and what to do if a key or secret leaks. The **Key pairs** button label, the **Install App** page and the **Public page** wording are still from memory. Documents only; nothing run.
 
 #### Changed
 

@@ -96,7 +96,7 @@ Environment variables, read at start, the host's on a server with environments. 
 - Callback URL: the server's link address (section 6), exactly one, wildcard off. Setup URL: the same address. **Request user authorization (OAuth) during installation**: off (it drops `state` and the setup URL). **Expire user authorization tokens**: on. **Enable Device Flow**: off. Webhook **Active**: off.
 - Permissions: Issues read and write; Metadata read (GitHub's). Nothing else.
 - Where it can be installed: **Any account** when other people's repositories will connect (a host with environments, or a server whose owners use their own GitHub accounts); **Only on this account** when every repository is the app owner's own.
-- Generate a private key and a client secret; set the three variables; restart.
+- Generate a private key (Credentials, Key pairs) and a client secret (Credentials, Client secrets); set the three variables; restart.
 
 *A manifest to fill the form* (not leaned): a **Register the GitHub app** button on the host console could send the administrator to GitHub with every field above already set, and GitHub would hand the key and secret back to the server. Saves typing, but the server would then have to store the key itself (in `DATA_DIR`, sealed), against the rule that configuration lives in environment variables. Lean: not built; the checklist instead.
 
