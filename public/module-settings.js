@@ -105,8 +105,14 @@ function wireFollows(box, space) {
   const publicBox = (open) => `<details class="follows-public" data-follows-public${open ? ' open' : ''}><summary>Follow a public repository (read only)</summary><div class="follows-public-row"><input type="text" data-follows-input maxlength="${MAX}" autocapitalize="off" spellcheck="false" placeholder="owner/name or the repository's address" aria-label="A public repository, as owner/name or its address"><button type="button" class="btn btn-small" data-follows-public-go>Follow read only</button></div></details>`;
   const only = `<p class="hint" data-follows-line role="status" aria-live="polite">Only ${escapeHtml(word('owner', { many: true }))} can change this.</p>`;
 
+  // The server says up front whether its GitHub app can be used (the pull's `appState`), so Connect is not offered where it cannot work.
+  // 'unchecked' and 'working' still offer it; an unchecked app can still refuse the first press (409, kept below).
+  const APP_OFF = 'This server has no GitHub app.';
+  const APP_BROKEN = 'The GitHub app on this server is not working. The administrator checks its settings.';
+  const appLine = (v) => (v && v.appState === 'off' ? APP_OFF : v && v.appState === 'broken' ? APP_BROKEN : '');
   const draw = (v, { focus = false } = {}) => {
     last = v;
+    if (appLine(v)) noApp = appLine(v);
     if (v && v.on) drawFollowing(v);
     else if (back && !back.failed) drawLooking();
     else drawIdle();
@@ -115,7 +121,7 @@ function wireFollows(box, space) {
 
   function drawIdle(message = '', error = false) {
     const text = noApp
-      ? `${noApp} Connecting is not offered. You can still follow a public repository to read it. The administrator can fix this.`
+      ? `${noApp}${noApp === APP_BROKEN ? '' : ' Connecting is not offered. You can still follow a public repository to read it. The administrator can fix this.'}`
       : 'Follow a GitHub repository: its issues become this plan.';
     body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may && !noApp ? '<div class="row"><button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button></div>' : ''}${may ? publicBox(noApp) : ''}`;
     if (!may) { body.innerHTML = only; return; }
@@ -140,11 +146,12 @@ function wireFollows(box, space) {
     const name = v.name || 'GitHub';
     const stateLine = v.appError ? v.appError : v.error ? v.error : v.last ? `Following ${v.repo}${app ? '' : ' read only'}, last pulled ${at(v.last)}.` : `Waiting for the first pull from ${name}.`;
     const failing = Boolean(v.appError || v.error);
+    const noAppLine = appLine(v);
     const botName = v.app && v.app.slug ? `${v.app.slug}[bot]` : '';
     const writeWords = !app ? '' : v.canWrite
       ? `Moves, closes, titles and tags made here change the issues on ${name}. ${name} shows them as ${v.app && v.app.name ? `${v.app.name}, ${botName}` : 'the app'}.`
       : `You can read this repository on ${name} but not change it, so changes stay read only here.`;
-    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may ? `<div class="row">${!app || v.appError ? '<button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button>' : ''}<button type="button" class="btn btn-danger" data-follows-stop>Stop following</button></div>` : ''}${app ? `<div data-follows-write><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(box.dataset.follows)}"><span class="sdk-choice-text">Changes here go to ${escapeHtml(name)}</span></label><p class="hint" id="follows-write-${escapeHtml(box.dataset.follows)}" data-follows-write-line role="status" aria-live="polite"></p></div>` : `<p class="hint">${may ? 'Changes stay here. Connect to GitHub to send them to GitHub.' : ''}</p>`}`;
+    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may ? `<div class="row">${(!app || v.appError) && !noAppLine ? '<button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button>' : ''}<button type="button" class="btn btn-danger" data-follows-stop>Stop following</button></div>` : ''}${app ? `<div data-follows-write><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(box.dataset.follows)}"><span class="sdk-choice-text">Changes here go to ${escapeHtml(name)}</span></label><p class="hint" id="follows-write-${escapeHtml(box.dataset.follows)}" data-follows-write-line role="status" aria-live="polite"></p></div>` : `<p class="hint">${may && !noAppLine ? 'Changes stay here. Connect to GitHub to send them to GitHub.' : ''}</p>`}${noAppLine ? `<p class="hint" data-follows-app-line role="status">${escapeHtml(noAppLine)}</p>` : ''}`;
     say(stateLine, failing);
     if (app) {
       const input = q('[data-follows-write-input]');
