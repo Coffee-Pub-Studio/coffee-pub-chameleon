@@ -149,7 +149,7 @@ A space's own switch, **Changes here go to GitHub**, is the owner's and is off t
 
 ### Register the GitHub app
 
-You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own. The steps assume you have never opened GitHub's developer settings. The labels in the form's **Identifying and authorizing users**, **Post installation** and **Webhook** sections were confirmed against a live GitHub session on 2026-11-27. The rest were written from memory of GitHub's pages and were not checked: the **Permissions** section, the **Where can this GitHub App be installed?** choice, and the **Install App**, key and secret buttons. If a label on your screen differs, report it so this page can be corrected.
+You do this once per server, on GitHub, as the person who will own the app. It costs nothing. An app is never shared between servers: each server registers its own. The steps assume you have never opened GitHub's developer settings. These labels were confirmed against a live GitHub session on 2026-11-27: the form's **Identifying and authorizing users**, **Post installation** and **Webhook** sections, the **Permissions** rows (**Issues** at **Read and write**, **Metadata** at **Read-only**), the **Credentials** page and its two tabs, **New secret**, and **Advanced**, then the danger zone, then **Make public**. These were written from memory of GitHub's pages and were not checked: the button that generates a private key under **Key pairs**, the labels on the **Install App** page, and the wording of the **Public page**. If a label on your screen differs, report it so this page can be corrected.
 
 #### One app per server, one connection per space
 
@@ -164,7 +164,7 @@ When an owner of a space wants to follow a repository, they do this themselves:
 3. If the app is not yet installed on the account or organization that holds the repository, install it there on GitHub. The owner needs the right to install apps in that account or organization.
 4. Back in Chameleon, pick the repository and choose **Follow**.
 
-For this to work, other people must be able to install your app. Register it for **Any account** (step 7 of part 2).
+For this to work, other people must be able to install your app. Register it for **Any account** (step 7 of part 2). Making the app public does not let anyone touch your repositories: a person installs the app on their own repository, and your private key stays on your server. The key is what lets Chameleon act as the app.
 
 There are six parts: get the address from Chameleon, register the app, collect three values, give them to Chameleon, install the app on a repository, and connect a space.
 
@@ -203,18 +203,20 @@ Fill in the form:
 6. **Permissions**: open **Repository permissions**. Set **Issues** to **Read and write**. **Metadata** is **Read-only**, which GitHub sets for you. Leave everything else at **No access**, including every account and organization permission. Asking for more later makes every installer approve it again.
 7. **Where can this GitHub App be installed?**: choose **Any account**. Choose it on every server where anyone other than the app's owner will connect a repository, which is the purpose of the app: each space's owner connects their own repository, in their own GitHub account or organization. With **Only on this account**, nobody but the app's owner can install the app, so no one else can connect. Choose **Only on this account** only on a server where every connected repository belongs to the app's owner. Either way an owner is offered only the repositories the app is installed on that they can reach on GitHub themselves.
 
-   If you registered the app as private, open its page on GitHub (your profile picture, **Settings**, **Developer settings**, **GitHub Apps**, **Edit**), scroll to the bottom and, under the danger zone, choose **Make public**. This label is written from memory and was not confirmed on GitHub; if you do not find it, look for the same choice by another name.
+   If you registered the app as private, open its page on GitHub (your profile picture, **Settings**, **Developer settings**, **GitHub Apps**, **Edit**). In the left sidebar choose **Advanced**. The danger zone on that page holds **Transfer ownership**, **Delete GitHub App** and **Make this GitHub App public**. Choose **Make public**. GitHub asks "Any user or organization will be able to install this GitHub App. Are you sure you want to make <app name> public?" Choose **OK**.
+
+   A public app has a **Public page** (a link in the left sidebar) that shows the app's name and description to anyone, so keep both plain.
 8. Choose **Create GitHub App**.
 
 #### 3. Collect the three values
 
 GitHub now shows the app's page. To reach it again later, go to your profile picture, **Settings**, **Developer settings**, **GitHub Apps**, and choose **Edit** beside the app.
 
-1. **Client ID**: near the top of the page, under **About**. It starts with `Iv`. Do not use the **App ID**, which is a plain number.
-2. **Client secret**: under **Client secrets**, choose **Generate a new client secret**. GitHub shows it once. Copy it at once and keep it somewhere private.
-3. **Private key**: under **Private keys**, choose **Generate a private key**. A `.pem` file downloads to your computer.
+1. **Client ID**: in the left sidebar choose **General**. The Client ID is near the top. It starts with `Iv`. Do not use the **App ID**, which is a plain number.
+2. **Client secret**: in the left sidebar choose **Credentials**, and open the **Client secrets** tab. Before you make one it reads "You have no client secrets". Choose the green **New secret** button. GitHub shows the secret once. Copy it at once and keep it somewhere private.
+3. **Private key**: on **Credentials**, open the **Key pairs** tab and generate the private key there. A `.pem` file downloads to your computer. The label of the button on that tab has not been confirmed against GitHub.
 
-Never type a key or secret into a chat, an issue, a document or a command you will share.
+Never type a key or secret into a chat, an issue, a document or a command you will share. Guard the private key and the client secret: anyone who holds them can act as your app. If a key leaks, delete it under **Key pairs** and generate a new one. If a secret leaks, generate another under **Client secrets** and delete the old one. Then change the variables and recreate the container (part 4).
 
 #### 4. Give the three values to Chameleon
 
@@ -271,7 +273,7 @@ The space must have an empty plan, or one that holds only this repository's own 
 | "That repository is not in your list. Press Connect to GitHub again." | Owner | Install the app on the repository (part 5) and make sure you can see it on GitHub, then press **Connect to GitHub** again. |
 | "You can read this repository on GitHub but not change it, so changes stay read only here." or "The GitHub app may not change this repository." | Owner | Someone who can write to the repository on GitHub connects it, or accept read-only following. |
 
-To rotate the key or the secret, make a new one on the app's page, change the variables and recreate the container.
+To rotate the key or the secret, make a new one on the app's **Credentials** page, change the variables and recreate the container.
 
 ## Other
 
