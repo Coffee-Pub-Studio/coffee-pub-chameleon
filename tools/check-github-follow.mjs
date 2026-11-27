@@ -14,7 +14,8 @@
  *   token; a reload keeps the state; Stop following; a public repository read only (the quiet box); a spent link says so and offers
  *   Connect again. Then 390 wide, light and dark (the page's own switch): the idle state and the list fit without sideways scroll,
  *   every control 44 px high. Service terms on the admin page: the app's line and the one address, with Copy, and no secret.
- *   Server B has no app: Connect says so, offers no Connect, and the public box stays.
+ *   Server B has no app: the first draw says so with no Connect and the public box open (1280 and 390, both modes), also while following.
+ *   Server C has an app set up wrongly (no client secret): broken; the first draw says so, with no Connect.
  * With no Chromium it says SKIPPED and exits 0 (a skip, never a pass). SHOTS=<folder> keeps a screenshot of each state.
  */
 import fs from 'node:fs';
@@ -70,10 +71,12 @@ const fake = http.createServer((req, res) => {
 await new Promise((r) => fake.listen(0, '127.0.0.1', r));
 const STANDIN = `http://127.0.0.1:${fake.address().port}`;
 
+const dirC = fs.mkdtempSync(path.join(os.tmpdir(), 'check-github-follow-c-'));
 const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'check-github-follow-a-'));
 const dirB = fs.mkdtempSync(path.join(os.tmpdir(), 'check-github-follow-b-'));
 const serverA = await startServer(dirA, await freePort(), 'first', { ISSUES_TEST_STANDIN: STANDIN, ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_CLIENT_SECRET: CLIENT_SECRET, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n'), ISSUES_TEST_GAP_MS: '300' });
 const serverB = await startServer(dirB, await freePort(), 'first', { ISSUES_TEST_STANDIN: STANDIN });
+const serverC = await startServer(dirC, await freePort(), 'first', { ISSUES_TEST_STANDIN: STANDIN, ISSUES_GITHUB_APP_CLIENT_ID: CLIENT_ID, ISSUES_GITHUB_APP_KEY: PEM.replace(/\n/g, '\\n') });
 
 function api(server) {
   const jar = {};
@@ -97,7 +100,9 @@ let tab = null;
 try {
   const A = api(serverA);
   const B = api(serverB);
+  const C = api(serverC);
   await A.login();
+  await C.login();
   await B.login();
   const setup = async (X, name) => {
     const inst = await X.call('POST', '/api/modules/bundled/schedule/install');
@@ -108,6 +113,7 @@ try {
   };
   const SA = await setup(A, 'Bug Squash');
   const SN = await setup(B, 'No App');
+  const SC = await setup(C, 'Broken App');
   const pullA = async () => (await A.call('GET', `/api/spaces/${SA}/issues-pull`)).json;
 
   const b = await launch(bin);
@@ -270,16 +276,48 @@ try {
   tab = null;
 
   // ======== server B: no app ========
+  // The pull says appState 'off', so the first draw has no Connect: nothing is pressed.
+  same((await B.call('GET', `/api/spaces/${SN}/issues-pull`)).json.appState, 'off', 'the pull says the app is off');
+  for (const [width, mode] of [[1280, 'light'], [390, 'dark'], [390, 'light'], [1280, 'dark']]) {
+    tab = await open(serverB, B, width, mode, `/?setup=${SN}#modules`);
+    await waitFor(tab, '[data-follows-public][open]', `no app ${width} ${mode}: the public box is open from the first draw`);
+    text = await body(tab);
+    ok(/This server has no GitHub app\./.test(text) && /administrator/.test(text), `no app ${width} ${mode}, in plain words: ${text}`);
+    ok(!await exists(tab, '[data-follows-connect]'), `no app ${width} ${mode}: Connect is never shown`);
+    if (width === 390) await fit(tab, `no app ${width} ${mode}`);
+    await shot(tab, `follow-${width}-${mode}-noapp`);
+    await tab.close();
+    tab = null;
+  }
+  // Following a public repository on a server with no app: the sentence sits under the state line and Stop following stays.
   tab = await open(serverB, B, 1280, 'light', `/?setup=${SN}#modules`);
-  await waitFor(tab, '[data-follows-connect]', 'no app: the page cannot tell until Connect is pressed, so Connect is there first');
-  await tab.eval(`__all('[data-follows-connect]')[0].click()`);
-  await waitFor(tab, '[data-follows-public][open]', 'no app: the public box opens');
-  text = await body(tab);
-  ok(/This server has no GitHub app\./.test(text) && /administrator/.test(text), `no app, in plain words: ${text}`);
-  ok(!await exists(tab, '[data-follows-connect]'), 'no app: Connect is gone');
-  await shot(tab, 'follow-1280-light-noapp');
+  await waitFor(tab, '[data-follows-public]', 'no app: the box');
+  await tab.eval(`__all('[data-follows-input]')[0].scrollIntoView({ block: 'center' })`);
+  await sleep(300);
+  await tab.typeInto('[data-follows-input]', 'https://github.com/o/r');
+  await press(tab, '[data-follows-public-go]');
+  await waitFor(tab, '[data-follows-stop]', 'no app: a public repository followed');
+  ok(await exists(tab, '[data-follows-app-line]'), 'no app, following: the sentence is under the state line');
+  ok(/This server has no GitHub app\./.test(await body(tab)), 'no app, following: it says so');
+  ok(!await exists(tab, '[data-follows-connect]'), 'no app, following: no Connect');
+  await shot(tab, 'follow-1280-light-noapp-following');
   await tab.close();
   tab = null;
+  await B.call('PUT', `/api/spaces/${SN}/issues-pull`, { on: false });
+
+  // ======== server C: the app is set up wrongly (no client secret), so it is broken ========
+  same((await C.call('GET', `/api/spaces/${SC}/issues-pull`)).json.appState, 'broken', 'the pull says the app is broken');
+  for (const [width, mode] of [[1280, 'dark'], [390, 'light']]) {
+    tab = await open(serverC, C, width, mode, `/?setup=${SC}#modules`);
+    await waitFor(tab, '[data-follows-public][open]', `broken app ${width} ${mode}: the public box is open from the first draw`);
+    text = await body(tab);
+    ok(/GitHub app on this server is not working/.test(text) && /administrator/.test(text), `broken app, in plain words: ${text}`);
+    ok(!await exists(tab, '[data-follows-connect]'), `broken app ${width} ${mode}: Connect is never shown`);
+    if (width === 390) await fit(tab, `broken app ${width} ${mode}`);
+    await shot(tab, `follow-${width}-${mode}-broken`);
+    await tab.close();
+    tab = null;
+  }
   const bTerms = (await B.call('GET', '/api/weather/terms')).json;
   same(bTerms.githubApp.state, 'off', 'server B says the app is off');
   tab = await open(serverB, B, 1280, 'light', '/admin');
@@ -294,9 +332,10 @@ try {
   if (browser) await stopBrowser(browser).catch(() => {});
   await stopServer(serverA);
   await stopServer(serverB);
+  await stopServer(serverC);
   fake.closeAllConnections();
   fake.close();
-  for (const d of [dirA, dirB]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [dirA, dirB, dirC]) fs.rmSync(d, { recursive: true, force: true });
 }
 if (problems.length) {
   console.error(`check-github-follow: ${problems.length} problem(s) in ${n} checks`);
