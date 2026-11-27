@@ -5,7 +5,7 @@ import { anchorSegments, layoutTabs, tabOverflow, layoutIconChoices, iconMatches
 import { openPhaseSheet, FACT_CHIPS_HIDDEN_AT } from '/phase-sheet.js';
 import { createSpaceSetup, setupAddress, configurationLabel } from '/space-setup.js';
 import { openSpaceAdd } from '/space-add.js';
-import { renderModuleSettings } from '/module-settings.js';
+import { renderModuleSettings, holdLinkReturn } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { openManageTabs } from '/manage-tabs.js';
 import { createCanvas } from '/canvas.js';
@@ -3284,6 +3284,12 @@ function leaveSetup() {
 // Edit link and its jump after making a space (app:enter-space { action: 'setup' }). Enters the space (not the call:
 // joinInvitedSpace, as an invitation does), then opens the panel on the tab asked for (pickTab: an unknown one is the
 // first tab). Someone who may not set up gets the space without the panel. Already setting this space up: the tab.
+// The address GitHub's return lands on: all of space, link and done, else null.
+function linkReturnAddress(search) {
+  const q = new URLSearchParams(search);
+  const [space, link, done] = ['space', 'link', 'done'].map((k) => q.get(k) || '');
+  return space && link && done ? { space, link, done } : null;
+}
 async function openSetupFor(id, tab = '') {
   // The Lobby has no Set up any more (plan-home-lobby.md, step 2): /?setup=lobby opens Manage at its Spaces tab, where
   // Home's row is, for owners and the admin; anyone else stays on Home.
@@ -9338,10 +9344,19 @@ async function init() {
   // tab. The query leaves the address at once (the fragment stays while the panel shows that tab), so a reload or Back
   // does not open it again.
   const setupAsked = setupAddress(location.search, location.hash);
-  const reviewAsked = setupAsked ? null : reviewAddress(location.search, location.hash);
+  // Back from GitHub after Connect to GitHub (plan-github-app.md, section 6): "/?space=<id>&link=<id>&done=<secret>". The three leave the
+  // address at once; `done` is held in memory only (module-settings.js), never stored or logged. Set up opens on Modules, at the
+  // follow control, which asks for the list.
+  const linkBack = setupAsked ? null : linkReturnAddress(location.search);
+  const reviewAsked = setupAsked || linkBack ? null : reviewAddress(location.search, location.hash);
   const invited = /^#join=([a-z0-9]{4,16})$/.exec(location.hash);
   let entering = null; // the join or setup just started: the welcome note waits for it, so it never opens over it
-  if (setupAsked) {
+  if (linkBack) {
+    const rest = new URLSearchParams(location.search);
+    for (const k of ['space', 'link', 'done']) rest.delete(k);
+    history.replaceState(null, '', `${location.pathname}${rest.toString() ? `?${rest}` : ''}`);
+    entering = holdLinkReturn(linkBack) ? openSetupFor(linkBack.space, 'modules') : null;
+  } else if (setupAsked) {
     const rest = new URLSearchParams(location.search);
     rest.delete('setup');
     history.replaceState(null, '', `${location.pathname}${rest.toString() ? `?${rest}` : ''}`);
