@@ -72,17 +72,36 @@ export const CI_FLAGS = ['--headless=new', '--no-sandbox', '--disable-gpu', '--d
 // Start the browser and wait for its "DevTools listening on ws://..." line. A runner can be slow to start it (the first start after
 // a cold cache took over 20 s), so the wait is 60 s, and a start that fails or times out is tried once more with a fresh profile.
 // `flags` are the extra flags beyond CI_FLAGS; `prefix` names the profile folder under os.tmpdir() (listed in browser-profiles.mjs).
+// On Windows Edge needs --edge-skip-compat-layer-relaunch (else it relaunches itself and the child we hold ends), and its DevTools
+// address is read from the DevToolsActivePort file in the profile folder (line 1: the port, line 2: the path) instead of stderr.
+export const WINDOWS_FLAGS = ['--edge-skip-compat-layer-relaunch'];
+
+// The ws:// address from the DevToolsActivePort file in `dir`, or '' while it is not there or not complete yet.
+export function readDevToolsActivePort(dir) {
+  try {
+    const [port, wsPath] = fs.readFileSync(path.join(dir, 'DevToolsActivePort'), 'utf8').split(/\r?\n/);
+    return /^\d+$/.test(port) && wsPath ? `ws://127.0.0.1:${port}${wsPath}` : '';
+  } catch { return ''; }
+}
+
 export async function launchBrowser(bin, flags, prefix, { timeoutMs = 60000, attempts = 2 } = {}) {
   let last;
   for (let i = 1; i <= attempts; i += 1) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-    const child = startBrowser(bin, [...CI_FLAGS, ...flags, `--user-data-dir=${dir}`, 'about:blank'], dir);
+    const win = process.platform === 'win32';
+    const child = startBrowser(bin, [...CI_FLAGS, ...(win ? WINDOWS_FLAGS : []), ...flags, `--user-data-dir=${dir}`, 'about:blank'], dir);
     try {
       const url = await new Promise((resolve, reject) => {
         let buf = '';
-        const t = setTimeout(() => reject(new Error(`the browser did not start in ${timeoutMs / 1000} s: ` + buf.slice(-300))), timeoutMs);
-        child.stderr.on('data', (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); resolve(m[1]); } });
-        child.on('exit', (c) => { clearTimeout(t); reject(new Error('the browser exited (' + c + '): ' + buf.slice(-300))); });
+        let poll;
+        const t = setTimeout(() => { clearInterval(poll); reject(new Error(`the browser did not start in ${timeoutMs / 1000} s: ` + buf.slice(-300))); }, timeoutMs);
+        if (win) {
+          poll = setInterval(() => { const u = readDevToolsActivePort(dir); if (u) { clearTimeout(t); clearInterval(poll); resolve(u); } }, 100);
+          child.stderr.on('data', (d) => { buf += d; }); // kept only for the error message
+        } else {
+          child.stderr.on('data', (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); resolve(m[1]); } });
+        }
+        child.on('exit', (c) => { clearTimeout(t); clearInterval(poll); reject(new Error('the browser exited (' + c + '): ' + buf.slice(-300))); });
       });
       return { child, dir, url };
     } catch (e) {
