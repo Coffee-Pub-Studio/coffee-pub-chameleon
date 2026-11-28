@@ -4,6 +4,8 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+- **Planner - Itinerary 0.16.32:** a flight in the Bookings view now has **Check in** and **Flight status** links under its booking code, whatever the date (the day card still shows them only from 48 hours before departure), and only for an airline in the list. Seen in headless Chromium at 1280 and 390 px; the links were not opened.
+
 - **Planner - Itinerary 0.16.31:** the weather on a day's header fades in once, when the answer arrives, and no longer again each time the plan redraws. Read as code and checked by `check-travel-weather`; not seen in a browser. A negative temperature still prints a hyphen (SDK).
 
 ### Any owner can connect a GitHub repository through an app (2026-11-27)

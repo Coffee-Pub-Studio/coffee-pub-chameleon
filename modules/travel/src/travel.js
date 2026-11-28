@@ -275,14 +275,16 @@
   }
   // The card's row of the same links, from 48 hours before departure (check in until it departs, flight status until the day it lands
   // ends, by the device's clock). Drawn again with the card; there is no timer, so a card opened early shows it on the next redraw.
-  function airlineRowInto(el, item) {
+  // `always` (the Bookings view) shows every link the airline has, whatever the time.
+  function airlineRowInto(el, item, always = false) {
     const links = airlineLinks(item, new Date());
-    if (!links || (!links.soon.checkIn && !links.soon.status)) return;
+    const shown = (key) => (always ? !!links[key] : links.soon[key]);
+    if (!links || (!shown('checkIn') && !shown('status'))) return;
     const row = clone('tpl-card-airline');
     const tip = airlineTip(links.name);
     for (const [key, address, label] of [['checkIn', links.checkIn, 'Check in'], ['status', links.status, 'Flight status']]) {
       const a = row.querySelector(`[data-link="${key}"]`);
-      if (!links.soon[key]) { a.remove(); continue; }
+      if (!shown(key)) { a.remove(); continue; }
       a.href = address;
       a.title = tip;
       a.setAttribute('aria-label', `${label}. ${tip}`);
@@ -1431,6 +1433,7 @@
     const btn = r.querySelector('[data-action="open"]');
     if (button) { btn.textContent = button; btn.dataset.action = 'edit-item'; btn.dataset.id = id; } else btn.remove();
     list.append(r);
+    return r;
   }
   function section(body, title) {
     const [t, ul] = parts('tpl-decisions');
@@ -1461,7 +1464,8 @@
         const line = kind === 'stay'
           ? [i.checkOut && i.date ? `${dayShort(i.date)} – ${dayShort(i.checkOut)}` : dayTime(i), nights ? `${nights} night${nights === 1 ? '' : 's'}` : '', i.place || i.address].filter(Boolean).join(' · ')
           : [dayTime(i), back ? dayTime(back) : '', route].filter(Boolean).join(' · ');
-        row(ul, { icon: kind === 'stay' ? 'bed' : cardOf(i).badge || 'route', title: i.title, sub: line, code: i.confirm, button: 'Open', id: i.id });
+        const r = row(ul, { icon: kind === 'stay' ? 'bed' : cardOf(i).badge || 'route', title: i.title, sub: line, code: i.confirm, button: 'Open', id: i.id });
+        if (kind === 'journey') airlineRowInto(r.querySelector('.decision-main'), i, true); // a flight's check-in and status links, always (Thomas, 2026-11-28); the day card shows them from 48 hours before
       }
     }
   }
