@@ -173,14 +173,17 @@ export function tileRefTarget(ref, { page = '', module = '' } = {}) {
 // updates too. `moduleWord` is the environment's word for a module.
 // `asks`: the agents' delete asks waiting for this person's answer (GET /api/notifications' `asks`; plan-agent-edit-delete.md,
 // "The bell and the badge"), counted for whoever the server counts them for, and named only when there are some.
-export function bellState({ unread = 0, updates = 0, asks = 0, role = null, moduleWord = '' } = {}) {
+// `approvals`: the modules on with an update that waits for approval in Manage > Modules, counted for owners and the admin.
+export function bellState({ unread = 0, updates = 0, asks = 0, approvals = 0, role = null, moduleWord = '' } = {}) {
   const u = Math.max(0, Number(unread) || 0);
   const m = seesUpdates(role) ? Math.max(0, Number(updates) || 0) : 0;
   const a = Math.max(0, Number(asks) || 0);
+  const p = seesUpdates(role) ? Math.max(0, Number(approvals) || 0) : 0;
   let title = `Notifications, ${u} unread`;
   if (seesUpdates(role)) title += `, ${m} ${moduleWord} update${m === 1 ? '' : 's'}`;
+  if (p) title += `, ${p} ${p === 1 ? 'update needs' : 'updates need'} approval`;
   if (a) title += `, ${a} ${a === 1 ? 'ask' : 'asks'} waiting for you`;
-  return { count: u + m + a, updates: m, asks: a, title };
+  return { count: u + m + a + p, updates: m, approvals: p, asks: a, title };
 }
 
 // The breadcrumb after the Spaces slot (decision 14): nothing on home; in a space, its name, current; in an aside, the

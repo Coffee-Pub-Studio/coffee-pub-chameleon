@@ -1630,12 +1630,14 @@ test('presence by membership: Who\'s around says "in an aside" and "in another <
 });
 
 test('the bell: unread notices for everyone, and module updates for owners and the admin only', () => {
-  assert.deepEqual(bellState({ unread: 2, updates: 3, role: 'member', moduleWord: 'module' }), { count: 2, updates: 0, asks: 0, title: 'Notifications, 2 unread' });
-  assert.deepEqual(bellState({ unread: 2, updates: 3, role: 'owner', moduleWord: 'module' }), { count: 5, updates: 3, asks: 0, title: 'Notifications, 2 unread, 3 module updates' });
-  assert.deepEqual(bellState({ unread: 0, updates: 1, role: 'admin', moduleWord: 'tool' }), { count: 1, updates: 1, asks: 0, title: 'Notifications, 0 unread, 1 tool update' });
+  assert.deepEqual(bellState({ unread: 2, updates: 3, role: 'member', moduleWord: 'module' }), { count: 2, updates: 0, approvals: 0, asks: 0, title: 'Notifications, 2 unread' });
+  assert.deepEqual(bellState({ unread: 2, updates: 3, role: 'owner', moduleWord: 'module' }), { count: 5, updates: 3, approvals: 0, asks: 0, title: 'Notifications, 2 unread, 3 module updates' });
+  assert.deepEqual(bellState({ unread: 0, updates: 1, role: 'admin', moduleWord: 'tool' }), { count: 1, updates: 1, approvals: 0, asks: 0, title: 'Notifications, 0 unread, 1 tool update' });
   // The agents' delete asks waiting for this person join the count, for a moderator as for an owner.
-  assert.deepEqual(bellState({ unread: 1, updates: 3, asks: 2, role: 'member', moduleWord: 'module' }), { count: 3, updates: 0, asks: 2, title: 'Notifications, 1 unread, 2 asks waiting for you' });
-  assert.deepEqual(bellState({ unread: 0, updates: 1, asks: 1, role: 'owner', moduleWord: 'module' }), { count: 2, updates: 1, asks: 1, title: 'Notifications, 0 unread, 1 module update, 1 ask waiting for you' });
+  assert.deepEqual(bellState({ unread: 1, updates: 3, asks: 2, role: 'member', moduleWord: 'module' }), { count: 3, updates: 0, approvals: 0, asks: 2, title: 'Notifications, 1 unread, 2 asks waiting for you' });
+  assert.deepEqual(bellState({ unread: 0, updates: 1, asks: 1, role: 'owner', moduleWord: 'module' }), { count: 2, updates: 1, approvals: 0, asks: 1, title: 'Notifications, 0 unread, 1 module update, 1 ask waiting for you' });
+  assert.deepEqual(bellState({ unread: 0, approvals: 2, role: 'admin', moduleWord: 'module' }), { count: 2, updates: 0, approvals: 2, asks: 0, title: 'Notifications, 0 unread, 0 module updates, 2 updates need approval' });
+  assert.deepEqual(bellState({ unread: 0, approvals: 2, role: 'member', moduleWord: 'module' }), { count: 0, updates: 0, approvals: 0, asks: 0, title: 'Notifications, 0 unread' });
   const brand = fs.readFileSync(path.join(ROOT, 'public/brand.js'), 'utf8');
   assert.ok(!/nav\.setBadge\('admin-link'/.test(brand), 'the update count is off your picture: it is on the bell');
   assert.match(brand, /for \(const id of \['manage-tool', 'admin-link', 'page-bar-manage'\]\) nav\.setBadge/, 'and on the Manage button');

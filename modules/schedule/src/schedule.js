@@ -1204,7 +1204,7 @@
     const fieldsOnly = partly && locked(shown);
     state.editing = { partly, fieldsOnly, id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
     $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
-    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : fieldsOnly ? `Only the fields change here. The rest comes from ${state.pull.name}.` : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}.${state.fields.length ? ' The fields stay here.' : ''} The rest comes from there.` : '';
+    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : fieldsOnly ? `Only the fields change here. The rest comes from ${state.pull.name}.${host.util.approvalLine() ? ` ${host.util.approvalLine()}` : ''}` : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}.${state.fields.length ? ' The fields stay here.' : ''} The rest comes from there.` : '';
     hide($('f-readonly'), !readOnly && !partly);
     $('f-kind').replaceChildren(...SC_KINDS.map((k) => Object.assign(document.createElement('option'), { value: k, textContent: cap(kindWord(k)) })));
     $('f-kind').value = shown.kind;
