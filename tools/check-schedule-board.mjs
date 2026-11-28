@@ -257,7 +257,7 @@ try {
     const lay = await ev(tab, `(() => { const cols = __all(${JSON.stringify(F + '.sdk-board-col')}); const r = cols.map((c) => c.getBoundingClientRect()); const body = document.scrollingElement; return { stacked: r.every((x, i) => i === 0 || x.top > r[i - 1].top), same: r.every((x) => Math.abs(x.left - r[0].left) < 2), folded: cols.map((c) => c.classList.contains('is-folded')), draggable: __all(${JSON.stringify(F + '.sdk-board-card')}).some((c) => c.draggable), wide: body.scrollWidth > body.clientWidth + 1 }; })()`);
     ok(lay.stacked && lay.same, `${tag}: the columns stack`);
     same(lay.folded, [false, false, true], `${tag}: the done column is folded`);
-    ok(!lay.draggable, `${tag}: no drag on a phone`);
+    ok(lay.draggable, `${tag}: a card still drags when the board is stacked`);
     ok(!lay.wide, `${tag}: no sideways scroll`);
     await shot(tab, `board-390-${mode}`);
     if (mode === 'light') {

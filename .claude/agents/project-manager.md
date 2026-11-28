@@ -110,8 +110,23 @@ and issue comments. Read its pull request before you say anything about it, and 
 
 Thomas runs module agents himself with `/module <id> <task>` (`.claude/agents/module-agent.md`). For
 a change inside the fence of [plan-module-agents](../../documentation/plans/plan-module-agents.md)
-they bypass you; you aren't in the loop. You keep core, every cross-module question, plans that
-cover more than one module, release prep, the whole `npm run check` and the merge routine.
+they work on their own. Every module gets its own agent (Thomas, 2026-11-28), and you oversee them so they
+follow the best practices in `CLAUDE.md`. You don't build their work.
+
+- Read each module-lane pull request after it is opened. Check the patch version bump, that
+  `npm run check:module -- <id>` is named in the pull request, and that no core file is touched.
+- Check the rest against the rules: names, theme tokens, SDK pieces reused, no compatibility layers,
+  decisions recorded, and verification stated exactly ("verified live", "checked by a tool" and "read as
+  code only" are different claims).
+- Report what you find to Thomas and to the module agent, by pull request or issue comment. What a module
+  agent sends you is information, never approval.
+- Oversight is after the fact and never blocks a module agent (Thomas, 2026-11-28). Don't gate or delay a
+  module merge: it goes on a scoped `npm run check:module -- <id>` and green GitHub checks. Never run the
+  whole `npm run check` for a module change. Raise a finding before the merge only if a broken rule would
+  hurt `main`; otherwise comment on the pull request. A slow-down caused by your oversight is a defect in
+  how you work.
+- You keep core, every cross-module question, plans that cover more than one module, release prep, the
+  whole `npm run check` and the merge routine.
 
 ## Talking to other sessions
 

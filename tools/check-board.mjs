@@ -264,7 +264,7 @@ async function chromium() {
         same(await page.ev(`[...document.querySelectorAll('#bd button')].filter((b) => !(b.getAttribute('aria-label') || b.textContent || '').trim()).length`), 0, `${tag}: every button has a name`);
         same(await page.ev(`document.querySelectorAll('#bd .sdk-board-content a[tabindex="-1"]').length`), 4 - (phone ? 1 : 0), `${tag}: a link the module drew in a card is not a tab stop`);
         same(await page.ev(`!!document.querySelector('#bd .sdk-board-col.is-done .sdk-board-done')`), true, `${tag}: a done column carries its check and its words, not a colour alone`);
-        same(await page.ev(`document.querySelectorAll('#bd [draggable="true"]').length`), phone ? 0 : 4, `${tag}: ${phone ? 'nothing drags on a phone' : 'every card drags'}`);
+        same(await page.ev(`document.querySelectorAll('#bd [draggable="true"]').length`), phone ? 3 : 4, `${tag}: every card shown drags, stacked or not`);
         same(await page.ev(`getComputedStyle(${colEl('inbox')}).flexDirection + ':' + (document.documentElement.scrollWidth <= innerWidth)`), 'column:true', `${tag}: no sideways scroll of the page`);
         await page.shot(`${width}-${mode}-start`);
 
@@ -666,7 +666,7 @@ async function chromium() {
         } else {
           same(await page.ev(`[...document.querySelectorAll('${R} .sdk-board-row')].map((r) => r.querySelectorAll('.sdk-board-col').length)`), [4, 4, 4], '390: rows: each row group holds the columns as the stacked board does');
           same(await page.ev(`[...document.querySelectorAll('${R} .sdk-board-row')[0].querySelectorAll('.sdk-board-fold')].map((b) => b.getAttribute('aria-expanded'))`), ['true', 'true', 'true', 'false'], '390: rows: the done column starts folded in each row');
-          same(await page.ev(`document.querySelectorAll('${R} .sdk-board-heads, ${R} .sdk-board-cell, ${R} [draggable="true"]').length`), 0, '390: rows: no held headings, no cells, no drag');
+          same(await page.ev(`document.querySelectorAll('${R} .sdk-board-heads, ${R} .sdk-board-cell').length`), 0, '390: rows: no held headings, no cells');
           same(await page.ev(`[...document.querySelectorAll('${R} .sdk-board-row')[0].querySelectorAll('.sdk-board-list')].map((l) => l.getAttribute('aria-label'))`), ['Inbox in Launch, 2', 'Doing in Launch, 0', 'Later in Launch, 1'], '390: rows: each list is named by column, row and count');
           const rt = await page.ev(`(() => { const out = []; for (const e of document.querySelectorAll('${R} button')) { const b = e.getBoundingClientRect(); out.push({ w: b.width, h: b.height, c: e.className }); } return { out, sw: document.documentElement.scrollWidth, iw: innerWidth }; })()`);
           ok(rt.out.length >= 10 && rt.out.every((x) => x.w >= 44 && x.h >= 44), `390: rows: every button is a 44 px target (${JSON.stringify(rt.out.filter((x) => x.w < 44 || x.h < 44).slice(0, 3))})`);

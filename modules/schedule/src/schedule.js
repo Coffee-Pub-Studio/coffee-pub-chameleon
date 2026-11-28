@@ -740,7 +740,15 @@
     return true;
   }
   function boardCards(b, shown, rowOf) {
-    return shown.slice().sort(scCardOrder(list())).map((e) => ({ id: e.id, column: scColumnOf(e, b).id, title: e.title, row: rowOf.get(e.id) || '' }));
+    // `rev` is what the card says inside (what drawCard writes, read before it is on the page), so the Board draws again only a card
+    // whose words changed; what a card shows comes from other entries, people, tags and settings too, not from these fields alone.
+    return shown.slice().sort(scCardOrder(list())).map((e) => {
+      const card = { id: e.id, column: scColumnOf(e, b).id, title: e.title, row: rowOf.get(e.id) || '' };
+      const probe = document.createElement('div');
+      drawCard(card, probe);
+      card.rev = probe.innerHTML;
+      return card;
+    });
   }
   // What a card says inside, as plain text and spans: the title, the end day with "Late" and who is doing it, up to two tags, the
   // milestone it is under, and a "Waits on" mark when something it waits on is not done.
