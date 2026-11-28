@@ -67,8 +67,10 @@
   const pulled = (e) => Boolean(e && e.source && pullOn());
   const locked = (e) => pulled(e) && !(through() && isIssue(e));
   const canAdd = () => canEdit && !pullOn();
-  // Pulled work has one day while a space only follows the service, so it is never "late"; where changes go back, the days are the space's own.
-  const pageLate = (e) => !(e.source && !writeOn()) && scLate(e, today());
+  // Pulled work has one day while a space only follows the service, so it is never "late". Where changes go back the days are the space's
+  // own, but the pull starts and ends an issue on the day it was opened: Late shows only once the end is after the start, which is
+  // a target someone set (the roadmap import, the editor, an agent). A one-day target is not marked.
+  const pageLate = (e) => !(e.source && (!writeOn() || !(e.end > e.start))) && scLate(e, today());
   const canChange = (e) => canEdit && !locked(e);
   // The fields are the space's own and never go to the service, so someone who may edit sets them on pulled issues too while changes go
   // back (the server takes a change of the space's own fields without the right to change GitHub). Defining one needs `columns`.
@@ -87,7 +89,7 @@
     fields: [], // the plan's fields (scFieldsFrom), in order
     fieldRows: new Map(), // key -> { value, version }: what is stored under `field:`
     people: [],
-    settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', boardColumns: 'stages', tags: [] },
+    settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', boardColumns: 'stages', sizing: 'off', tags: [] },
     phases: [],
     links: new Map(), // id -> [summary] (what links to each entry: To-do's tasks and the rest)
     view: '',
@@ -176,7 +178,7 @@
   function takeField(key, value, version, deleted) {
     if (!String(key).startsWith(SC_FIELD_PREFIX)) return false;
     if (deleted) state.fieldRows.delete(key); else state.fieldRows.set(key, { value, version });
-    state.fields = scFieldsFrom([...state.fieldRows].map(([k, x]) => ({ key: k, value: x.value })));
+    state.fields = scFieldsWithSize(scFieldsFrom([...state.fieldRows].map(([k, x]) => ({ key: k, value: x.value }))), state.settings.sizing);
     return true;
   }
   let drawSoon = 0;
@@ -584,8 +586,9 @@
     sentTimer = setTimeout(() => { state.sent = ''; chrome(); }, 12000);
     say(text, 'danger');
   }
-  // `make(entry)` gives the entry as it should be (or null for nothing to send). Resolves { ok, error }.
-  function sendPulled(id, make) {
+  // `make(entry)` gives the entry as it should be (or null for nothing to send). Resolves { ok, error }. `quiet` skips the redraw after a
+  // write that went through, for a write that is one of several (the caller draws once at the end); a refusal is always drawn.
+  function sendPulled(id, make, quiet) {
     const run = async () => {
       const had = state.entries.get(id);
       if (!had) return { ok: false, error: 'That is not on the plan any more.' };
@@ -595,7 +598,7 @@
         const saved = await host.storage.set(SC_PREFIX + id, scValue(next), { version: had.version });
         if (saved && saved.value) remember(id, saved.value, saved.version);
         if (state.sent) { state.sent = ''; clearTimeout(sentTimer); }
-        render();
+        if (!quiet) render();
         return { ok: true, error: '' };
       } catch (err) {
         if (err && err.current && err.current.value) remember(id, err.current.value, err.current.version);
@@ -626,12 +629,12 @@
   async function toggleDone(id) {
     const had = state.entries.get(id);
     if (had && pulled(had.e) && through() && isIssue(had.e)) {
-      await sendPulled(id, (e) => { const r = scSetDone(e, !e.done, { label: (k) => kindWord(k), board: currentBoard() }); return r.entry; });
+      await sendPulled(id, (e) => { const r = scSetDone(e, !e.done, { label: (k) => kindWord(k), board: currentBoard(), today: today() }); return r.entry; });
       return;
     }
     if (!had || !canChange(had.e) || had.e.kind === 'note') return;
     // The tick is the rule's (scSetDone): a milestone's `ticked`, and work moving to the board's done or open column with it.
-    const r = scSetDone(had.e, !had.e.done, { label: (k) => kindWord(k), board: currentBoard() });
+    const r = scSetDone(had.e, !had.e.done, { label: (k) => kindWord(k), board: currentBoard(), today: today() });
     if (r.problem) { say(r.problem); return; }
     try { await saveEntry(r.entry, had.version); } catch (err) { say(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be saved.'); }
   }
@@ -911,12 +914,17 @@
       // rank is the space's own and goes with it; a move inside a column changes nothing on GitHub (the server sends only what GitHub holds).
       const b = currentBoard();
       const here = entry(m.id);
-      const moved = scSetColumn(here, m.column, b, { label: (k) => kindWord(k) });
+      const moved = scSetColumn(here, m.column, b, { label: (k) => kindWord(k), today: today() });
       if (!moved.entry) return;
       const placed = scPlace(list(), moved.entry, moved.entry.column, b, m.before || '');
       // The work above it that needs a rank goes first (the rank alone, so the column never shows the card half way), then the card.
-      for (const o of placed.others) await sendPulled(o.id, (e) => (e.rank === o.rank ? null : { ...e, rank: o.rank }));
-      await sendPulled(m.id, (e) => { const r = scSetColumn(e, m.column, b, { label: (k) => kindWord(k) }); return r.entry ? { ...r.entry, rank: placed.entry.rank } : null; });
+      // The ranks are written one after another without a redraw between them (the first move in a column of unranked cards writes one
+      // for every card above the drop), and the board is drawn once, with the card's own write. The first refusal stops the move.
+      for (const o of placed.others) {
+        const r = await sendPulled(o.id, (e) => (e.rank === o.rank ? null : { ...e, rank: o.rank }), true);
+        if (!r.ok) return;
+      }
+      await sendPulled(m.id, (e) => { const r = scSetColumn(e, m.column, b, { label: (k) => kindWord(k), today: today() }); return r.entry ? { ...r.entry, rank: placed.entry.rank } : null; });
       return;
     }
     const ask = ++boardAsk;
@@ -974,7 +982,7 @@
     await changeColumns(r.board, [], `Moved the column ${c.label} ${by < 0 ? 'left' : 'right'}.`);
   }
   async function flagColumn(c) {
-    const r = scSetColumnFlag(currentBoard(), list(), c.id, !c.done, { rollup });
+    const r = scSetColumnFlag(currentBoard(), list(), c.id, !c.done, { rollup, today: today() });
     if (r.problem) { say(r.problem, 'danger'); return; }
     await changeColumns(r.board, r.entries, `${c.label} ${c.done ? 'no longer counts' : 'now counts'} as done.`);
   }
@@ -984,7 +992,7 @@
     const b = currentBoard();
     const others = b.columns.filter((x) => x.id !== c.id);
     // The refusals that do not depend on where the work goes are said at once, in the rules' own sentences.
-    const probe = scDeleteColumn(b, c.id, others[0] ? others[0].id : '', list(), { rollup });
+    const probe = scDeleteColumn(b, c.id, others[0] ? others[0].id : '', list(), { rollup, today: today() });
     if (probe.problem) { say(probe.problem, 'danger'); return; }
     const n = list().filter((e) => e.kind === 'work' && scColumnOf(e, b).id === c.id).length;
     deleting = c;
@@ -1000,7 +1008,7 @@
     ev.preventDefault();
     const c = deleting;
     if (!c) return;
-    const r = scDeleteColumn(currentBoard(), c.id, $('col-to').value, list(), { rollup });
+    const r = scDeleteColumn(currentBoard(), c.id, $('col-to').value, list(), { rollup, today: today() });
     if (r.problem) { $('col-error').textContent = r.problem; $('col-error').hidden = false; return; }
     deleteEditor.close();
     deleting = null;
@@ -1312,7 +1320,7 @@
     // The Done box is the tick (scSetDone): work moves to the board's done column when ticked, and out of it when not.
     let toSave = draft;
     if (kind === 'work' && $('f-done').checked !== Boolean(draft.done)) {
-      const r = scSetDone(draft, $('f-done').checked, { label: (k) => kindWord(k), board: currentBoard() });
+      const r = scSetDone(draft, $('f-done').checked, { label: (k) => kindWord(k), board: currentBoard(), today: today() });
       if (r.entry) toSave = r.entry;
     }
     const problem = scProblem(draft, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
@@ -1346,7 +1354,7 @@
       const r = await sendPulled(ed.id, (e) => {
         if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields) };
         let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields) }; // a tag the plan no longer lists stays as it is
-        if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard() }); if (d.entry) next = d.entry; }
+        if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard(), today: today() }); if (d.entry) next = d.entry; }
         return next;
       });
       if (r.ok) editor.close(); else editorError(r.error);
@@ -1774,8 +1782,10 @@
       progressBy: s.progressBy === 'work' ? 'work' : 'milestones',
       defaultView: s.defaultView === 'list' || s.defaultView === 'board' ? s.defaultView : 'timeline',
       boardColumns: s.boardColumns === 'priority' ? 'priority' : 'stages',
+      sizing: s.sizing === 'points' || s.sizing === 'tshirt' ? s.sizing : 'off',
       tags: (Array.isArray(s.tags) ? s.tags : []).filter((t) => t && typeof t.id === 'string' && typeof t.label === 'string'),
     };
+    state.fields = scFieldsWithSize(state.fields, state.settings.sizing); // the setting's size field, until a plan stores its own
   }
   const takePhases = () => { try { state.phases = (host.phases() || []).filter((p) => p && typeof p.id === 'string'); } catch (err) { state.phases = []; } };
   host.on('phaseStates', () => { takePhases(); redraw(); });

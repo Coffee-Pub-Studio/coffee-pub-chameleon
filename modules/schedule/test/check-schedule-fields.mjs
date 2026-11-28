@@ -222,7 +222,7 @@ await test('addWork may carry fields, checked first', async () => {
 await test('the manifest: the field guard needs the columns right, the input is text and can be cleared', () => {
   const g = manifest.guards.keys.find((k) => k.key === 'field:{id}');
   assert.equal(g.need, 'columns');
-  assert.deepEqual(Object.keys(g.fields), ['id', 'label', 'options', 'order']);
+  assert.deepEqual(Object.keys(g.fields), ['id', 'label', 'options', 'order', 'size']);
   assert.equal(g.fields.options.maxLength, 30);
   assert.equal(g.fields.label.maxLength, 40);
   assert.equal(manifest.guards.keys.find((k) => k.key === 'board:{id}').fields.rowsBy.maxLength, 48, 'room for field: and an id');
@@ -266,7 +266,7 @@ await test('the page: Edit fields is for the columns right, one write with Undo,
 await test('the page: a choice is the space\'s own, set with edit, never sent to GitHub, and a followed plan\'s days can be late', () => {
   assert.match(page, /const canSetFields = \(e\) => canEdit && \(!pulled\(e\) \|\| \(writeOn\(\) && isIssue\(e\)\)\)/);
   assert.match(page, /if \(ed\.fieldsOnly\) return \{ \.\.\.e, fields: fieldsFromForm\(e\.fields\) \}/, 'someone who may not change GitHub still sets the choices');
-  assert.match(page, /const pageLate = \(e\) => !\(e\.source && !writeOn\(\)\) && scLate\(e, today\(\)\)/);
+  assert.match(page, /const pageLate = \(e\) => !\(e\.source && \(!writeOn\(\) \|\| !\(e\.end > e\.start\)\)\) && scLate\(e, today\(\)\)/, 'followed days are late only where changes go back, and only past a target after the start (check-schedule-late.mjs runs it)');
   assert.doesNotMatch(page, /host\.issues\.[a-z]+\([^)]*fields/, 'no call to the service names a field');
 });
 
