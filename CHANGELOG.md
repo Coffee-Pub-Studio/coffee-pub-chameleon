@@ -4,7 +4,7 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
-- **Planner - Itinerary 0.16.33:** the check-in and flight-status addresses were checked against the airlines' own sites and 24 airlines' addresses were corrected; Spirit (stopped flying in May 2026) is gone, so 56 airlines are listed; Hawaiian, Ryanair, Singapore, ANA and Malaysia no longer offer a flight-status link (no public page found). American's check-in address is Thomas's. Checked by a program fetching each address (many airlines block it); no address was opened by a person yet, so none is confirmed.
+- **Planner - Itinerary 0.16.33:** the check-in and flight-status addresses were checked against the airlines' own sites and the addresses of 23 airlines were corrected; Spirit (stopped flying in May 2026) is gone, so 56 airlines are listed; Hawaiian, Ryanair, Singapore, ANA and Malaysia no longer offer a flight-status link (no public page found). American's check-in address is Thomas's. Checked by a program fetching each address (many airlines block it); no address was opened by a person yet, so none is confirmed.
 
 - **Planner - Itinerary 0.16.32:** a flight in the Bookings view now has **Check in** and **Flight status** links under its booking code, whatever the date (the day card still shows them only from 48 hours before departure), and only for an airline in the list. Seen in headless Chromium at 1280 and 390 px; the links were not opened.
 
