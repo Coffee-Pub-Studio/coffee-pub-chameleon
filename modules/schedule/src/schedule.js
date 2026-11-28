@@ -615,7 +615,7 @@
         const error = (err && err.message) || `${state.pull.name} did not answer. Nothing was changed; try again.`;
         sayWhy(error);
         render();
-        return { ok: false, error };
+        return { ok: false, error, conflict: Boolean(err && err.status === 409) };
       }
     };
     const out = lane.then(run, run);
@@ -1460,8 +1460,22 @@
         if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard(), today: today() }); if (d.entry) next = d.entry; }
         return next;
       });
-      if (r.ok) editor.close(); else editorError(r.error);
+      if (r.ok) editor.close();
+      else if (r.conflict && !ed.fieldsOnly) conflictForm(ed, title);
+      else editorError(r.error);
     } finally { $('f-save').disabled = false; }
+  }
+  // GitHub changed the issue since the window was opened, and the page now holds GitHub's version. The window shows it too, so a second
+  // Save cannot send the person's older text over a change they never saw; what they typed is said in the line, to copy from.
+  function conflictForm(ed, typed) {
+    const e = entry(ed.id);
+    if (!e) return;
+    const asked = typed !== e.title ? ` Your title was "${typed}".` : '';
+    $('f-title').value = e.title;
+    $('f-done').checked = Boolean(e.done);
+    for (const box of $('f-tags').querySelectorAll('input')) box.checked = e.tags.includes(box.value);
+    if (state.editing) state.editing.opened = formSnapshot();
+    editorError(`This changed on ${state.pull.name || 'GitHub'} a moment ago. It now shows ${state.pull.name || 'GitHub'}'s version.${asked}`);
   }
   $('f-delete').addEventListener('click', async () => {
     const ed = state.editing;
