@@ -134,6 +134,8 @@ button.link-chip:hover { background: var(--fill-selected); }
 .fe-row { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
 .fe-row input { flex: 1 1 auto; min-width: 0; }
 .fe-name { font-weight: var(--weight-strong); }
+.fe-size { display: inline-flex; align-items: center; gap: var(--space-1); flex: none; white-space: nowrap; color: var(--text-muted); }
+.fe-row input.fe-value { flex: 0 0 5.5em; width: 5.5em; text-align: right; }
 .fe-opts { display: grid; gap: var(--space-1); margin: 0; padding: 0 0 0 var(--space-3); list-style: none; }
 .fe-add { display: flex; align-items: center; gap: var(--space-2); }
 .fe-add input { flex: 1 1 auto; min-width: 0; }

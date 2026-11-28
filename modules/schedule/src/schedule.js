@@ -1509,10 +1509,22 @@
       name.setAttribute('aria-label', `Name of the field ${f.label}`);
       name.dataset.focus = `f:${f.id}`;
       name.addEventListener('change', () => { if (!changeDraft(scRenameField(draft, f.id, name.value))) name.value = f.label; });
-      head.append(name,
+      // The size: the plan's one size field, whose choices are worth a number. The field the Sizing setting stands for stays the size (turn the
+      // setting off to be rid of it) and cannot be deleted here until it is stored by an edit.
+      const size = document.createElement('label');
+      size.className = 'fe-size';
+      const sizeBox = document.createElement('input');
+      sizeBox.type = 'checkbox';
+      sizeBox.checked = Boolean(f.size);
+      sizeBox.disabled = Boolean(f.virtual);
+      sizeBox.dataset.focus = `s:${f.id}`;
+      sizeBox.setAttribute('aria-label', `${f.label} is the size`);
+      sizeBox.addEventListener('change', () => { if (!changeDraft(scSetFieldSize(draft, f.id, sizeBox.checked), `s:${f.id}`)) sizeBox.checked = Boolean(f.size); });
+      size.append(sizeBox, document.createTextNode(' Size'));
+      head.append(name, size,
         fieldButton('up', `Move ${f.label} up`, 'arrow-up', () => changeDraft(scMoveField(draft, f.id, -1), `f:${f.id}`), { disabled: i === 0 }),
         fieldButton('down', `Move ${f.label} down`, 'arrow-down', () => changeDraft(scMoveField(draft, f.id, 1), `f:${f.id}`), { disabled: i === draft.length - 1 }),
-        fieldButton('del', `Delete the field ${f.label}`, 'trash', () => changeDraft(scDeleteField(draft, f.id)), { danger: true }));
+        fieldButton('del', `Delete the field ${f.label}`, 'trash', () => changeDraft(scDeleteField(draft, f.id)), { danger: true, disabled: Boolean(f.virtual) }));
       const opts = document.createElement('ul');
       opts.className = 'fe-opts';
       f.options.forEach((o, j) => {
@@ -1525,7 +1537,22 @@
         text.setAttribute('aria-label', `Choice ${j + 1} of ${f.label}`);
         text.dataset.focus = `o:${f.id}:${o.id}`;
         text.addEventListener('change', () => { if (!changeDraft(scRenameOption(draft, f.id, o.id, text.value))) text.value = o.label; });
-        li.append(text,
+        // A size field's choice says what it is worth (a whole number, 0 to 999); empty counts as 0.
+        let worth = null;
+        if (f.size) {
+          worth = document.createElement('input');
+          worth.type = 'number';
+          worth.className = 'fe-value';
+          worth.min = '0';
+          worth.max = String(SC_SIZE_MAX);
+          worth.step = '1';
+          worth.placeholder = '0';
+          worth.value = typeof o.value === 'number' ? String(o.value) : '';
+          worth.setAttribute('aria-label', `What ${o.label} is worth`);
+          worth.dataset.focus = `v:${f.id}:${o.id}`;
+          worth.addEventListener('change', () => { if (!changeDraft(scSetOptionValue(draft, f.id, o.id, worth.value), `v:${f.id}:${o.id}`)) worth.value = typeof o.value === 'number' ? String(o.value) : ''; });
+        }
+        li.append(text, ...(worth ? [worth] : []),
           fieldButton('up', `Move ${o.label} up`, 'arrow-up', () => changeDraft(scMoveOption(draft, f.id, o.id, -1), `o:${f.id}:${o.id}`), { disabled: j === 0 }),
           fieldButton('down', `Move ${o.label} down`, 'arrow-down', () => changeDraft(scMoveOption(draft, f.id, o.id, 1), `o:${f.id}:${o.id}`), { disabled: j === f.options.length - 1 }),
           fieldButton('del', `Delete the choice ${o.label}`, 'trash', () => changeDraft(scDeleteOption(draft, f.id, o.id), `a:${f.id}`), { danger: true }));
