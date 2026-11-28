@@ -69,7 +69,8 @@ await test('setDone ticks a milestone and marks work done; a note has nothing to
   const m = await same('setDone', { ref: ref('ms'), done: true }, world(rows()));
   assert.deepEqual(written(m, 'plan:ms'), { ...MS, ticked: true, done: true, progress: 0 }, 'its progress follows what is under it, in the same write');
   const w = await same('setDone', { ref: ref('wk'), done: true }, world(rows()));
-  assert.deepEqual(written(w, 'plan:wk'), { ...WK, done: true, column: 'done' }, 'ticked work moves to the done column');
+  assert.match(written(w, 'plan:wk').doneOn, /^\d{4}-\d{2}-\d{2}$/, 'and carries the day it became done');
+  assert.deepEqual(written(w, 'plan:wk'), { ...WK, done: true, column: 'done', doneOn: written(w, 'plan:wk').doneOn }, 'ticked work moves to the done column');
   await refuses('setDone', { ref: ref('nt'), done: true }, world(rows()), 'A note has nothing to tick off.');
   await refuses('setDone', { ref: ref('zz'), done: true }, world(rows()), 'That is not on the plan.');
   await refuses('setDone', { ref: ref('ms'), done: 'yes' }, world(rows()), 'Say whether it is done: true or false.');
@@ -133,7 +134,7 @@ await test('setColumn moves work, done follows the column, the same on the page 
   assert.deepEqual(written(doing, 'plan:wk'), { ...WK, column: 'doing', done: false, rank: 'V' });
   assert.deepEqual(written(doing, 'plan:ms'), { ...MS, progress: 0 }, 'the milestone\'s progress is settled in the same answer');
   const fin = await same('setColumn', { ref: ref('wk'), column: 'done' }, stages);
-  assert.deepEqual(written(fin, 'plan:wk'), { ...WK, column: 'done', done: true, rank: 'V' });
+  assert.deepEqual(written(fin, 'plan:wk'), { ...WK, column: 'done', done: true, rank: 'V', doneOn: written(fin, 'plan:wk').doneOn });
   assert.deepEqual(written(fin, 'plan:ms'), { ...MS, done: true, progress: 100 }, 'the milestone follows in the same answer');
   const back = await same('setColumn', { ref: ref('wk'), column: 'todo' }, world(rowsOn({ 'plan:ms': { ...MS, done: true, progress: 100 } }, { done: true, column: 'done' })));
   assert.deepEqual(written(back, 'plan:wk'), { ...WK, column: 'todo', done: false, rank: 'V' });

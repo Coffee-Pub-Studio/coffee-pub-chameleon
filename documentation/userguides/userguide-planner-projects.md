@@ -18,6 +18,7 @@ Who can: anyone who may **See the plan** (members, guests and moderators by defa
 | **Progress counts** | What the plan's count says: **Milestones done** (the default) or **Work done** | Driven |
 | **Opens on** | The view a space opens on, **Timeline**, **List** or **Board** | The template's start; you may change it |
 | **Board columns** | The columns the board starts with: **To do, Doing, Done** or **Inbox, Now, Next, Later, Done**. They stay until someone edits the columns; after that the board keeps its own | The template's start (Gaming: Inbox, Now, Next, Later, Done) |
+| **Sizing** | **Off**, **Points** (1, 2, 3, 5, 8, 13) or **T-shirt sizes** (XS to XL). When on, each piece of work has a **Size** choice in its form. A size is kept in the plan and is never sent to GitHub. The burndown that counts sizes is not built yet | Not set by a template |
 | **Tags** | The tags an entry may carry (the Gaming template seeds story threads) | The template's start; you may change it |
 | **Follows GitHub** | A GitHub repository whose issues this plan shows as work, connected through the server's GitHub app (or, for a public one, followed read only). It is a control, not a typed value. See "Follow a GitHub repository" | Not set by a template |
 

@@ -222,7 +222,7 @@ await test('addWork may carry fields, checked first', async () => {
 await test('the manifest: the field guard needs the columns right, the input is text and can be cleared', () => {
   const g = manifest.guards.keys.find((k) => k.key === 'field:{id}');
   assert.equal(g.need, 'columns');
-  assert.deepEqual(Object.keys(g.fields), ['id', 'label', 'options', 'order']);
+  assert.deepEqual(Object.keys(g.fields), ['id', 'label', 'options', 'order', 'size']);
   assert.equal(g.fields.options.maxLength, 30);
   assert.equal(g.fields.label.maxLength, 40);
   assert.equal(manifest.guards.keys.find((k) => k.key === 'board:{id}').fields.rowsBy.maxLength, 48, 'room for field: and an id');
