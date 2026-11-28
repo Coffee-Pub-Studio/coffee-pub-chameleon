@@ -5822,8 +5822,8 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 /* ================= Board (host.ui.board) =================
    Columns side by side, each a heading with its count, a "+" and a "...", and a list of the module's cards. The module draws a card's
    inside (.sdk-board-content); the piece draws the frame, the "..." (.sdk-board-more) and where a drag would land. A folded column is a
-   narrow strip with its name and count. At 640px and narrower, or on a touch screen, the columns stack (each a section), done columns
-   start folded, nothing drags and every target is 44px. Nothing is told by colour alone: a done column carries a check and the words.
+   narrow strip with its name and count. When the board itself is 640px wide or less (.is-stacked) the columns stack (each a section), done
+   columns start folded and every target is 44px; the columns are as tall as the tallest, so a drop can land anywhere in one. Nothing is told by colour alone: a done column carries a check and the words.
      .sdk-board            the container, .sdk-board-body the row of columns
      .sdk-board-col        a column (.is-folded, .is-done, .is-drop while a card is dragged over it); .sdk-board-head its heading row
      .sdk-board-fold       the heading button (.sdk-board-label, .sdk-board-count, .sdk-board-done); .sdk-board-add the "+"; .sdk-board-colmore its "..."
@@ -5842,7 +5842,7 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 
 .sdk-board-body {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch; /* every column is as tall as the tallest, so a card can be dropped anywhere in a column's own strip */
   gap: var(--space-3);
   min-width: 0;
   overflow-x: auto;
@@ -6045,24 +6045,29 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
   white-space: nowrap;
 }
 
-/* A phone or a touch screen: the columns stack, nothing drags, and every target is 44px. */
-@media (max-width: 640px), (pointer: coarse) {
-  .sdk-board-body { flex-direction: column; align-items: stretch; overflow-x: visible; }
-  .sdk-board-body.has-rows { overflow: visible; max-height: none; }
-  .sdk-board-grid { min-width: 0; }
-  .sdk-board-rowbody { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-  .sdk-board-rowfold { min-height: 44px; }
-  .sdk-board-col,
-  .sdk-board-col.is-folded { flex: none; width: auto; min-width: 0; max-width: none; align-items: stretch; padding: var(--space-2); }
-  .sdk-board-col.is-folded .sdk-board-fold { flex-direction: row; width: 100%; padding: var(--space-0) var(--space-1); }
-  .sdk-board-col.is-folded .sdk-board-label { writing-mode: horizontal-tb; }
-  .sdk-board-col.is-folded .sdk-board-count { margin-inline-start: auto; }
-  .sdk-board-col.is-folded .sdk-board-chevron { transform: none; }
+/* A narrow board (its own width, 640px and under; the piece sets .is-stacked): the columns stack and every target is 44px. */
+.sdk-board.is-stacked .sdk-board-body { flex-direction: column; align-items: stretch; overflow-x: visible; }
+.sdk-board.is-stacked .sdk-board-body.has-rows { overflow: visible; max-height: none; }
+.sdk-board.is-stacked .sdk-board-grid { min-width: 0; }
+.sdk-board.is-stacked .sdk-board-rowbody { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.sdk-board.is-stacked .sdk-board-col,
+.sdk-board.is-stacked .sdk-board-col.is-folded { flex: none; width: auto; min-width: 0; max-width: none; align-items: stretch; padding: var(--space-2); }
+.sdk-board.is-stacked .sdk-board-col.is-folded .sdk-board-fold { flex-direction: row; width: 100%; padding: var(--space-0) var(--space-1); }
+.sdk-board.is-stacked .sdk-board-col.is-folded .sdk-board-label { writing-mode: horizontal-tb; }
+.sdk-board.is-stacked .sdk-board-col.is-folded .sdk-board-count { margin-inline-start: auto; }
+.sdk-board.is-stacked .sdk-board-col.is-folded .sdk-board-chevron { transform: none; }
+.sdk-board.is-stacked .sdk-board-rowfold,
+.sdk-board.is-stacked .sdk-board-fold,
+.sdk-board.is-stacked .sdk-board-col.is-folded .sdk-board-fold,
+.sdk-board.is-stacked .sdk-board-card { min-height: 44px; }
+.sdk-board.is-stacked .sdk-icon-btn.btn-small { min-width: 44px; min-height: 44px; }
+/* A touch screen: every target is 44px, narrow or not. */
+@media (pointer: coarse) {
+  .sdk-board-rowfold,
   .sdk-board-fold,
-  .sdk-board-col.is-folded .sdk-board-fold { min-height: 44px; }
-  .sdk-board .sdk-icon-btn.btn-small { min-width: 44px; min-height: 44px; }
+  .sdk-board-col.is-folded .sdk-board-fold,
   .sdk-board-card { min-height: 44px; }
-  .sdk-board-card[draggable] { cursor: pointer; }
+  .sdk-board .sdk-icon-btn.btn-small { min-width: 44px; min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
