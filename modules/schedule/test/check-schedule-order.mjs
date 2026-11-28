@@ -10,7 +10,8 @@
  *   - setColumn with `before` gives the same answer on the page and on the server, moves to another column at the end or in front of a
  *     card, keeps `done` with the column, and a `before` that is not in the column means the end;
  *   - the page: the cards are sorted by scCardOrder, a move sends `before`, a pulled move writes the rank with the card and the others'
- *     ranks alone (no column or done change, so nothing goes to GitHub).
+ *     ranks alone (no column or done change, so nothing goes to GitHub), the others without a redraw between them and stopping at the
+ *     first refusal. These page checks read the source; none runs the page.
  * Usage: node modules/schedule/test/check-schedule-order.mjs. Exits 1 on any failure.
  */
 import fs from 'node:fs';
@@ -179,7 +180,11 @@ await test('the page: sorted by scCardOrder, a move sends before, a pulled move 
   assert.match(page, /sort\(scCardOrder\(list\(\)\)\)/);
   assert.match(page, /scPlace\(list\(\), moved\.entry, moved\.entry\.column, b, m\.before \|\| ''\)/);
   assert.ok(page.indexOf('for (const o of placed.others)') < page.indexOf('rank: placed.entry.rank'), 'the others are ranked before the card is written');
-  assert.match(page, /sendPulled\(o\.id, \(e\) => \(e\.rank === o\.rank \? null : \{ \.\.\.e, rank: o\.rank \}\)\)/, 'the others change by rank only');
+  assert.match(page, /sendPulled\(o\.id, \(e\) => \(e\.rank === o\.rank \? null : \{ \.\.\.e, rank: o\.rank \}\), true\)/, 'the others change by rank only, quietly');
+  assert.match(page, /if \(!r\.ok\) return;\n\s*\}\n\s*await sendPulled\(m\.id,/, 'a refused rank stops the move before the card is written');
+  const send = page.match(/function sendPulled\(id, make, quiet\) \{[\s\S]*?\n  \}\n/)[0];
+  assert.match(send, /if \(!quiet\) render\(\);\n\s*return \{ ok: true/, 'a quiet write that went through is not drawn');
+  assert.match(send.slice(send.indexOf('catch')), /sayWhy\(error\);\n\s*render\(\);/, 'a refusal is always drawn');
   assert.doesNotMatch(read('src', 'schedule-lib.js').match(/function scPlace[\s\S]*?\n}\n/)[0], /column:|done:/, 'a placement never changes a column or done');
 });
 
