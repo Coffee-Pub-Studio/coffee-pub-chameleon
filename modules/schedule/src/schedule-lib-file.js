@@ -5,7 +5,7 @@
 //   { "format": "project-plan", "version": 1, "exportedAt": "<ISO time>", "module": "schedule", "entries": [ <entry>, ... ],
 //     "boards": [ <board>, ... ] }
 //
-// `boards` is optional: the plan's board (id, name, field "column", columns [{ id, label, done? }], rowsBy?), one at first.
+// `boards` is optional: the plan's board (id, name, field "column", columns [{ id, label, done?, color? }], rowsBy?), one at first.
 // `fields` is optional: the plan's fields ([{ id, label, options: [{ id, label }] }], at most 8, 30 choices each); a work entry may carry
 // `fields: { <fieldId>: <optionId> }`. A file that defines fields adds them to the plan's, by id (a field the plan has gains the
 // choices it lacks).
@@ -241,6 +241,7 @@ function scParseFile(text, o) {
         if (typeof c.label !== 'string' || !scLine(c.label, 1)) return { problem: `${cw}: "label" is needed.` };
         if (c.label.trim().length > SC_COLUMN_LABEL_MAX) return { problem: `${cw}: "label" is over ${SC_COLUMN_LABEL_MAX} characters.` };
         if (c.done !== undefined && c.done !== null && typeof c.done !== 'boolean') return { problem: `${cw}: "done" must be true or false.` };
+        if (c.color !== undefined && c.color !== null && !(typeof c.color === 'string' && /^#[0-9a-f]{6}$/.test(c.color))) return { problem: `${cw}: "color" must be a # and six lower case hex digits.` };
       }
       const clean = scCleanBoard(b.id, b);
       if (!clean) return { problem: `${w}: keep at least one column that counts as done and one that does not.` };

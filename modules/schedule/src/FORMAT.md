@@ -49,6 +49,8 @@ every milestone needs `start` and all work needs `start` and `end`.
 - `id` and each column's `id`: lower case letters, digits and `-`, starting with a letter, up to 41 characters; each used once. `field` is `"column"`.
 - 2 to 12 columns, each with a `label` of up to 40 characters. `done: true` marks a column whose work counts as done. At least one column
   counts as done and at least one does not.
+- A column may have a `color`, a lower case `#rrggbb` such as `#1a2b3c`, drawn as a dot and a light wash on its heading. It is the plan's own
+  and never sent to an issue service. Any other text is refused; leave it out for no colour.
 - `rowsBy` is `"milestone"`, `"owners"`, `"field:"` and a field's id (a row for each choice of that field), or left out.
 - Work with a `column` the board has takes that column's `done`. A file with no `boards` leaves the plan's board as it is.
 
