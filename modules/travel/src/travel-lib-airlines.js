@@ -12,7 +12,7 @@
 // passenger's name, a booking reference or a seat; a check-in link never carries anything.
 const AIRLINES = Object.freeze([
   { code: 'WN', icao: 'SWA', name: 'Southwest Airlines', aliases: ['Southwest'], checkIn: 'https://www.southwest.com/air/check-in/', status: 'https://www.southwest.com/air/flight-status/' },
-  { code: 'AA', icao: 'AAL', name: 'American Airlines', aliases: ['American'], checkIn: 'https://www.aa.com/checkin/viewReservationsAccess', status: 'https://www.aa.com/travelInformation/flights/status' },
+  { code: 'AA', icao: 'AAL', name: 'American Airlines', aliases: ['American'], checkIn: 'https://www.aa.com/homePage.do#aa-viewReservations', status: 'https://www.aa.com/travelInformation/flights/status' },
   { code: 'DL', icao: 'DAL', name: 'Delta Air Lines', aliases: ['Delta', 'Delta Airlines'], checkIn: 'https://www.delta.com/us/en/check-in-security/overview', status: 'https://www.delta.com/flightstatus/search' },
   { code: 'UA', icao: 'UAL', name: 'United Airlines', aliases: ['United'], checkIn: 'https://www.united.com/en/us/checkin', status: 'https://www.united.com/en/us/flightstatus' },
   { code: 'AS', icao: 'ASA', name: 'Alaska Airlines', aliases: ['Alaska'], checkIn: 'https://reservations.alaskaair.com/checkin', status: 'https://www.alaskaair.com/flightstatus' },
