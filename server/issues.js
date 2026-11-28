@@ -410,6 +410,22 @@ function boardOf(label) {
   };
 }
 
+// The pulled board's key, and a column's colour as stored (plan-board-colour.md: a strict lower-case #rrggbb).
+const BOARD_KEY = 'board:main';
+const COLUMN_COLOR = /^#[0-9a-f]{6}$/;
+// Whether `after` differs from the stored board `before` only in its columns' colours (plan-board-colour.md, decision 2): every
+// column's `color` absent or a strict #rrggbb, and everything else (the board's keys, the number of columns, their order, ids,
+// labels and done flags) exactly as stored, key order included. Answers false for anything else.
+function colourOnly(before, after) {
+  const plain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  if (!plain(before) || !plain(after) || !Array.isArray(before.columns) || !Array.isArray(after.columns)) return false;
+  if (before.columns.length !== after.columns.length) return false;
+  if (!after.columns.every((c) => plain(c) && (!Object.hasOwn(c, 'color') || (typeof c.color === 'string' && COLUMN_COLOR.test(c.color))))) return false;
+  if (!before.columns.every(plain)) return false;
+  const bare = (board) => ({ ...board, columns: board.columns.map((c) => Object.fromEntries(Object.entries(c).filter(([k]) => k !== 'color'))) });
+  return JSON.stringify(bare(before)) === JSON.stringify(bare(after));
+}
+
 // A value as text with its keys in order, to tell whether a write would change anything.
 function sameValue(a, b) {
   const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
@@ -542,6 +558,6 @@ function cleanRepo(adapter, raw) {
 
 module.exports = {
   IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  isPulledKey, cleanRepo, SAY, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };

@@ -13898,7 +13898,8 @@ const issueFlightKey = (env, spaceId) => `${env.slug || ''}|${spaceId}`;
 // Why a person may not write `key` of the module where ctx works (null for a whole Clear or its Undo), or null: the space's plan
 // is filled by an issue pull that is on, and only the pull writes its plan and its board.
 // `given` is the value a write would store (a write's own check only): a change to stored pulled work (`plan:gh-<n>`) that touches
-// only the space's own fields (issuesLib.OWN_FIELDS) is let through, writing back on or off, since it sends nothing to the service.
+// only the space's own fields (issuesLib.OWN_FIELDS) is let through, writing back on or off, since it sends nothing to the service;
+// so is a change to the board that touches only its columns' colours (issuesLib.colourOnly).
 function pulledRefusal(ctx, key, given) {
   if (ctx.who.system === 'issues' || ctx.manifest.id !== issuesLib.MODULE_ID || ctx.scope !== 'space' || !ctx.spaceId) return null;
   const rec = issuePulls.get(ctx.spaceId);
@@ -13910,6 +13911,12 @@ function pulledRefusal(ctx, key, given) {
       const d = issuesLib.diffWork(had.value, given);
       if (d.own && !d.foreign.length && d.column === null && d.title === null && !d.tags.add.length && !d.tags.remove.length) return null;
     }
+  }
+  // A change to the stored board that touches only its columns' colours, by someone with the board's `columns` right, is the space's
+  // own and sends nothing (plan-board-colour.md, decision 2); any other change to it stays the pull's.
+  if (key === issuesLib.BOARD_KEY && given !== undefined && ctx.perms[`module.${ctx.manifest.id}.columns`]) {
+    const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
+    if (had && issuesLib.colourOnly(had.value, given)) return null;
   }
   const adapter = issueAdapterOf(rec.provider);
   return { status: 403, error: `This comes from ${adapter ? adapter.name : 'another service'}. Change it there.` };
