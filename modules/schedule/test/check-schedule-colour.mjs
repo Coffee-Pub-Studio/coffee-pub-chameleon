@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(dir, ...p), 'utf8');
-const NAMES = ['scCleanBoard', 'scBoardValue', 'scSetColumnColor', 'scRenameColumn', 'scMoveColumn', 'scSetColumnFlag', 'scDeleteColumn', 'scAddColumn', 'scDefaultBoard', 'scClean', 'scExportFile', 'scParseFile'];
+const NAMES = ['scColourBoardValue', 'scCleanBoard', 'scBoardValue', 'scSetColumnColor', 'scRenameColumn', 'scMoveColumn', 'scSetColumnFlag', 'scDeleteColumn', 'scAddColumn', 'scDefaultBoard', 'scClean', 'scExportFile', 'scParseFile'];
 const L = new Function(`${read('src', 'schedule-lib.js')}\n${read('src', 'schedule-lib-file.js')}\nreturn { ${NAMES.join(', ')} };`)();
 const page = read('src', 'schedule.js');
 const manifest = JSON.parse(read('module.json'));
@@ -76,6 +76,21 @@ await test('renaming, moving, flagging as done and deleting a column keep the ot
   assert.deepEqual(colours(gone.board), ['#1a2b3c', '#00ff7f']);
   assert.equal('color' in L.scAddColumn(b, 'New').column, false, 'a new column has none');
 });
+await test('a stored board is patched where it stands: only the colour differs, every key and its order as stored', () => {
+  const stored = { name: 'Bug Squash', id: 'main', field: 'column', extra: { x: 1 }, columns: [{ label: 'Inbox', id: 'inbox' }, { id: 'now', label: 'Now', note: 'kept' }, { done: true, id: 'done', label: 'Done' }], rowsBy: 'owners' };
+  const before = JSON.stringify(stored);
+  const on = L.scColourBoardValue(stored, 'now', '#1a2b3c');
+  assert.equal(JSON.stringify(stored), before, 'the stored value is not changed');
+  assert.equal(JSON.stringify(on), JSON.stringify({ ...stored, columns: [stored.columns[0], { id: 'now', label: 'Now', note: 'kept', color: '#1a2b3c' }, stored.columns[2]] }));
+  assert.deepEqual(Object.keys(on), Object.keys(stored), 'the board\'s keys in their order');
+  assert.deepEqual(Object.keys(on.columns[0]), ['label', 'id'], 'another column\'s key order');
+  const again = L.scColourBoardValue(on, 'now', '#00ff7f');
+  assert.equal(again.columns[1].color, '#00ff7f');
+  assert.equal(JSON.stringify(L.scColourBoardValue(on, 'now', '')), JSON.stringify(stored), 'taking it off gives back exactly what was stored');
+  assert.equal(L.scColourBoardValue(stored, 'gone', '#1a2b3c'), null);
+  assert.equal(L.scColourBoardValue(null, 'now', '#1a2b3c'), null, 'no stored board: the caller stores the default board whole');
+  assert.equal(L.scColourBoardValue(stored, 'now', '#1A2B3C'), null);
+});
 await test('export writes the colour and import reads it back', () => {
   const b = L.scCleanBoard('main', base());
   const out = L.scExportFile([L.scClean('w', { kind: 'work', title: 'T', start: '2026-11-01', end: '2026-11-02' })], { boards: [b] });
@@ -98,7 +113,7 @@ await test('the page: Colour and No colour in the column menu, the picker with n
   assert.match(menu, /label: 'Colour'/);
   assert.match(menu, /colourOf\(c\.id\) \? \[\{ id: 'nocolour', label: 'No colour'/, 'No colour only once there is one');
   assert.match(page, /host\.ui\.colorPicker\(\{ at, value: was \|\| undefined, opacity: false, label: 'Column colour' \}\)/);
-  assert.match(page, /scSetColumnColor\(currentBoard\(\), c\.id, color\);[\s\S]{0,200}await changeColumns\(r\.board, \[\], /, 'one board write with Undo');
+  assert.match(page, /scSetColumnColor\(currentBoard\(\), c\.id, color\);[\s\S]{0,400}await changeColumns\(r\.board, \[\], [^\n]*scColourBoardValue\(state\.boardRaw, c\.id, color\)/, 'one board write with Undo, patching the stored board');
   assert.match(page, /const columns = b\.columns\.map\(\(c\) => \(\{ id: c\.id, label: c\.label, done: Boolean\(c\.done\), \.\.\.\(c\.color \? \{ color: c\.color \} : \{\}\) \}\)\)/);
   assert.doesNotMatch(page, /host\.issues\.[a-z]+\([^)]*colo/i, 'nothing about a colour goes to the issue service');
 });

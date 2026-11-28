@@ -932,12 +932,13 @@
   // the template's columns becomes a stored board on the first change, and Undo takes that record away again.
   const canColumns = () => host.can('columns') && !pullOn(); // the board follows the pull while it is on
   let columnsBusy = false;
-  async function changeColumns(next, rewritten, text) {
+  // `value` (optional) is the board record to store in place of scBoardValue(next): a change that must leave the stored record as it is.
+  async function changeColumns(next, rewritten, text, value) {
     if (columnsBusy) return false;
     columnsBusy = true;
     const plan = { created: [], was: rewritten.map((e) => storedNow(e.id)).filter(Boolean), board: { was: state.boardRaw } };
     try {
-      try { await writeBoard(scBoardValue(next)); } catch (err) { say(err && err.status === 409 ? 'Someone else changed the columns just now. Try again.' : (err && err.message) || 'The columns could not be changed.', 'danger'); render(); return false; }
+      try { await writeBoard(value || scBoardValue(next)); } catch (err) { say(err && err.status === 409 ? 'Someone else changed the columns just now. Try again.' : (err && err.message) || 'The columns could not be changed.', 'danger'); render(); return false; }
       try {
         for (const e of rewritten) { const had = state.entries.get(e.id); await write(e, had ? had.version : undefined); }
       } catch (err) {
@@ -977,7 +978,8 @@
   async function setColumnColour(c, color) {
     const r = scSetColumnColor(currentBoard(), c.id, color);
     if (r.problem) { say(r.problem, 'danger'); return; }
-    await changeColumns(r.board, [], color ? `Coloured the column ${c.label}.` : `Took the colour off the column ${c.label}.`);
+    // A stored board is patched where it stands (only this column's colour differs); the template's default board is stored whole, as a rename does.
+    await changeColumns(r.board, [], color ? `Coloured the column ${c.label}.` : `Took the colour off the column ${c.label}.`, scColourBoardValue(state.boardRaw, c.id, color) || undefined);
   }
   // The menu hands the column without its colour, so it is read from the board; the picker opens where the menu's row was (the row goes
   // when the menu closes, so its place is taken first).

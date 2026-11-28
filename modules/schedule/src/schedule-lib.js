@@ -647,6 +647,22 @@ function scSetColumnColor(board, columnId, color) {
   const next = off ? (({ color: gone, ...rest }) => rest)(col) : { ...col, color };
   return { board: { ...board, columns: board.columns.map((c) => (c.id === columnId ? next : c)) } };
 }
+// The stored board value with one column's colour set or taken off, and nothing else touched: every key, its order and every other column
+// exactly as `raw` holds them (a board written by a service's pull is not rebuilt, and the server lets a followed board's colour through
+// only when that is all that differs). Answers the new value, or null when `raw` is not a stored board with that column or the colour is
+// not '' or a strict #rrggbb.
+function scColourBoardValue(raw, columnId, color) {
+  const off = color === '' || color === null || color === undefined;
+  if (!off && !(typeof color === 'string' && SC_COLOR.test(color))) return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !Array.isArray(raw.columns)) return null;
+  if (!raw.columns.some((c) => c && c.id === columnId)) return null;
+  const columns = raw.columns.map((c) => {
+    if (!c || c.id !== columnId) return c;
+    const { color: was, ...rest } = c;
+    return off ? rest : { ...rest, color };
+  });
+  return { ...raw, columns };
+}
 // Moves a column `by` places (-1 left, 1 right).
 function scMoveColumn(board, columnId, by) {
   const from = board.columns.findIndex((c) => c.id === columnId);
