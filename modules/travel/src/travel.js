@@ -1721,6 +1721,11 @@
   // `forecast` or `past` day draws anything. A day that has nothing keeps its header as it was.
   const weather = createWeather({ ask: (span) => host.weather.days(span), onAnswer: () => drawWeather() });
   const weatherPieces = new WeakMap(); // a day's .sdk-day-labels -> its host.ui.dayWeather
+  // The SDK piece fades in when it is drawn. A redraw builds every header again, so after the first fade-in has ended the page
+  // marks itself and travel.css switches the fade off: it plays once when the answer arrives, never on a redraw.
+  root.addEventListener('animationend', (e) => {
+    if (e.animationName === 'sdk-day-weather-in') host.rootElement.classList.add('weather-faded-in');
+  });
   function drawWeather() {
     if (!host.ui || typeof host.ui.dayWeather !== 'function') return;
     for (const dayEl of root.querySelectorAll('.sdk-day[data-day]')) {
