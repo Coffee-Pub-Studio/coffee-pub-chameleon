@@ -218,6 +218,7 @@ test('the manifest', () => {
     progressBy: ['choice', 'space', 'driven', 'milestones'],
     defaultView: ['choice', 'space', 'default', 'timeline'],
     boardColumns: ['choice', 'space', 'default', 'stages'],
+    sizing: ['choice', 'space', 'default', 'off'],
     tags: ['list', 'space', 'default', []],
     githubRepo: ['text', 'space', undefined, ''],
   });

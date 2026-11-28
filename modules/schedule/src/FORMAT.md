@@ -35,6 +35,7 @@ anything is written; if the first problem is found, Import says it in one senten
 | `tags` | no | a list (up to 50) of tag ids from the plan's Tags setting |
 | `owners` | no | a list (up to 50) of people's keys. Leave it out unless the file was exported from this environment. |
 | `fields` | work | the work's choice in each field, written `{ "area": "core", "phase": "first" }`: the field's id, then the id of one of its choices. The field must be in the plan or in the file's `fields`. An empty text means no choice. Notes and milestones have none. |
+| `doneOn` | work | the day the work became done, `YYYY-MM-DD`, as Export writes it. Kept only while the work is done; the burndown's Done line counts from it. Leave it out when you write a file. |
 | `order`, `rank`, `by`, `ref`, `source`, `progress` | no | what Export writes so a file can be put back as it was. Leave them out when you write a file. |
 
 A note has no dates, no `waitsOn` and no `done`. A milestone has no `end`. When the plan's setting "Dates are needed" is on,
@@ -64,6 +65,9 @@ every milestone needs `start` and all work needs `start` and `end`.
   They are the plan's own: a plan that follows an issue service never sends them to it.
 - `id` and each choice's `id`: lower case letters, digits and `-`, starting with a letter, up to 41 characters; each used once in its list.
   `label`: up to 40 characters. At most 8 fields and 30 choices in a field. A field's place in the list is its place in the plan.
+- A size field is one whose `size` is `true`: its choices carry a `value`, a whole number from 0 to 999, and a piece of work is sized at the value
+  of its choice (none counts 0). A plan has one size field; a second is refused with "A plan has one size field." A size is the plan's own and is
+  never sent to an issue service. The setting **Sizing** stands for one (points 1, 2, 3, 5, 8, 13 or T-shirt sizes XS to XL worth 1, 2, 3, 5, 8) until the plan stores its own.
 - A file's fields are added to the plan's by id. A field the plan already has keeps its words and gains the choices it lacks.
 - Defining fields needs the right to change the board's columns and fields. A file with `fields` is refused for someone without it.
 

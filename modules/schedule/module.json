@@ -97,7 +97,8 @@
           "id": { "type": "string", "required": true, "maxLength": 41 },
           "label": { "type": "string", "required": true, "maxLength": 40 },
           "options": { "type": "array", "of": "object", "maxLength": 30, "unique": "id" },
-          "order": { "type": "number", "min": 0, "max": 999 }
+          "order": { "type": "number", "min": 0, "max": 999 },
+          "size": { "type": "boolean" }
         }
       }
     ]
@@ -335,6 +336,20 @@
         { "value": "priority", "label": "Inbox, Now, Next, Later, Done" }
       ],
       "help": "The board's columns until someone edits them. Once the columns are edited, the board keeps its own."
+    },
+    {
+      "key": "sizing",
+      "label": "Sizing",
+      "type": "choice",
+      "scope": "space",
+      "template": "default",
+      "default": "off",
+      "options": [
+        { "value": "off", "label": "Off" },
+        { "value": "points", "label": "Points" },
+        { "value": "tshirt", "label": "T-shirt sizes" }
+      ],
+      "help": "Give each piece of work a size, in points or T-shirt sizes. A size is kept here and is never sent to GitHub."
     },
     {
       "key": "tags",

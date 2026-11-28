@@ -23,7 +23,8 @@ function scFacts(ctx) {
     phases: ctx.space && Array.isArray(ctx.space.phases) ? ctx.space.phases : [],
     people: Array.isArray(ctx.people) ? ctx.people : [],
     space: ctx.util.word('space'),
-    fieldDefs: scFieldsFrom(ctx.list(SC_FIELD_PREFIX)),
+    fieldDefs: scFieldsWithSize(scFieldsFrom(ctx.list(SC_FIELD_PREFIX)), settings.sizing),
+    today: scTodayOf(ctx),
   };
 }
 // The plan's entries as the page holds them (schedule.js remember: an entry stored without a title reads as "Untitled").
@@ -136,7 +137,7 @@ function scChange(input, ctx, make) {
 // ranked work of its column; with `before` it is placed only when the work above it already has ranks.
 function scMoveTo(input, ctx, e, f) {
   const board = scBoardOf(ctx);
-  const r = scSetColumn(e, input.column, board, { label: f.label });
+  const r = scSetColumn(e, input.column, board, { label: f.label, today: f.today });
   if (r.problem) return r;
   const before = typeof input.before === 'string' && input.before ? input.before : '';
   if (e.source && !before) return { entry: { ...r.entry, rank: '' }, others: [], problem: '' };
@@ -151,7 +152,7 @@ const ACTION_HANDLERS = {
   addWork: (input, ctx) => scAdd('work', input, ctx),
   addNote: (input, ctx) => scAdd('note', input, ctx),
   // The tick moves work with it (scSetDone's board): into the first done column, or out into the first column without the flag.
-  setDone: (input, ctx) => scChange(input, ctx, (e, f) => scSetDone(e, input.done, { label: f.label, board: scBoardOf(ctx) })),
+  setDone: (input, ctx) => scChange(input, ctx, (e, f) => scSetDone(e, input.done, { label: f.label, board: scBoardOf(ctx), today: f.today })),
   // Moves work to a column by its id, in front of the work `before` (a work id) or at the end; `done` follows the column's flag, and the milestones' done and progress in the same answer.
   setColumn: (input, ctx) => scChange(input, ctx, (e, f) => scMoveTo(input, ctx, e, f)),
   // Only the fields given change. A day sent as "" (the manifest's `clears`) clears it, as emptying it in the editor does; so do

@@ -33,6 +33,7 @@ const SC_PREFIX = 'plan:';
 const SC_BOARD_PREFIX = 'board:';
 const SC_FIELD_PREFIX = 'field:';
 const SC_FIELDS_MAX = 8;
+const SC_SIZE_MAX = 999; // the most a size choice is worth
 const SC_FIELD_OPTIONS_MAX = 30;
 const SC_FIELD_LABEL_MAX = 40;
 const SC_ROWS_FIELD = /^field:[a-z][a-z0-9-]{0,40}$/;
@@ -150,6 +151,7 @@ function scClean(id, raw) {
     fields: kind === 'work' ? scCleanFieldValues(v.fields) : {}, // { fieldId: optionId }, kept as stored (a choice the field no longer has is simply not shown)
   };
   if (kind === 'work' && typeof v.column === 'string' && SC_BOARD_ID.test(v.column)) e.column = v.column;
+  if (kind === 'work' && e.done && scIsDay(v.doneOn)) e.doneOn = v.doneOn; // the day it became done (the burndown's Done line); only while it is done
   if (kind === 'milestone' && e.ticked) e.done = true;
   return e;
 }
@@ -175,6 +177,7 @@ function scValue(e) {
   if (e.source) out.source = { ...e.source };
   if (e.rank) out.rank = e.rank;
   if (e.kind === 'work' && e.column) out.column = e.column;
+  if (e.kind === 'work' && e.done && e.doneOn) out.doneOn = e.doneOn;
   if (e.kind === 'work' && e.fields && Object.keys(e.fields).length) out.fields = { ...e.fields };
   return out;
 }
@@ -468,13 +471,33 @@ function scColumnOf(e, board) {
   if (own) return own;
   return (e && e.done ? cols.find((c) => c.done) : cols.find((c) => !c.done)) || cols[0];
 }
+// Today for an action (a server run has no page clock): the day of `ctx.now` as `ctx.util.ymd` writes it, or '' when it can't be read
+// (work then becomes done with no day, which the burndown counts as not yet placed).
+function scTodayOf(ctx) {
+  try {
+    const d = ctx && ctx.now !== undefined ? new Date(ctx.now) : null;
+    const day = d && !Number.isNaN(d.getTime()) && ctx.util && typeof ctx.util.ymd === 'function' ? ctx.util.ymd(d) : '';
+    return scIsDay(day) ? day : '';
+  } catch (err) { return ''; }
+}
+// The day work became done (`doneOn`), kept with `done`: work that turns done is stamped with `today` (when a day is known, else it has
+// none), work that stays done keeps its day, and work that is not done has none. `was` is the work before, `next` after; `next` is returned.
+function scDoneOn(was, next, today) {
+  if (!next || next.kind !== 'work') return next;
+  const out = { ...next };
+  if (!out.done) { delete out.doneOn; return out; }
+  if (was && was.done && was.doneOn) out.doneOn = was.doneOn;
+  else if (scIsDay(today)) out.doneOn = today;
+  else delete out.doneOn;
+  return out;
+}
 // Moves work to a column: sets `column`, and `done` to the column's flag. Answers { entry } or { problem }. A milestone's done
 // follows from its work (scMilestoneChanges), so the caller settles milestones in the same change.
 function scSetColumn(e, columnId, board, o) {
   if (!e || e.kind !== 'work') return { entry: null, problem: 'Only work moves on the board.' };
   const col = typeof columnId === 'string' ? board.columns.find((c) => c.id === columnId.trim()) : null;
   if (!col) return { entry: null, problem: `There is no column called ${scLine(typeof columnId === 'string' ? columnId : '', SC_COLUMN_LABEL_MAX) || 'that'}.` };
-  return { entry: { ...e, column: col.id, done: Boolean(col.done) }, problem: '' };
+  return { entry: scDoneOn(e, { ...e, column: col.id, done: Boolean(col.done) }, o && o.today), problem: '' };
 }
 // --- the order inside a column (plan-github-two-way.md, build order step 5) ---------------------------------------------------------
 // The space's own, never sent to GitHub: each piece of work may hold a `rank`, a short string of digits and letters that sorts as plain
@@ -591,7 +614,7 @@ function scSetColumnFlag(board, entries, columnId, done, o) {
   if (!done && board.columns.filter((c) => c.done).length < 2) return { problem: SC_KEEP_DONE };
   if (done && board.columns.filter((c) => !c.done).length < 2) return { problem: SC_KEEP_OPEN };
   const next = { ...board, columns: board.columns.map((c) => (c.id === columnId ? { id: c.id, label: c.label, ...(done ? { done: true } : {}), ...(c.color ? { color: c.color } : {}) } : c)) };
-  const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId && e.done !== done ? { ...e, done } : e), o);
+  const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId && e.done !== done ? scDoneOn(e, { ...e, done }, o && o.today) : e), o);
   return { board: next, entries: out };
 }
 // Deletes a column; its work moves to `toId` and takes that column's flag. { board, entries } or { problem }.
@@ -604,7 +627,7 @@ function scDeleteColumn(board, columnId, toId, entries, o) {
   const to = toId !== columnId ? board.columns.find((c) => c.id === toId) : null;
   if (!to) return { problem: 'Choose another column to take its work.' };
   const next = { ...board, columns: board.columns.filter((c) => c.id !== columnId) };
-  const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId ? { ...e, column: to.id, done: Boolean(to.done) } : e), o);
+  const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId ? scDoneOn(e, { ...e, column: to.id, done: Boolean(to.done) }, o && o.today) : e), o);
   return { board: next, entries: out };
 }
 // A fresh id for a column from its name: lower case letters, digits and dashes, a number added when taken.
@@ -692,13 +715,18 @@ function scCleanField(id, raw) {
     const text = scLine(o.label, SC_FIELD_LABEL_MAX);
     if (!text || options.length >= SC_FIELD_OPTIONS_MAX) continue;
     seen.add(o.id);
-    options.push({ id: o.id, label: text });
+    const value = Number.isInteger(o.value) && o.value >= 0 && o.value <= SC_SIZE_MAX ? o.value : null;
+    options.push(value === null ? { id: o.id, label: text } : { id: o.id, label: text, value });
   }
-  return { id, label, options, order: Number.isInteger(v.order) && v.order >= 0 && v.order < 1000 ? v.order : 0 };
+  const f = { id, label, options, order: Number.isInteger(v.order) && v.order >= 0 && v.order < 1000 ? v.order : 0 };
+  if (v.size === true) f.size = true; // the plan's size field: its choices' numbers are what the burndown counts
+  return f;
 }
 // What is stored for a field.
 function scFieldValue(f) {
-  return { id: f.id, label: f.label, options: f.options.map((o) => ({ id: o.id, label: o.label })), order: f.order || 0 };
+  const out = { id: f.id, label: f.label, options: f.options.map((o) => (typeof o.value === 'number' ? { id: o.id, label: o.label, value: o.value } : { id: o.id, label: o.label })), order: f.order || 0 };
+  if (f.size) out.size = true;
+  return out;
 }
 // The fields the space has, in order, from the rows under `field:` ([{ key, value }]).
 function scFieldsFrom(rows) {
@@ -709,7 +737,36 @@ function scFieldsFrom(rows) {
     if (f) out.push(f);
   }
   out.sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // A plan has one size field: the first keeps the flag, any other is an ordinary field.
+  let sized = false;
+  for (const f of out) { if (f.size && sized) delete f.size; else if (f.size) sized = true; }
   return out.slice(0, SC_FIELDS_MAX);
+}
+// The size field the `sizing` setting stands for while the plan has none stored: points (1, 2, 3, 5, 8, 13) or T-shirt sizes (XS to XL
+// worth 1, 2, 3, 5, 8). It is read, not written, until someone edits the fields (as the board's default columns are).
+const SC_SIZE_SETS = {
+  points: [['p1', '1', 1], ['p2', '2', 2], ['p3', '3', 3], ['p5', '5', 5], ['p8', '8', 8], ['p13', '13', 13]],
+  tshirt: [['xs', 'XS', 1], ['s', 'S', 2], ['m', 'M', 3], ['l', 'L', 5], ['xl', 'XL', 8]],
+};
+function scDefaultSizeField(set) {
+  const rows = SC_SIZE_SETS[set];
+  return rows ? { id: 'size', label: 'Size', options: rows.map(([id, label, value]) => ({ id, label, value })), order: 999, size: true } : null;
+}
+// The plan's fields with the setting's size field added when none is stored (and its id is free). `fields` is scFieldsFrom's answer.
+function scFieldsWithSize(fields, set) {
+  let list = Array.isArray(fields) ? fields : [];
+  list = list.filter((f) => !f.virtual);
+  if (list.some((f) => f.size)) return list;
+  const d = scDefaultSizeField(set);
+  return d && !list.some((f) => f.id === d.id) && list.length < SC_FIELDS_MAX ? list.concat([{ ...d, virtual: true }]) : list; // `virtual`: not stored yet
+}
+// The size field of `fields` (scFieldsWithSize's answer), or null: sizing is on when there is one.
+const scSizeFieldOf = (fields) => (Array.isArray(fields) ? fields.find((f) => f.size) || null : null);
+// What a piece of work is sized at: the number of its choice in the size field, or 0 when it has none (or the choice has no number).
+function scSizeOf(e, field) {
+  const oid = field && e && e.fields ? e.fields[field.id] : '';
+  const o = oid ? field.options.find((x) => x.id === oid) : null;
+  return o && typeof o.value === 'number' ? o.value : 0;
 }
 // A fresh id from a name: lower case letters, digits and dashes, a number added when taken.
 function scSlug(label, taken) {
@@ -881,7 +938,7 @@ function scSetDone(e, done, o) {
     const at = scColumnOf(e, o.board);
     if (done !== at.done) next.column = (o.board.columns.find((c) => Boolean(c.done) === done) || at).id;
   }
-  return { entry: next, problem: '' };
+  return { entry: e.kind === 'work' ? scDoneOn(e, next, o && o.today) : next, problem: '' };
 }
 
 // Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes, owners, fields }. A day written ''
