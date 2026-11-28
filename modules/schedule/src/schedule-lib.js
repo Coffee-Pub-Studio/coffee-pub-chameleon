@@ -1013,18 +1013,43 @@ function scSetDone(e, done, o) {
   return { entry: e.kind === 'work' ? scDoneOn(e, next, o && o.today) : next, problem: '' };
 }
 
-// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes, owners, fields }. A day written ''
-// clears it. The editor's sentences are used where it has them: a day outside 1900 to 2200, an end before its start, a title, and the
-// plan's "dates are needed". Text is cut to nothing, never silently shortened: past its length after trimming, it is refused.
+// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes, owners, fields, description,
+// parent }. A day written '' clears it. The editor's sentences are used where it has them: a day outside 1900 to 2200, an end before its
+// start, a title, and the plan's "dates are needed". Text is cut to nothing, never silently shortened: past its length after trimming,
+// it is refused. `description` is pulled work's only (an issue's text, replaced whole; plan-github-full-sync.md, section 8), at most the
+// stored cap, never empty (a value without one leaves the issue's text as it is). `parent` is a milestone's id, or '' for none, checked
+// as the editor's Part of is: a milestone of this plan, never the entry itself or one under it (`o.entries`). Moved under another
+// milestone, an entry of the plan's own goes to the end there (`o.orderAtEnd`, as the editor's save); pulled work keeps its order.
 function scUpdate(e, input, o) {
   const i = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const label = (o && o.label) || ((k) => k);
   const no = (problem) => ({ entry: null, problem });
   if (!e) return no('That is not there.');
   const given = (k) => i[k] !== undefined && i[k] !== null;
-  const fields = ['title', 'date', 'start', 'end', 'notes', 'owners', 'fields'].filter(given);
+  const fields = ['title', 'date', 'start', 'end', 'notes', 'owners', 'fields', 'description', 'parent'].filter(given);
   if (!fields.length) return no('Say what to change: a title, a day, notes.');
-  for (const k of ['title', 'date', 'start', 'end', 'notes']) if (given(k) && typeof i[k] !== 'string') return no(`The ${k} must be text.`);
+  for (const k of ['title', 'date', 'start', 'end', 'notes', 'description', 'parent']) if (given(k) && typeof i[k] !== 'string') return no(`The ${k} must be text.`);
+  let description = null;
+  if (given('description')) {
+    if (e.kind !== 'work' || !e.source) return no('Only an issue has a description. Change the notes instead.');
+    description = scText(i.description.replace(/\r\n?/g, '\n'), 1000000);
+    if (!description) return no('Give the description some words.');
+    if ([...description].length > SC_DESCRIPTION_MAX) return no(`The description is at most ${SC_DESCRIPTION_MAX} characters here.`);
+  }
+  let parent = null;
+  if (given('parent')) {
+    parent = i.parent.trim();
+    if (parent) {
+      const entries = (o && Array.isArray(o.entries)) ? o.entries : [];
+      const below = new Set(); // everything under this entry, however deep: never a place to put it
+      const kids = new Map();
+      for (const x of entries) if (x.parent) { if (!kids.has(x.parent)) kids.set(x.parent, []); kids.get(x.parent).push(x.id); }
+      const stack = [e.id];
+      while (stack.length) for (const k of kids.get(stack.pop()) || []) if (!below.has(k)) { below.add(k); stack.push(k); }
+      const m = entries.find((x) => x.id === parent);
+      if (!m || m.kind !== 'milestone' || m.id === e.id || below.has(m.id)) return no(`That is not ${label('milestone', { a: true })} it can be part of.`);
+    }
+  }
   let owners = null;
   if (given('owners')) {
     if (e.kind !== 'work') return no(`Only ${label('work')} says who is doing it.`);
@@ -1056,6 +1081,11 @@ function scUpdate(e, input, o) {
   }
   if (owners) { if (owners.length) raw.owners = owners; else delete raw.owners; }
   if (choices) { if (Object.keys(choices).length) raw.fields = choices; else delete raw.fields; }
+  if (description !== null) raw.description = description;
+  if (parent !== null && parent !== (e.parent || '')) {
+    if (parent) raw.parent = parent; else delete raw.parent;
+    if (!e.source && o && typeof o.orderAtEnd === 'function') { const at = o.orderAtEnd(parent || null); if (at) raw.order = at; else delete raw.order; }
+  }
   const first = e.kind === 'milestone' ? 'date' : 'start';
   const days = { start: e.start || '', end: e.end || '' };
   if (given(first)) days.start = i[first].trim();

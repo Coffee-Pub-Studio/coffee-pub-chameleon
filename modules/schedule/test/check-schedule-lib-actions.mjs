@@ -182,6 +182,34 @@ await test('an agent\'s move is one whole write, so its Undo puts column and don
   assert.notDeepEqual([w.value.column, w.value.done], [restored.column, restored.done]);
 });
 
+// Pulled work (plan-github-full-sync.md, section 8): updateEntry's description and parent, and addComment.
+const GH = { kind: 'work', title: 'Bug', start: '2026-11-01', end: '2026-11-02', description: 'Old text', done: false, order: 'p', by: 'system:issues', source: { from: 'github', repo: 'o/r', number: 7, updated: '2026-11-01T00:00:00Z' } };
+const GHM = { kind: 'milestone', title: 'v1', start: '2026-12-01', done: false, order: 'q', by: 'system:issues', source: { from: 'github', repo: 'o/r', milestone: 1 } };
+const ghRows = () => ({ ...rows(), 'plan:gh-7': GH, 'plan:ghm-1': GHM });
+await test('updateEntry takes an issue\'s description and the milestone it is part of, both ways', async () => {
+  const d = await same('updateEntry', { ref: ref('gh-7'), description: 'New text' }, world(ghRows()));
+  assert.deepEqual(written(d, 'plan:gh-7'), { ...GH, description: 'New text' });
+  const p = await same('updateEntry', { ref: ref('gh-7'), parent: 'ghm-1' }, world(ghRows()));
+  assert.equal(written(p, 'plan:gh-7').parent, 'ghm-1');
+  assert.equal(written(p, 'plan:gh-7').order, 'p', 'pulled work keeps its order');
+  const own = await same('updateEntry', { ref: ref('wk'), parent: '' }, world(ghRows()));
+  assert.equal('parent' in written(own, 'plan:wk'), false, 'empty: at the top');
+  assert.notEqual(written(own, 'plan:wk').order, 'm', 'an entry of the plan\'s own goes to the end of its new place');
+  await refuses('updateEntry', { ref: ref('gh-7'), parent: 'wk' }, world(ghRows()), 'That is not a milestone it can be part of.');
+  await refuses('updateEntry', { ref: ref('wk'), description: 'x' }, world(ghRows()), 'Only an issue has a description. Change the notes instead.');
+});
+await test('addComment: checked by the handler, posted by the server only, nothing written', async () => {
+  const w = world(ghRows());
+  const r = await onRunner('schedule', 'addComment', { ref: ref('gh-7'), text: 'Seen it.' }, w, { kinds: ['plan'], carrier: 'server' });
+  assert.deepEqual([r.fault, r.refused, r.writes, r.ref], [undefined, undefined, [], ref('gh-7')]);
+  const page = await onPage('schedule', 'addComment', { ref: ref('gh-7'), text: 'Seen it.' }, w, { name: 'Planner - Projects' });
+  assert.equal(page.refused, 'Add a comment in the issue view.');
+  for (const [input, words] of [[{ ref: ref('wk'), text: 'x' }, 'Only an issue takes a comment.'], [{ ref: ref('gh-7'), text: '  ' }, 'Write a comment first.'], [{ ref: ref('gh-7'), text: 'c'.repeat(65537) }, 'GitHub holds at most 65,536 characters.'], [{ ref: ref('nope'), text: 'x' }, 'That is not on the plan.']]) {
+    const x = await onRunner('schedule', 'addComment', input, w, { kinds: ['plan'], carrier: 'server' });
+    assert.equal(x.refused, words);
+  }
+});
+
 await test('setColumn is a library handler the manifest names', async () => {
   const fs = await import('node:fs');
   const manifest = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
@@ -195,7 +223,9 @@ await test('carried by the server: the manifest says so, and nothing is left for
   const lib = fs.readFileSync(new URL('../src/schedule-lib-actions.js', import.meta.url), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
   assert.equal(manifest.actions.server, 'src/schedule-lib-actions.js');
-  assert.ok(!/ctx\.carrier|page open|ctx\.(label|order|phases)\b/.test(lib), 'no page-only facts and no wait for a page');
+  // The one use of the carrier: addComment is posted by the server alone (it reaches GitHub), so a page refuses it at once.
+  assert.deepEqual(lib.match(/ctx\.carrier[^;]*;/g), ["ctx.carrier !== 'server') throw new Error('Add a comment in the issue view.');"], 'the carrier is read once, by addComment');
+  assert.ok(!/page open|ctx\.(label|order|phases)\b/.test(lib), 'no page-only facts and no wait for a page');
   const page = fs.readFileSync(new URL('../src/schedule.js', import.meta.url), 'utf8');
   const after = page.slice(page.indexOf('async function afterAction'), page.indexOf('async function afterAction') + 400);
   assert.ok(!/setLinks|settleMilestones/.test(after), 'the page does no link or settling of its own after a request');

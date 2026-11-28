@@ -152,6 +152,30 @@ await test('the apply step awaits a write to pulled work, and writes nothing els
   assert.ok(/error: out\.error === SOMEONE_CHANGED \? ACTION_CHANGED : out\.error/.test(body), 'a change meanwhile is the runner\'s own sentence, GitHub\'s sentences are its own');
 });
 
+// Projects' addComment (plan-github-full-sync.md, section 8 and step 4): the handler checks and writes nothing; the apply step posts
+// the comment through the person's rules (agentIssueComment: writing on, write_out, the limits, the rest), records it for Undo, and
+// refuses a handler answer that writes anything or asks for any effect beside it. The live cases are in tools/check-issues.mjs.
+await test('an agent\'s comment on an issue: the handler writes nothing, the server posts it with a person\'s rules and records it', async () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  const a = src.indexOf('async function carryOnServer(');
+  const body = src.slice(a, src.indexOf('\n}\n', a));
+  const branch = body.slice(body.indexOf('def.name === ISSUE_COMMENT_ACTION'), body.indexOf('// Writes outside the space'));
+  assert.ok(/if \(outcome\.writes\.length \|\| e\.links\.length \|\| e\.schedules\.length \|\| e\.notify\.length \|\| e\.phaseEnd\) return fault\('result'\);/.test(branch), 'a handler that writes or asks for an effect is a fault');
+  assert.ok(/await agentIssueComment\(\{ ctx, space: here, found: now, input, agent, request \}\)/.test(branch), 'posted as the agent, after everything is asked again');
+  assert.ok(body.indexOf('def.name === ISSUE_COMMENT_ACTION') < body.indexOf('const via = agentThrough('), 'before any write is made');
+  const f = src.slice(src.indexOf('async function agentIssueComment('), src.indexOf('\nfunction agentThrough('));
+  assert.ok(/const gate = issueWriteGate\(\{ rec, adapter, ctx, found \}, \['addComment'\]\);\n {2}if \(gate\) return gate;/.test(f), 'the gate of a person\'s comment: writing on, write_out, the limit, the rest');
+  assert.ok(f.indexOf('issueWriteGate(') < f.indexOf('adapter.addComment('), 'checked before the request');
+  assert.ok(/issuePulls\.addPosted\(space\.id, \{ id: c\.id, number, by: ctx\.by,/.test(f) && /change: 'commented'/.test(f), 'remembered as the agent\'s, and recorded for Undo');
+  assert.ok(/text: issueText|const text = issueText\(input\.text\)/.test(f) && /adapter\.addComment\(\{ repo: a\.repo, number, text, token: a\.token \}/.test(f), 'the text as written, nothing of the agent');
+  // A comment's text is never cut on its way: the route refuses one longer than a request keeps.
+  assert.ok(src.includes("def.name === ISSUE_COMMENT_ACTION && typeof given.text === 'string'") && src.includes('.trim().length > ACTION_TEXT_MAX) {'), 'a longer comment is refused, never cut');
+  // The handler both ways: it reads the carrier only to refuse on a page, which can't reach GitHub.
+  const lib = fs.readFileSync(path.join(ROOT, 'modules', 'schedule', 'src', 'schedule-lib-actions.js'), 'utf8');
+  const h = lib.slice(lib.indexOf('  addComment: (input, ctx) => {'), lib.indexOf('\n  },\n', lib.indexOf('  addComment: (input, ctx) => {')));
+  assert.ok(/return \{ writes: \[\], ref: scRef\(ctx, e\.id\) \};/.test(h) && /ctx\.carrier !== 'server'/.test(h), 'it writes nothing and is refused on a page');
+});
+
 // --- a copy of the app whose modules/ also holds the fixture ------------------------------------------------------------
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-module-actions-'));
 const app = path.join(base, 'app');

@@ -153,6 +153,40 @@ test('Dates are needed: on refuses clearing a day, off allows it', () => {
   assert.deepEqual([one.start, one.end], ['2026-11-03', '2026-11-03']);
 });
 
+// Pulled work's description and the milestone it is part of (plan-github-full-sync.md, section 8).
+const pulled = () => L.scClean('gh-7', { kind: 'work', title: 'Bug', start: '2026-11-01', end: '2026-11-02', description: 'Old text', parent: 'ghm-1', order: 'b', source: { from: 'github', repo: 'o/r', number: 7, updated: '2026-11-01T00:00:00Z' } });
+const outline = [L.scClean('ghm-1', { kind: 'milestone', title: 'One', start: '2026-12-01' }), L.scClean('ghm-2', { kind: 'milestone', title: 'Two', start: '2026-12-02' }), pulled()];
+test('updateEntry replaces an issue\'s description whole; only an issue has one', () => {
+  const r = upd(pulled(), { description: '  New\r\ntext  ' });
+  assert.equal(r.problem, '');
+  assert.equal(L.scValue(r.entry).description, 'New\ntext');
+  assert.deepEqual(L.scValue(r.entry).source, L.scValue(pulled()).source, 'where it came from is kept');
+  refused(wk(), { description: 'x' }, 'Only an issue has a description. Change the notes instead.');
+  refused(ms(), { description: 'x' }, 'Only an issue has a description. Change the notes instead.');
+  refused(pulled(), { description: '   ' }, 'Give the description some words.');
+  refused(pulled(), { description: 'd'.repeat(2001) }, 'The description is at most 2000 characters here.');
+  assert.equal(upd(pulled(), { description: 'd'.repeat(2000) }).problem, '');
+  refused(pulled(), { description: 3 }, 'The description must be text.');
+});
+test('updateEntry\'s parent is checked as the editor\'s Part of: a milestone, never itself or one under it', () => {
+  const words = (k, x) => (x && x.a ? `a ${k}` : k);
+  const o = { ...on, label: words, entries: outline, orderAtEnd: () => 'zz' };
+  const moved = upd(pulled(), { parent: 'ghm-2' }, o);
+  assert.deepEqual([moved.problem, moved.entry.parent, moved.entry.order], ['', 'ghm-2', 'b'], 'pulled work keeps its order');
+  const none = upd(pulled(), { parent: '' }, o);
+  assert.equal('parent' in L.scValue(none.entry), false, 'empty: at the top');
+  refused(pulled(), { parent: 'gh-7' }, 'That is not a milestone it can be part of.', o);
+  refused(pulled(), { parent: 'nowhere' }, 'That is not a milestone it can be part of.', o);
+  // An entry of the plan's own goes to the end of its new place, as the editor's save puts it.
+  const top = L.scClean('m0', { kind: 'milestone', title: 'Top', start: '2026-12-01', order: 'a' });
+  const under = L.scClean('m9', { kind: 'milestone', title: 'Under', start: '2026-12-01', parent: 'm0', order: 'a' });
+  const own = L.scClean('w5', { kind: 'work', title: 'Own', start: '2026-11-01', end: '2026-11-02', order: 'c' });
+  const o2 = { ...on, label: words, entries: [top, under, own], orderAtEnd: (p) => (p === 'm0' ? 'b' : 'q') };
+  assert.deepEqual([upd(own, { parent: 'm0' }, o2).entry.parent, upd(own, { parent: 'm0' }, o2).entry.order], ['m0', 'b']);
+  refused(top, { parent: 'm9' }, 'That is not a milestone it can be part of.', o2);
+  assert.equal(upd(own, { parent: '' }, o2).entry.order, 'c', 'no move, no new order');
+});
+
 test('the plan\'s own words are used in the sentences', () => {
   const label = (k) => ({ milestone: 'checkpoint', work: 'task', note: 'memo' }[k] || k);
   assert.equal(L.scUpdate(ms(), { date: '' }, { datesRequired: true, label }).problem, 'This plan needs dates: give the checkpoint a day.');
@@ -197,7 +231,11 @@ test('the manifest declares both, as writes that name a plan entry', () => {
     assert.ok(!by[n].local && !by[n].askerOnly && by[n].ai !== false, n);
   }
   assert.deepEqual(by.setDone.input, { ref: 'ref:schedule:plan', done: 'boolean' });
-  assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', owners: 'text?', fields: 'text?', notes: 'text?' });
+  assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', owners: 'text?', fields: 'text?', notes: 'text?', description: 'text?', parent: 'string?' });
+  assert.deepEqual(by.updateEntry.clears, ['date', 'start', 'end', 'owners', 'fields', 'notes', 'parent'], 'an empty description never empties an issue');
+  // addComment (plan-github-full-sync.md, section 8): one comment on an issue's work, a write an agent may ask for.
+  assert.deepEqual([by.addComment.effect, by.addComment.input], ['write', { ref: 'ref:schedule:plan', text: 'text' }]);
+  assert.ok(!by.addComment.local && !by.addComment.askerOnly && by.addComment.ai !== false && (!by.addComment.takes || !by.addComment.takes.length));
   assert.ok(['addMilestone', 'addWork', 'addNote'].every((n) => by[n]), 'the adds are still there');
   assert.equal(by.setColumn.effect, 'write');
   assert.deepEqual(by.setColumn.input, { ref: 'ref:schedule:plan', column: 'string', before: 'string?' });
