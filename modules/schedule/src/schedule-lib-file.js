@@ -48,7 +48,6 @@ function scFileSyntax(text, err) {
 }
 
 
-const SC_ONE_SIZE = 'A plan has one size field.';
 // The fields a file defines, checked: { fields: [cleaned] } or { problem }.
 function scParseFieldDefs(list) {
   if (list === undefined || list === null) return { fields: [] };
@@ -81,7 +80,7 @@ function scParseFieldDefs(list) {
       if (o.value !== undefined && !(Number.isInteger(o.value) && o.value >= 0 && o.value <= SC_SIZE_MAX)) return { problem: `${ow}: "value" must be a whole number from 0 to ${SC_SIZE_MAX}.` };
     }
     if (f.size !== undefined && typeof f.size !== 'boolean') return { problem: `${w}: "size" must be true or false.` };
-    if (f.size === true && out.some((x) => x.size)) return { problem: SC_ONE_SIZE };
+    if (f.size === true && out.some((x) => x.size)) return { problem: SC_ONE_SIZE_SAY };
     out.push(scCleanField(f.id, { label: f.label, options: opts, order: i, size: f.size === true }));
   }
   return { fields: out };
@@ -94,12 +93,12 @@ function scMergeFields(existing, fromFile) {
     const at = all.findIndex((x) => x.id === f.id);
     if (at < 0) {
       if (all.length >= SC_FIELDS_MAX) return { problem: `A plan has at most ${SC_FIELDS_MAX} fields.` };
-      if (f.size && all.some((x) => x.size)) return { problem: SC_ONE_SIZE };
+      if (f.size && all.some((x) => x.size)) return { problem: SC_ONE_SIZE_SAY };
       all.push({ ...f, order: all.length });
       continue;
     }
     if (f.size && !all[at].size) {
-      if (all.some((x) => x.size)) return { problem: SC_ONE_SIZE };
+      if (all.some((x) => x.size)) return { problem: SC_ONE_SIZE_SAY };
       all[at].size = true;
     }
     const have = new Set(all[at].options.map((o) => o.id));
