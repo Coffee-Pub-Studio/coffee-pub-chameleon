@@ -1697,9 +1697,11 @@
     const hi = Math.round(high);
     const lo = Math.round(low);
     const lead = past ? 'What it was' : 'Forecast';
-    const said = `${lead}: ${words.charAt(0).toLowerCase()}${words.slice(1)}, high ${hi}, low ${lo}${rain === null ? '' : `, ${rain} percent chance of rain`}`;
-    return { state: day.state, icon: look.icon, words, high: hi, low: lo, rain, unit, lead, said };
+    const said = `${lead}: ${words.charAt(0).toLowerCase()}${words.slice(1)}, high ${degreeText(hi)}, low ${degreeText(lo)}${rain === null ? '' : `, ${rain} percent chance of rain`}`;
+    return { state: day.state, icon: look.icon, words, high: degreeText(hi), low: degreeText(lo), rain, unit, lead, said };
   }
+  // A temperature as text: a real minus sign (U+2212) below zero, not a hyphen. The one place the weather prints a number.
+  function degreeText(n) { return n < 0 ? `−${-n}` : String(n); }
   let dayWeatherSeq = 0;
   function createDayWeather(el, o, deps) {
     if (!el || el.nodeType !== 1) throw new Error('host.ui.dayWeather needs an element');

@@ -30,13 +30,15 @@ anything is written; if the first problem is found, Import says it in one senten
 | `done` | no | `true` or `false` (milestone and work). A milestone is done when every entry under it is. |
 | `ticked` | no | `true`: a milestone ticked done by hand |
 | `column` | work | the id of the work's column on the board: lower case letters, digits and `-`. Notes and milestones have none. Work with no column, or one the board does not have, sits in the first done column if it is `done`, else in the first column that does not count as done. |
-| `notes` | no | text, up to 2000 characters |
+| `notes` | no | text, up to 2000 characters: the plan's own notes. Work pulled from GitHub has none. |
+| `description` | no | work pulled from GitHub only: the issue's text as plain text, up to 2000 characters, cut with `…` when GitHub's is longer (then `source.cut` is `true`). Export writes it; leave it out when you write a file. |
+| `assignees` | no | work pulled from GitHub only: a list (up to 10) of the GitHub logins assigned to the issue that no member has linked. Export writes it; leave it out when you write a file. |
 | `phase` | no | a phase id of the template: lower case letters, digits and `-` |
 | `tags` | no | a list (up to 50) of tag ids from the plan's Tags setting |
 | `owners` | no | a list (up to 50) of people's keys. Leave it out unless the file was exported from this environment. |
 | `fields` | work | the work's choice in each field, written `{ "area": "core", "phase": "first" }`: the field's id, then the id of one of its choices. The field must be in the plan or in the file's `fields`. An empty text means no choice. Notes and milestones have none. |
 | `doneOn` | work | the day the work became done, `YYYY-MM-DD`, as Export writes it. Kept only while the work is done; the burndown's Done line counts from it. Leave it out when you write a file. |
-| `order`, `rank`, `by`, `ref`, `source`, `progress` | no | what Export writes so a file can be put back as it was. Leave them out when you write a file. |
+| `order`, `rank`, `by`, `ref`, `source`, `progress` | no | what Export writes so a file can be put back as it was. Leave them out when you write a file. On work pulled from GitHub, `source` may also carry `cut` (`true`: the `description` is shorter than the issue's text) and `labels` (up to 30 names of the issue's labels past the plan's Tags setting). |
 
 A note has no dates, no `waitsOn` and no `done`. A milestone has no `end`. When the plan's setting "Dates are needed" is on,
 every milestone needs `start` and all work needs `start` and `end`.
@@ -118,7 +120,7 @@ The schema cannot say these; only Check file and Import do:
 ## Update by id
 
 A third way to bring a file in, beside Add and Replace. It changes entries that are already in the plan, by `id`, and sets only what the
-space owns: `fields`, `start`, `end`, `owners` and `rank`. It never changes a title, a column, a note or anything a followed service owns:
+space owns: `fields`, `start`, `end`, `owners` and `rank`. It never changes a title, a column, a note, a description, the assignees or anything a followed service owns:
 a file whose entry names one of those is refused. It is for filling in fields and days in bulk, in a plan that follows GitHub or not.
 
 ```

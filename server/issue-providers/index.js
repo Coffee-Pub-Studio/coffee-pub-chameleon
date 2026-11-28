@@ -4,7 +4,8 @@
 //     validRepo(repo) -> whether "owner/name" is a repository's name there,
 //     repoFrom(raw) -> the clean "owner/name" from what a person typed or pasted (their address for it too), or "",
 //     list({ repo, since, etag, token, page, state }, get) -> { status, etag, records, more, wait, bad? },
-//     closedBefore?(repo, day) -> the service's own list of the issues closed before `day`, as an address a person opens, or "" }
+//     closedBefore?(repo, day) -> the service's own list of the issues closed before `day`, as an address a person opens, or "",
+//     milestones?({ repo, etag, token }, get) -> { status, etag, milestones: [{ number, title, due, open }], wait, bad? } }
 // `list` asks for one page: `page` is the address the last page's `more` gave (null for the first), `since` an ISO time (only
 // what changed after it), `etag` the first page's last etag (sent back so an unchanged answer is a 304), `state` which issues:
 // 'all' (the default), 'open' or 'closed' (the daily full pull asks 'open', then 'closed' since the done window's cutoff,
@@ -15,6 +16,8 @@
 // for an answer that is not the list), `more` the next page's address or null, `wait` what it said about waiting
 // ({ retryAfterMs?, resetAt?, pollMs? }). `pollMs`: how long between two timed pulls; `fullEveryMs`: how long between two full
 // pulls (every page, to find what is gone); `nowGapMs`: the least time between two pulls a person asks for (default a minute).
+// `milestones` (documentation/plans/plan-github-full-sync.md, section 5) asks for the repository's open milestones with the same
+// `get`, one page, conditional on `etag`; the pull asks it once after each list it reads, so a milestone with no issue stays in the plan.
 //
 // An adapter may also write (documentation/plans/plan-github-two-way.md); one without these cannot be written through:
 //     get({ repo, number, etag, token }, ask), update({ repo, number, title?, state?, stateReason?, token }, ask),
@@ -28,10 +31,12 @@
 //     never followed for a write. Only a title, a state, label names and a new issue's title and labels may be sent.
 //
 // A record, the same for every service (nothing else in the core knows which service it came from):
-//   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open }, body? }
-// `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''; `body` the issue's
-// description as plain text (newlines and tabs only, cut at 2000 characters with an ellipsis), absent when empty. Pull requests,
-// people (authors, assignees) and comments are never in a record.
+//   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open }, body?,
+//     assignees: [{ id, login }], comments }
+// `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''; `body` the issue's whole
+// description as plain text (newlines and tabs only, at most 65,536 characters), absent when empty; the plan's shorter cut is the
+// core's (server/issues.js, workOf). `assignees` the people assigned (at most 10, each with the service's account id and login);
+// `comments` how many comments the issue has. Pull requests, authors and comments' text are never in a record.
 //
 // THE RULE (Thomas, 2026-11-25): a registered adapter is for a service that costs nothing and whose free use allows commercial
 // use, its terms read before the adapter is written and named in its header. Registered: GitHub (github.js, terms read
@@ -49,7 +54,8 @@ function valid(p) {
     && typeof p.terms === 'string' && /^https:\/\//.test(p.terms)
     && Number.isFinite(p.pollMs) && p.pollMs >= 0 && Number.isFinite(p.fullEveryMs) && p.fullEveryMs >= 0
     && (p.nowGapMs === undefined || (Number.isFinite(p.nowGapMs) && p.nowGapMs >= 0))
-    && (p.closedBefore === undefined || typeof p.closedBefore === 'function');
+    && (p.closedBefore === undefined || typeof p.closedBefore === 'function')
+    && (p.milestones === undefined || typeof p.milestones === 'function');
 }
 
 const registered = [require('./github')];
