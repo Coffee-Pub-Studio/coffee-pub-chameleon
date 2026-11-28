@@ -67,8 +67,10 @@
   const pulled = (e) => Boolean(e && e.source && pullOn());
   const locked = (e) => pulled(e) && !(through() && isIssue(e));
   const canAdd = () => canEdit && !pullOn();
-  // Pulled work has one day while a space only follows the service, so it is never "late"; where changes go back, the days are the space's own.
-  const pageLate = (e) => !(e.source && !writeOn()) && scLate(e, today());
+  // Pulled work has one day while a space only follows the service, so it is never "late". Where changes go back the days are the space's
+  // own, but the pull starts and ends an issue on the day it was opened: Late shows only once the end is after the start, which is
+  // a target someone set (the roadmap import, the editor, an agent). A one-day target is not marked.
+  const pageLate = (e) => !(e.source && (!writeOn() || !(e.end > e.start))) && scLate(e, today());
   const canChange = (e) => canEdit && !locked(e);
   // The fields are the space's own and never go to the service, so someone who may edit sets them on pulled issues too while changes go
   // back (the server takes a change of the space's own fields without the right to change GitHub). Defining one needs `columns`.
