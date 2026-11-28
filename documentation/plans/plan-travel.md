@@ -2,7 +2,7 @@
 
 **Audience:** whoever is building the Travel module, and the author deciding what it does first.
 
-**Status:** Phase 1 and the dashboard widget are built (the Days view, the trip and its items, moves, the editor, suggestions from other modules, the Decisions view, the actions, the Trips card). Also built: dragging a trip item out to link a task, dropping onto items with the drop menu, following a poll's result, the Bookings view, and money (costs, who paid, sharing, settling up), and the plan line (anything between days as well as on one; see the last section). Left: a map, and the later items. The questions at the end were answered as suggested: one trip per room, order by time then by hand, money and a map later.
+**Status:** Phase 1 and the dashboard widget are built (the Days view, the trip and its items, moves, the editor, suggestions from other modules, the Decisions view, the actions, the Trips card). Also built: dragging a trip item out to link a task, dropping onto items with the drop menu, following a poll's result, the Bookings view, and money (costs, who paid, sharing, settling up), and the plan line (anything between days as well as on one; see the last section). Also built: the item details for cards (the editor and the cards use every field listed under "Item details for cards"), the airline links on flights ([plan-flight-airline-links](plan-flight-airline-links.md)) and the weather on each day ([plan-itinerary-weather](plan-itinerary-weather.md)). Left: a map, and the later items. The questions at the end were answered as suggested: one trip per room, order by time then by hand, money and a map later.
 
 ## What it is for
 
@@ -76,7 +76,7 @@ Both sides' suggested answers are marked; the author has not answered yet.
 
 ## Item details for cards (0.4.0, data only)
 
-Items carry optional details for stylized cards: a journey `mode`, `operator`, `number`, `fromCode`, `toCode`, `terminal`, `gate`, `platform`, `carriage`, `seat`, `travelClass`, `pickup`, `dropoff`; a stop `type`, `partySize`, `reservationName`, `admissionCount`, `gate`; a stay `type`, `roomType`, `guests`; any item `travelMode` and `travelMinutes` (the leg from the item before, set by hand, later by a routing service). The city names are the existing `from` and `to`, the booking reference the existing `confirm`. The editor and the cards that use them come next.
+Items carry optional details for stylized cards: a journey `mode`, `operator`, `number`, `fromCode`, `toCode`, `terminal`, `gate`, `platform`, `carriage`, `seat`, `travelClass`, `pickup`, `dropoff`; a stop `type`, `partySize`, `reservationName`, `admissionCount`, `gate`; a stay `type`, `roomType`, `guests`; any item `travelMode` and `travelMinutes` (the leg from the item before, set by hand, later by a routing service). The city names are the existing `from` and `to`, the booking reference the existing `confirm`. The editor and the cards use them (built; a leg's travel time is still set by hand).
 
 ## The plan line: the mental model (September 2026)
 
