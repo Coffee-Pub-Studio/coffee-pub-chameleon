@@ -93,6 +93,13 @@
       <div class="sdk-field" id="f-desc-field" hidden>
         <span class="sdk-label" id="f-desc-label">Description</span>
         <div class="desc" id="f-desc" role="region" aria-labelledby="f-desc-label" tabindex="0"></div>
+        <textarea id="f-desc-edit" class="desc-edit" name="description" rows="8" maxlength="65536" aria-labelledby="f-desc-label" hidden></textarea>
+        <div class="desc-actions" id="f-desc-actions" hidden><button class="btn btn-small" type="button" id="f-desc-save">Save description</button></div>
+        <span class="sdk-hint" id="f-desc-note" role="status"></span>
+        <div class="sdk-field" id="f-desc-kept-field" hidden>
+          <span class="sdk-label" id="f-desc-kept-label">Your text, kept here</span>
+          <textarea id="f-desc-kept" class="desc-edit" rows="6" readonly aria-labelledby="f-desc-kept-label"></textarea>
+        </div>
       </div>
       <label class="sdk-field" id="f-notes-field"><span class="sdk-label">Notes</span><textarea id="f-notes" name="notes" rows="3" maxlength="2000"></textarea><span class="sdk-hint"></span></label>
       <label class="sdk-choice-row" id="f-done-field"><input id="f-done" name="done" type="checkbox"><span id="f-done-label">Done</span></label>

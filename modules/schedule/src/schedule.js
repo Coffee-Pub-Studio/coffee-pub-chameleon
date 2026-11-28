@@ -88,6 +88,7 @@
     boardVersion: undefined,
     fields: [], // the plan's fields (scFieldsFrom), in order
     fieldRows: new Map(), // key -> { value, version }: what is stored under `field:`
+    desc: null, // the open issue's description: { id, number, base, opened } once GitHub's whole text has been read
     people: [],
     settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', boardColumns: 'stages', sizing: 'off', tags: [] },
     phases: [],
@@ -1183,12 +1184,13 @@
   let ownersPick = null;
   const dates = { start: null, end: null, target: null };
   const formSnapshot = () => JSON.stringify([$('f-kind').value, $('f-title').value, $('f-start').value, $('f-end').value, $('f-target').value, ownersPick ? ownersPick.get() : [], $('f-parent').value, checked($('f-waits')), $('f-phase').value, checked($('f-tags')), $('f-done').checked, $('f-notes').value, fieldPicks()]);
-  const formDirty = () => Boolean(state.editing && !state.editing.readOnly && state.editing.opened !== undefined && state.editing.opened !== formSnapshot());
+  const formDirty = () => Boolean(state.editing && !state.editing.readOnly && ((state.editing.opened !== undefined && state.editing.opened !== formSnapshot()) || descDirty()));
   const editor = host.ui.editor($('editor'), {
     size: 'medium',
     isDirty: formDirty,
     onClose: () => {
       state.editing = null;
+      descReset();
       for (const k of ['start', 'end', 'target']) if (dates[k]) { dates[k].destroy(); dates[k] = null; }
       if (ownersPick) { ownersPick.destroy(); ownersPick = null; }
     },
@@ -1247,6 +1249,86 @@
   }
   // The pulled issue's view (see openEditor): the link, the description (`description`) as plain text (never markup), and only what an issue has.
   const targetOf = (e) => (e.end && e.start && e.end > e.start ? e.end : '');
+  // ---- the issue's description (begin) ----
+  // Read when the issue view opens (`host.issues.open(number)`: the whole text and `base`, a hash of what GitHub held), edited as plain text by
+  // someone with `write_out` in a space that writes back, saved with `host.issues.describe(number, { text, base })`. If GitHub changed the
+  // text since it was read, nothing is sent: the box shows GitHub's version and the person's own text stays in a read-only box below it
+  // until the window closes (never stored, never sent). Until the host has those two calls the stored copy stays read only.
+  let descToken = 0;
+  const descCan = () => Boolean(host.issues && typeof host.issues.open === 'function');
+  const descEditable = () => Boolean(through() && host.issues && typeof host.issues.describe === 'function');
+  const descDirty = () => Boolean(state.desc && !$('f-desc-edit').hidden && $('f-desc-edit').value !== state.desc.opened);
+  function descReset() {
+    descToken += 1;
+    state.desc = null;
+    $('f-desc-edit').hidden = true;
+    $('f-desc-edit').value = '';
+    $('f-desc-actions').hidden = true;
+    $('f-desc-save').disabled = false;
+    $('f-desc-note').textContent = '';
+    $('f-desc-kept-field').hidden = true;
+    $('f-desc-kept').value = '';
+    $('f-desc').hidden = false;
+  }
+  // Shows `text` as GitHub holds it: in the box when it can be changed, else as text.
+  function descShowText(text) {
+    if (descEditable()) {
+      $('f-desc-edit').value = text;
+      $('f-desc-edit').hidden = false;
+      $('f-desc-actions').hidden = false;
+      $('f-desc').hidden = true;
+    } else {
+      $('f-desc').textContent = text;
+    }
+    hide($('f-desc-field'), !descEditable() && !text);
+  }
+  async function descLoad(shown) {
+    if (!descCan() || !shown.source || !shown.source.number) return;
+    const mine = descToken;
+    const name = state.pull.name || 'GitHub';
+    let got;
+    try { got = await host.issues.open(shown.source.number); } catch (err) {
+      if (mine !== descToken) return;
+      $('f-desc-note').textContent = `${name} did not answer, so this can't be changed now. Try again.`;
+      return;
+    }
+    if (mine !== descToken || !state.editing || state.editing.id !== shown.id || !got || typeof got.description !== 'string') return;
+    state.desc = { id: shown.id, number: shown.source.number, base: typeof got.base === 'string' ? got.base : '', opened: got.description };
+    descShowText(got.description);
+  }
+  // Saves the description if it changed. Answers { ok, error }: ok when nothing changed or GitHub took it.
+  async function descSave() {
+    const d = state.desc;
+    if (!d || $('f-desc-edit').hidden) return { ok: true, error: '' };
+    const text = $('f-desc-edit').value;
+    if (text === d.opened) return { ok: true, error: '' };
+    const name = state.pull.name || 'GitHub';
+    $('f-desc-save').disabled = true;
+    $('f-desc-note').textContent = 'Saving the description.';
+    try {
+      const r = await host.issues.describe(d.number, { text, base: d.base });
+      if (r && r.key && r.value) remember(String(r.key).slice(SC_PREFIX.length), r.value, r.version);
+      d.opened = text;
+      $('f-desc-note').textContent = `The description is saved on ${name}.`;
+      if (r && typeof r.base === 'string') d.base = r.base; else descLoad({ id: d.id, source: { number: d.number } }); // the new `base`, for the next change
+      render();
+      return { ok: true, error: '' };
+    } catch (err) {
+      const c = scConflictOf(err);
+      let error = (err && err.message) || `${name} did not answer. Nothing was changed; try again.`;
+      if (c) {
+        // GitHub changed it meanwhile: its version in the box, the person's own text kept below to copy from.
+        error = `This changed on ${name} a moment ago. It now shows ${name}'s version. Your text is kept below; copy what you need.`;
+        $('f-desc-kept').value = text;
+        $('f-desc-kept-field').hidden = false;
+        if (c.description !== null) { d.base = c.base; d.opened = c.description; $('f-desc-edit').value = c.description; } else descLoad({ id: d.id, source: { number: d.number } });
+      }
+      $('f-desc-note').textContent = error;
+      return { ok: false, error };
+    } finally { $('f-desc-save').disabled = false; }
+  }
+  $('f-desc-save').addEventListener('click', () => { descSave(); });
+  // ---- the issue's description (end) ----
   function showIssueView(shown, on) {
     for (const el of [$('f-kind').closest('label'), $('f-notes-field')]) hide(el, on);
     if (on) for (const id of ['f-dates', 'f-owners-field', 'f-parent-field', 'f-waits-field', 'f-phase-field']) hide($(id), true);
@@ -1255,9 +1337,12 @@
     const link = on ? sourceLink(shown) : null;
     if (link) { link.classList.add('src-open'); link.append(document.createTextNode(` Open on ${shown.source.from === 'github' ? 'GitHub' : state.pull.name}`)); src.append(link); }
     hide(src, !link);
-    // The issue's text, stored cut at 2000 characters (plan-github-full-sync.md, section 1): drawn as text, read only for now.
+    // The issue's text: the stored copy (cut at 2000 characters) first, drawn as text; then the whole text from GitHub, which someone who may
+    // change GitHub edits here (plan-github-full-sync.md, section 1).
+    descReset();
     $('f-desc').textContent = on ? shown.description : '';
     hide($('f-desc-field'), !on || !shown.description);
+    if (on) descLoad(shown);
     // The one day an issue has here: a target. It is the work's `end` (its `start` stays the day the issue was opened and is not shown), the
     // plan's own and never sent to GitHub; empty, or the day it was opened, means none.
     $('f-target').value = on && targetOf(shown);
@@ -1454,6 +1539,9 @@
     const endOf = (e) => (target ? target : e.start || e.end);
     $('f-save').disabled = true;
     try {
+      // A changed description goes first, on its own: if GitHub refuses it, the window stays open with the reason and nothing else is saved.
+      const d = await descSave();
+      if (!d.ok) { editorError(d.error); return; }
       const r = await sendPulled(ed.id, (e) => {
         if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields), end: endOf(e) };
         let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields), end: endOf(e) }; // a tag the plan no longer lists stays as it is

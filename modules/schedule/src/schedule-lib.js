@@ -519,6 +519,13 @@ function scDoneOn(was, next, today) {
   else delete out.doneOn;
   return out;
 }
+// What a refused description write says GitHub holds now (plan-github-full-sync.md, section 1): { description, base } from a 409's answer,
+// with `description` null when the answer carried none (the page then reads the issue again); null for any other error.
+function scConflictOf(err) {
+  if (!err || err.status !== 409) return null;
+  const c = [err.current, err.data, err.detail, err].find((x) => x && typeof x === 'object' && typeof x.description === 'string');
+  return c ? { description: c.description, base: typeof c.base === 'string' ? c.base : '' } : { description: null, base: '' };
+}
 // Moves work to a column: sets `column`, and `done` to the column's flag. Answers { entry } or { problem }. A milestone's done
 // follows from its work (scMilestoneChanges), so the caller settles milestones in the same change.
 function scSetColumn(e, columnId, board, o) {
