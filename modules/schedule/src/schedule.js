@@ -1179,7 +1179,7 @@
     $('f-start-label').textContent = kind === 'milestone' ? 'Day' : 'Starts';
     $('f-owners-label').textContent = cap(label('owner', { many: true }));
     hide($('f-owners-field'), kind !== 'work');
-    hide($('f-waits-field'), kind === 'note' || !state.settings.dependencies || !$('f-waits').childNodes.length);
+    hide($('f-waits-field'), kind === 'note' || !state.settings.dependencies || !Number($('f-waits').dataset.count));
     hide($('f-done-field'), kind === 'note');
     hide($('f-fields'), kind !== 'work' || !state.fields.length);
     const under = ed && ed.id ? list().filter((x) => x.kind === 'work' && x.parent === ed.id).length : 0;
@@ -1191,6 +1191,49 @@
   // A start after the end moves the end with it, so a span is never backwards.
   $('f-start').addEventListener('change', () => { if ($('f-end').value && $('f-start').value && $('f-end').value < $('f-start').value) { $('f-end').value = $('f-start').value; if (dates.end) dates.end.refresh(); } });
 
+  // Waits on, as a short control: only the work already chosen is listed, with a search that lists up to 8 matches to add. A chosen one is
+  // a ticked box, taken off by unticking it; the rest are found by typing. `checked($('f-waits'))` still reads the choice.
+  const WAITS_FOUND_MAX = 8;
+  const WAITS_NOTE = 'It can start once these are done.';
+  const waitLabel = (x) => `${x.title}${x.start ? ` (${span(x)})` : ''}`;
+  function setupWaits(others, chosen) {
+    const box = $('f-waits-chosen');
+    const found = $('f-waits-found');
+    const search = $('f-waits-search');
+    const row = (x, on) => {
+      const el = choice(x.id, waitLabel(x), on);
+      el.querySelector('input').addEventListener('change', (ev) => {
+        if (ev.target.checked) box.append(el); else if (box.contains(el)) el.remove();
+        drawFound();
+      });
+      return el;
+    };
+    function drawFound() {
+      const q = search.value.trim().toLowerCase();
+      const have = new Set([...box.querySelectorAll('input')].map((i) => i.value));
+      const hits = q ? others.filter((x) => !have.has(x.id) && waitLabel(x).toLowerCase().includes(q)) : [];
+      found.replaceChildren(...hits.slice(0, WAITS_FOUND_MAX).map((x) => row(x, false)));
+      $('f-waits-note').textContent = !q ? WAITS_NOTE : !hits.length ? 'Nothing matches.' : hits.length > WAITS_FOUND_MAX ? `${hits.length} matches: type more to narrow them.` : WAITS_NOTE;
+    }
+    const chosenIds = new Set(chosen);
+    box.replaceChildren(...others.filter((x) => chosenIds.has(x.id)).map((x) => row(x, true)));
+    search.value = '';
+    search.oninput = drawFound;
+    $('f-waits').dataset.count = String(others.length);
+    drawFound();
+  }
+  // The pulled issue's view (see openEditor): the link, the description as plain text (never markup), and only what an issue has.
+  function showIssueView(shown, on) {
+    for (const el of [$('f-kind').closest('label'), $('f-notes-field')]) hide(el, on);
+    if (on) for (const id of ['f-dates', 'f-owners-field', 'f-parent-field', 'f-waits-field', 'f-phase-field']) hide($(id), true);
+    const src = $('f-source');
+    src.replaceChildren();
+    const link = on ? sourceLink(shown) : null;
+    if (link) { link.classList.add('src-open'); link.append(document.createTextNode(` Open on ${shown.source.from === 'github' ? 'GitHub' : state.pull.name}`)); src.append(link); }
+    hide(src, !link);
+    $('f-desc').textContent = on ? shown.notes : '';
+    hide($('f-desc-field'), !on || !shown.notes);
+  }
   function choice(value, text, on) {
     const el = clone('tpl-check');
     el.querySelector('input').value = value;
@@ -1230,9 +1273,12 @@
     const readOnly = !canEdit || (locked(shown) && !canSetFields(shown));
     const partly = !readOnly && pulled(shown); // a pulled issue: the title, tags and Done change on GitHub (with the right to), and the fields here
     const fieldsOnly = partly && locked(shown);
+    // A pulled issue gets its own view, not the whole form greyed: its number and a link, the title, the description (read only), Done, tags
+    // and the plan's fields. Kind, days, who is doing it, Part of, Waits on and Phase are not an issue's and are not shown.
+    const issueView = pulled(shown) && isIssue(shown);
     state.editing = { partly, fieldsOnly, id: id || null, version: found ? found.version : undefined, readOnly, ref: shown.ref, by: shown.by, order: shown.order, parent: shown.parent, column: shown.column, wasDone: shown.done };
-    $('editor-title').textContent = id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
-    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : fieldsOnly ? `Only the fields change here. The rest comes from ${state.pull.name}.${host.util.approvalLine() ? ` ${host.util.approvalLine()}` : ''}` : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}.${state.fields.length ? ' The fields stay here.' : ''} The rest comes from there.` : '';
+    $('editor-title').textContent = issueView ? `Issue ${sourceNumber(shown)}` : id ? (readOnly ? shown.title : `Change this ${kindWord(shown.kind)}`) : cap(`Add ${kindWord(shown.kind, { a: true })}`);
+    $('f-readonly').textContent = readOnly ? (locked(shown) ? SC_PULLED_SAY : `You can look at the ${label('plan')} but not change it.`) : fieldsOnly ? `Only the fields change here. The title, ${label('tag', { many: true })} and Done come from ${state.pull.name}.${host.util.approvalLine() ? ` ${host.util.approvalLine()}` : ''}` : partly ? `The title, ${label('tag', { many: true })} and Done change on ${state.pull.name}.${state.fields.length ? ' The fields stay here.' : ''}` : '';
     hide($('f-readonly'), !readOnly && !partly);
     $('f-kind').replaceChildren(...SC_KINDS.map((k) => Object.assign(document.createElement('option'), { value: k, textContent: cap(kindWord(k)) })));
     $('f-kind').value = shown.kind;
@@ -1257,8 +1303,7 @@
     $('f-parent-label').textContent = `Part of ${kindWord('milestone', { a: true })}`;
     // waits on: every milestone and work but itself and what already waits on it
     const others = scOrdered(list()).map((x) => x.entry).filter((x) => x.kind !== 'note' && x.id !== id && x.id !== shown.parent && (!id || !scMakesLoop(list(), id, x.id)));
-    $('f-waits').replaceChildren(...others.map((x) => choice(x.id, `${x.title}${x.start ? ` (${span(x)})` : ''}`, shown.waitsOn.includes(x.id))));
-    $('f-waits-note').textContent = 'It can start once these are done.';
+    setupWaits(others, shown.waitsOn);
     // phase
     const phases = state.phases;
     $('f-phase').replaceChildren(...[{ id: '', label: 'No phase' }, ...phases].map((p) => Object.assign(document.createElement('option'), { value: p.id, textContent: p.label })));
@@ -1296,6 +1341,7 @@
     $('f-delete').textContent = 'Delete';
     state.editing.armed = false;
     fitKind();
+    showIssueView(shown, issueView);
     dates.start = host.ui.datePicker($('f-start'), { clearable: true });
     dates.end = host.ui.datePicker($('f-end'), { clearable: true });
     state.editing.opened = formSnapshot();

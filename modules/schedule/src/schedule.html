@@ -87,30 +87,39 @@
     <form id="form" class="sdk-form" novalidate>
       <h3 id="editor-title">Add</h3>
       <div class="sdk-hint" id="f-readonly" hidden></div>
+      <div class="sdk-field" id="f-source" hidden></div>
       <label class="sdk-field"><span class="sdk-label">Kind</span><select id="f-kind" name="kind"></select><span class="sdk-hint"></span></label>
       <label class="sdk-field"><span class="sdk-label">Title</span><input id="f-title" name="title" type="text" maxlength="120" required autocomplete="off"><span class="sdk-hint"></span></label>
-      <div class="sdk-form-row" id="f-dates">
-        <div class="sdk-field sdk-m" role="group" aria-labelledby="f-start-label"><span class="sdk-label" id="f-start-label">Starts</span><input id="f-start" name="start" type="date" aria-labelledby="f-start-label"><span class="sdk-hint"></span></div>
-        <div class="sdk-field sdk-m" role="group" aria-labelledby="f-end-label" id="f-end-field"><span class="sdk-label" id="f-end-label">Ends</span><input id="f-end" name="end" type="date" aria-labelledby="f-end-label"><span class="sdk-hint"></span></div>
+      <div class="sdk-field" id="f-desc-field" hidden>
+        <span class="sdk-label" id="f-desc-label">Description</span>
+        <div class="desc" id="f-desc" role="region" aria-labelledby="f-desc-label" tabindex="0"></div>
       </div>
+      <label class="sdk-field" id="f-notes-field"><span class="sdk-label">Notes</span><textarea id="f-notes" name="notes" rows="3" maxlength="2000"></textarea><span class="sdk-hint"></span></label>
+      <label class="sdk-choice-row" id="f-done-field"><input id="f-done" name="done" type="checkbox"><span id="f-done-label">Done</span></label>
+      <div class="sdk-field" role="group" aria-labelledby="f-tags-label" id="f-tags-field">
+        <span class="sdk-label" id="f-tags-label">Tags</span>
+        <div class="sdk-choice-list" id="f-tags"></div>
+      </div>
+      <label class="sdk-field" id="f-phase-field"><span class="sdk-label">Phase</span><select id="f-phase" name="phase"></select><span class="sdk-hint"></span></label>
+      <div id="f-fields"></div>
       <div class="sdk-field" role="group" aria-labelledby="f-owners-label" id="f-owners-field">
         <span class="sdk-label" id="f-owners-label"></span>
         <div id="f-owners"></div>
       </div>
       <label class="sdk-field" id="f-parent-field"><span class="sdk-label" id="f-parent-label">Part of</span><select id="f-parent" name="parent"></select><span class="sdk-hint"></span></label>
+      <div class="sdk-form-row" id="f-dates">
+        <div class="sdk-field sdk-m" role="group" aria-labelledby="f-start-label"><span class="sdk-label" id="f-start-label">Starts</span><input id="f-start" name="start" type="date" aria-labelledby="f-start-label"><span class="sdk-hint"></span></div>
+        <div class="sdk-field sdk-m" role="group" aria-labelledby="f-end-label" id="f-end-field"><span class="sdk-label" id="f-end-label">Ends</span><input id="f-end" name="end" type="date" aria-labelledby="f-end-label"><span class="sdk-hint"></span></div>
+      </div>
       <div class="sdk-field" role="group" aria-labelledby="f-waits-label" id="f-waits-field">
         <span class="sdk-label" id="f-waits-label">Waits on</span>
-        <div class="sdk-choice-list" id="f-waits"></div>
+        <div class="waits" id="f-waits">
+          <div class="sdk-choice-list" id="f-waits-chosen"></div>
+          <input id="f-waits-search" type="search" class="waits-search" placeholder="Search to add" autocomplete="off" aria-label="Search for work to wait on" aria-controls="f-waits-found">
+          <div class="sdk-choice-list" id="f-waits-found" role="group" aria-label="Matches"></div>
+        </div>
         <span class="sdk-hint" id="f-waits-note"></span>
       </div>
-      <label class="sdk-field" id="f-phase-field"><span class="sdk-label">Phase</span><select id="f-phase" name="phase"></select><span class="sdk-hint"></span></label>
-      <div id="f-fields"></div>
-      <div class="sdk-field" role="group" aria-labelledby="f-tags-label" id="f-tags-field">
-        <span class="sdk-label" id="f-tags-label">Tags</span>
-        <div class="sdk-choice-list" id="f-tags"></div>
-      </div>
-      <label class="sdk-choice-row" id="f-done-field"><input id="f-done" name="done" type="checkbox"><span id="f-done-label">Done</span></label>
-      <label class="sdk-field"><span class="sdk-label">Notes</span><textarea id="f-notes" name="notes" rows="3" maxlength="2000"></textarea><span class="sdk-hint"></span></label>
       <div class="sdk-field" id="f-links-field" hidden>
         <span class="sdk-label">Linked</span>
         <div class="links" id="f-links"></div>
