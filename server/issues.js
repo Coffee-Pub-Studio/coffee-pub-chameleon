@@ -3,7 +3,8 @@
 // the service is the source of truth, and the next pull overwrites anything changed some other way. The core maps the records
 // into the plan (the plan's option a), so this file names the `schedule` module; nothing here knows which service it is.
 //
-// What goes out: GET requests to the adapter's origin naming the repository, which issues (all, open or closed), a `since` time, a page and the last etag, with the
+// What goes out: GET requests to the adapter's origin naming the repository, which issues (all, open or closed), a `since` time, a page and the last etag,
+// and after each list its open milestones (with that list's last etag), with the
 // repository's installation token when the space is linked through the GitHub app (server/issue-app.js, plan-github-app.md) and
 // no token otherwise. Nothing of the space, the environment or its people.
 //
@@ -36,7 +37,8 @@ const MAX_PAGES = 50; // 5,000 issues and pull requests; the plan holds at most 
 const MAX_ENTRIES = 1000; // Projects' maxPlan (modules/schedule/src/schedule-lib-file.js)
 const MAX_TAGS = 20; // a list setting's rows (server/setting-list.js)
 const TITLE_MAX = 120;
-const NOTES_MAX = 2000;
+const DESCRIPTION_MAX = 2000; // the stored copy of an issue's text (plan-github-full-sync.md, section 1); the whole text is GitHub's
+const SPARE_LABELS_MAX = 30; // labels past the `tags` setting's rows, kept in source.labels
 const REST_MS = 30 * 60 * 1000; // after a 403 or 429 that names no time
 const MAX_REST_MS = 24 * 3600 * 1000;
 const NOW_GAP_MS = 60 * 1000; // the least time between two pulls a person asks for
@@ -341,6 +343,18 @@ async function askIssues(adapter, { repo, since = '', etag = '', token = '', ful
   return { ok: true, notModified: false, records: mergeByNumber(open.records, closed.records), etag: '', complete: closed.complete, pollMs };
 }
 
+// The repository's open milestones, after a list (plan-github-full-sync.md, section 5): one conditional request. Answers
+//   { ok: true, notModified, milestones, etag } or { ok: false } (any trouble: the pull goes on and keeps the milestones it has).
+// A limit here is not rested on: the list just before it answered, and the next list asked will rest if the service says so.
+async function askMilestones(adapter, { repo, etag = '', token = '' }, { fetchImpl } = {}) {
+  if (typeof adapter.milestones !== 'function') return { ok: false };
+  let got;
+  try { got = await adapter.milestones({ repo, etag, token }, getter(adapter, { fetchImpl })); } catch { return { ok: false }; }
+  if (got.status === 304) return { ok: true, notModified: true, milestones: [], etag: got.etag || etag };
+  if (got.status !== 200 || got.bad || !Array.isArray(got.milestones)) return { ok: false };
+  return { ok: true, notModified: false, milestones: got.milestones, etag: got.etag || '' };
+}
+
 // --- the mapping into the plan -----------------------------------------------------------------------------------------------
 
 const oneLine = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -372,9 +386,22 @@ function tagRowsOf(records) {
   return rows;
 }
 
-// One issue as a piece of work, stored under `plan:gh-<number>`. `tagIds`: the ids the space's `tags` setting holds (a label
-// past them is named in the notes instead). Only the fields Projects keeps (scClean), plus `source`.
-function workOf(rec, { repo, provider, tagIds }) {
+// An issue's text as the plan stores it: at most DESCRIPTION_MAX characters (never inside a surrogate pair), cut with an ellipsis.
+// Answers { description, cut }.
+function descriptionOf(body) {
+  const t = typeof body === 'string' ? body : '';
+  if (t.length <= DESCRIPTION_MAX) return { description: t, cut: false };
+  const chars = Array.from(t);
+  if (chars.length <= DESCRIPTION_MAX) return { description: t, cut: false };
+  return { description: `${chars.slice(0, DESCRIPTION_MAX - 1).join('').trimEnd()}…`, cut: true };
+}
+
+// One issue as a piece of work, stored under `plan:gh-<number>`. `tagIds`: the ids the space's `tags` setting holds (a label past
+// them is kept in `source.labels` instead, read only). `linked`: Map(the service's account id -> a member's key), the members who
+// linked their account (plan-github-full-sync.md, section 4; none until step 2): an assignee who is one is an Owner, any other is
+// kept by login in `assignees`. Only the fields Projects keeps (scClean), plus `source`. Pulled work has no `notes`: the link is
+// `source.url`, the milestone `parent`, the issue's text `description` (cut, with `source.cut`).
+function workOf(rec, { repo, provider, tagIds, linked = null }) {
   const column = columnOf(rec);
   const start = dayOf(rec.created);
   const end = rec.open ? start : dayOf(rec.closed) || start;
@@ -383,20 +410,19 @@ function workOf(rec, { repo, provider, tagIds }) {
   for (const l of rec.labels) {
     if (PRIORITY.test(l.name)) continue;
     const id = tagId(l.name);
-    if (id && tagIds.has(id)) { if (!tags.includes(id)) tags.push(id); } else spare.push(oneLine(l.name, 50));
+    if (id && tagIds.has(id)) { if (!tags.includes(id)) tags.push(id); } else {
+      const name = oneLine(l.name, 50);
+      if (name && !spare.includes(name) && spare.length < SPARE_LABELS_MAX) spare.push(name);
+    }
   }
-  const lines = [rec.url];
-  if (rec.milestone) lines.push(`Milestone: ${oneLine(rec.milestone.title, 120)}`);
-  if (spare.length) lines.push(`Labels: ${spare.join(', ')}`);
-  // The issue's description goes below those lines as text, cut (never the link) to what is left of NOTES_MAX, marked with an ellipsis.
-  const head = lines.filter(Boolean).join('\n');
-  let notes = head;
-  if (typeof rec.body === 'string' && rec.body) {
-    const left = NOTES_MAX - (head ? head.length + 1 : 0);
-    const chars = Array.from(rec.body);
-    if (left > 1) notes = [head, chars.length > left ? `${chars.slice(0, left - 1).join('').trimEnd()}…` : rec.body].filter(Boolean).join('\n');
+  const owners = [];
+  const logins = [];
+  for (const a of Array.isArray(rec.assignees) ? rec.assignees : []) {
+    const key = linked && linked.get(a.id);
+    if (key) { if (!owners.includes(key)) owners.push(key); } else if (!logins.includes(a.login)) logins.push(a.login);
   }
-  const value = {
+  const { description, cut: wasCut } = descriptionOf(rec.body);
+  return {
     kind: 'work',
     title: cut(rec.title, TITLE_MAX) || `#${rec.number}`,
     start,
@@ -405,20 +431,28 @@ function workOf(rec, { repo, provider, tagIds }) {
     // The day it became done is the day it was closed (plan-projects-sizing-burndown.md, decision 2); open work has none.
     ...(column === 'done' && phaseRule.isDay(dayOf(rec.closed)) ? { doneOn: dayOf(rec.closed) } : {}),
     ...(tags.length ? { tags } : {}),
-    notes: Array.from(notes).slice(0, NOTES_MAX).join(''),
+    ...(owners.length ? { owners } : {}),
+    ...(logins.length ? { assignees: logins.slice(0, 10) } : {}),
+    ...(description ? { description } : {}),
     ...(rec.milestone ? { parent: `ghm-${rec.milestone.number}` } : {}),
     by: SYSTEM_BY,
     column,
-    source: { from: provider, repo, number: rec.number, url: rec.url, ...(rec.updated ? { updated: rec.updated } : {}) },
+    source: {
+      from: provider, repo, number: rec.number, url: rec.url,
+      ...(rec.updated ? { updated: rec.updated } : {}),
+      ...(wasCut ? { cut: true } : {}),
+      ...(spare.length ? { labels: spare } : {}),
+    },
   };
-  if (!value.notes) delete value.notes;
-  return value;
 }
 
-// The milestones the stored work names, each as Projects stores one under `plan:ghm-<number>`: its title and due day from the
-// newest record that named it (`known`: Map(number -> { title, due, open })), else from what is stored; its start the due day,
-// else its first piece of work's start; done when every piece under it is.
-function milestonesOf(works, known, stored, { repo, provider }) {
+// The milestones of the plan, each as Projects stores one under `plan:ghm-<number>`: every one the stored work names, and every
+// open one the service listed (`open`: Map(number -> { title, due, open }) from askMilestones, plan-github-full-sync.md section 5),
+// with or without work. With `open` null (not read this time) a stored milestone with no work is kept as it is. Its title and due
+// day from the newest the service said (`open`, then `known`: Map(number -> { title, due, open }) from the records), else from what
+// is stored; its start the due day, else its first piece of work's start; done when every piece under it is. `free`: how many
+// milestones not stored yet and with no work may be added (the plan's 1,000 entries).
+function milestonesOf(works, known, stored, { repo, provider }, { open = null, free = Infinity } = {}) {
   const groups = new Map();
   for (const [, v] of works) {
     const m = typeof v.parent === 'string' ? /^ghm-(\d{1,9})$/.exec(v.parent) : null;
@@ -427,10 +461,18 @@ function milestonesOf(works, known, stored, { repo, provider }) {
     if (!groups.has(n)) groups.set(n, []);
     groups.get(n).push(v);
   }
+  let left = free;
+  const empty = (n) => {
+    if (groups.has(n)) return;
+    if (!stored.has(`plan:ghm-${n}`)) { if (left <= 0) return; left -= 1; }
+    groups.set(n, []);
+  };
+  if (open) for (const n of [...open.keys()].sort((a, b) => a - b)) empty(n);
+  else for (const key of stored.keys()) { const m = MILESTONE_KEY.exec(key); if (m) empty(Number(m[1])); }
   const out = new Map();
   for (const [n, list] of groups) {
     const had = stored.get(`plan:ghm-${n}`);
-    const info = known.get(n) || (had ? { title: had.title, due: had.source && had.source.due ? had.source.due : '' } : { title: `#${n}`, due: '' });
+    const info = (open && open.get(n)) || known.get(n) || (had ? { title: had.title, due: had.source && had.source.due ? had.source.due : '' } : { title: `#${n}`, due: '' });
     const first = list.map((v) => v.start).filter(Boolean).sort()[0] || '';
     const done = list.filter((v) => v.done).length;
     out.set(`plan:ghm-${n}`, {
@@ -516,8 +558,9 @@ const agedOut = (key, value, cutoff) => Boolean(cutoff) && WORK_KEY.test(String(
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) --------------------------------------------------------
 
 // The fields of a piece of work by who owns them when a space writes back: GitHub's own that go out (column and done, title,
-// tags), the space's own that stay here, and everything else (notes, source, kind, parent, id, ...) which is GitHub's and
-// read-only. `by` is set by the write itself.
+// tags), the space's own that stay here, and everything else (description, assignees, source, kind, parent, id, ...) which is
+// GitHub's and read-only: refused, with nothing sent (plan-github-full-sync.md step 3 sends the description, the milestone and
+// linked Owners). `by` is set by the write itself.
 const OWN_FIELDS = Object.freeze(['owners', 'waitsOn', 'start', 'end', 'rank', 'fields']);
 const SENT_FIELDS = Object.freeze(['column', 'done', 'title', 'tags']);
 const sortedTags = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => typeof t === 'string'))].sort() : []);
@@ -587,13 +630,21 @@ function areaOf(title, field) {
 // The work the pull writes over the stored one in a space that writes back: GitHub's fields from the new record, the space's own
 // (owners, waits, rank, fields, and the days once they exist) and who made the change kept from what is stored; work not stored
 // yet starts and ends on the day the issue was made. `doneOn` is always the fresh record's (GitHub's closed day), never stored.
-function keepOwn(stored, fresh, { area = null } = {}) {
+// `linked`: the keys of the members who linked a GitHub account (workOf's map's values; none until plan-github-full-sync.md step 2):
+// for them GitHub is the truth, so a stored Owner who is one is kept only when the record assigns them (in `fresh.owners`).
+function keepOwn(stored, fresh, { area = null, linked = null } = {}) {
   if (!stored || typeof stored !== 'object') { // the days start as the day it was made, then are the space's; so does the Area, from the title's "Area:"
     const choice = areaOf(fresh.title, area);
     return { ...fresh, end: fresh.start, ...(choice ? { fields: { area: choice } } : {}) };
   }
   const out = { ...fresh };
   for (const k of ['owners', 'waitsOn', 'rank', 'fields']) if (stored[k] !== undefined) out[k] = stored[k];
+  const keys = linked ? new Set(linked) : null;
+  if (keys && keys.size) {
+    const own = (Array.isArray(stored.owners) ? stored.owners : []).filter((k) => !keys.has(k));
+    const all = [...new Set([...own, ...(Array.isArray(fresh.owners) ? fresh.owners : [])])];
+    if (all.length) out.owners = all; else delete out.owners;
+  }
   if (typeof stored.start === 'string') out.start = stored.start;
   if (typeof stored.end === 'string') out.end = stored.end;
   if (typeof stored.by === 'string' && stored.by) out.by = stored.by;
@@ -636,7 +687,7 @@ function cleanRepo(adapter, raw) {
 }
 
 module.exports = {
-  IssuePulls, IssuesError, askIssues, mergeByNumber, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
+  IssuePulls, IssuesError, askIssues, askMilestones, mergeByNumber, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
   BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
-  FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
+  FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, DESCRIPTION_MAX, SPARE_LABELS_MAX, descriptionOf, oneLine,
 };

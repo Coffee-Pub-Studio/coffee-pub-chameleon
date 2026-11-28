@@ -380,11 +380,14 @@ try {
   ok((await ev(tab, `${all('#f-readonly')}[0].textContent`)).includes('The fields stay here.'), 'and that the fields stay here');
   same(await ev(tab, `${all('#f-fields select')}.map((s) => s.disabled)`), [false, false], 'the choices can be set');
   same(await ev(tab, `${all('#f-notes')}[0].disabled`), true, 'the rest stays GitHub\'s');
+  // The issue's text is drawn from `description` (plan-github-full-sync.md, step 1), as text, read only.
+  same(await ev(tab, `[${all('#f-desc')}[0].textContent, ${all('#f-desc-field')}[0].hidden, ${all('#f-notes-field')}[0].hidden]`), ['private', false, true], 'the description is shown, the notes are not');
   ok(await pickChoice(tab, 'area', 'chat'), 'Area Chat');
   ok(await pickChoice(tab, 'phase', 'first'), 'Phase First');
   await shot(tab, 'fields-1280-light-followed-editor');
   await editorSave(tab);
   same((await planB('gh-2')).fields, { area: 'chat', phase: 'first' }, 'a choice on pulled work is saved');
+  same([(await planB('gh-2')).description, 'notes' in (await planB('gh-2'))], ['private', false], 'and the page\'s save keeps the description');
   same(seen.length, requests, 'defining fields and setting a choice made no request to the stand-in');
   // Area from the title, once: the first pull made gh-1 before Area existed; new work from a pull after it
   issues.push({ number: 4, title: 'Server: fresh', state: 'open', labels: [], created_at: '2026-01-08T00:00:00Z', updated_at: '2026-11-20T00:00:00Z', closed_at: null, milestone: null, body: '', user: { login: 'x' }, assignees: [], html_url: `https://github.com/${REPO}/issues/4` });

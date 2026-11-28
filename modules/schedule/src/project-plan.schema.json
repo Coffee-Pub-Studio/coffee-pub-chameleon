@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Planner - Projects plan file",
-  "description": "A project plan file, as Export writes it and Import reads it (format \"project-plan\", version 1). This schema says what a JSON Schema can say. Import also checks what it cannot: a day must be a real day from 1900 to 2200 (2026-02-30 and 2300-01-01 match the pattern but are refused); work's end is not before its start; every `parent` and `waitsOn` names an `id` in the file, no entry is part of itself, `parent` is a milestone, `waitsOn` is a milestone or work, and nothing waits on itself in a loop; each `id` is used once; when the plan's \"Dates are needed\" setting is on, a milestone needs a `start` and work a `start` and an `end`; text lengths count after trimming. Use the Check file entry in the Export and import menu for those. A file for Update by id has entries that carry only an `id` and `fields`, `start`, `end`, `owners` or `rank` (the `updateEntry` definition).",
+  "description": "A project plan file, as Export writes it and Import reads it (format \"project-plan\", version 1). This schema says what a JSON Schema can say. Import also checks what it cannot: a day must be a real day from 1900 to 2200 (2026-02-30 and 2300-01-01 match the pattern but are refused); work's end is not before its start; every `parent` and `waitsOn` names an `id` in the file, no entry is part of itself, `parent` is a milestone, `waitsOn` is a milestone or work, and nothing waits on itself in a loop; each `id` is used once; when the plan's \"Dates are needed\" setting is on, a milestone needs a `start` and work a `start` and an `end`; text lengths count after trimming. Use the Check file entry in the Export and import menu for those. A file for Update by id has entries that carry only an `id` and `fields`, `start`, `end`, `owners` or `rank` (the `updateEntry` definition). A `description` is counted in characters (a schema's maxLength counts the same).",
   "$comment": "The format is written out in FORMAT.md beside this file. Fields that are not listed are ignored by Import, so additionalProperties is left open.",
   "type": "object",
   "required": ["format", "version", "entries"],
@@ -72,7 +72,9 @@
         "column": { "type": ["string", "null"], "pattern": "^([a-z][a-z0-9-]{0,40})?$", "description": "Work only: the id of its column on the board. Work whose column the board does not have reads as the first done column if it is done, else the first column that does not count as done." },
         "done": { "type": ["boolean", "null"] },
         "ticked": { "type": ["boolean", "null"] },
-        "notes": { "type": ["string", "null"], "maxLength": 2000 },
+        "notes": { "type": ["string", "null"], "maxLength": 2000, "description": "The plan's own notes. Work pulled from GitHub has none." },
+        "description": { "type": ["string", "null"], "maxLength": 2000, "description": "Work pulled from GitHub only: the issue's text as plain text, cut at 2000 characters with an ellipsis (then source.cut is true). Leave it out when you write a file." },
+        "assignees": { "type": ["array", "null"], "maxItems": 10, "items": { "type": "string" }, "description": "Work pulled from GitHub only: the GitHub logins assigned to the issue that no member has linked. Leave it out when you write a file." },
         "phase": { "type": ["string", "null"], "pattern": "^([a-z][a-z0-9-]{0,40})?$" },
         "order": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$" },
         "rank": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$", "description": "The order inside a board column, as Export writes it. Leave it out when you write a file." },
@@ -83,7 +85,7 @@
         "source": {
           "type": ["object", "null"],
           "required": ["from", "repo"],
-          "properties": { "from": { "type": "string" }, "repo": { "type": "string" }, "number": { "type": "integer" }, "milestone": { "type": "integer" }, "url": { "type": "string" }, "due": { "type": "string" }, "updated": { "type": "string" } },
+          "properties": { "from": { "type": "string" }, "repo": { "type": "string" }, "number": { "type": "integer" }, "milestone": { "type": "integer" }, "url": { "type": "string" }, "due": { "type": "string" }, "updated": { "type": "string" }, "cut": { "type": ["boolean", "null"], "description": "true: the description is shorter than the issue's text." }, "labels": { "type": ["array", "null"], "maxItems": 30, "items": { "type": "string", "maxLength": 50 }, "description": "The issue's labels past the plan's Tags setting." } },
           "description": "Where pulled work came from, as Export writes it (a pull from GitHub). Leave it out when you write a file."
         },
         "ref": {
