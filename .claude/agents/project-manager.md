@@ -49,7 +49,7 @@ and never offer or recommend a production build: only Thomas calls one (Thomas, 
   checks that `node tools/check-module-versions.mjs` prints OK. As soon as the builder reports, you
   push, open a pull request, and merge it (squash, with `expectedHeadSha`) when every GitHub check run
   is green on that head; then confirm the image is published (an anonymous token, then a HEAD on
-  `/v2/drowbe/coffee-pub-chameleon/manifests/sha-<7>`; 200 means published; check the `image.yml` run
+  `/v2/coffee-pub-studio/coffee-pub-chameleon/manifests/sha-<7>`; 200 means published; check the `image.yml` run
   if not) and tell Thomas what to pull and what to test, so he is testing within the hour. Name the
   build every time you ask him to pull: the exact tag `sha-<7>` of the commit that holds the change,
   confirmed published, in a code block he can copy. He tests by tag and never by `latest` (Thomas,

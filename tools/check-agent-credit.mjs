@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * check-agent-credit.mjs -- who an object made by a request is credited to (Drowbe/coffee-pub-chameleon#980, "uneven credit").
+ * check-agent-credit.mjs -- who an object made by a request is credited to (Coffee-Pub-Studio/coffee-pub-chameleon#980, "uneven credit").
  * An agent asks, a person's open page carries it out. The SDK hands every provider handler `ctx.credit` ({ name, key }): the
  * asker when the server knows them (an agent, or a person), else the person whose page carries it out. Every module that
  * stamps an author on what a request makes reads `ctx.credit`, never the page's own user.

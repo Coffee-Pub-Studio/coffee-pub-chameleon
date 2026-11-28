@@ -9,7 +9,7 @@
  *   --plan     a project-plan file whose entries are the work the space has (a plan's
  *              Export). A row whose gh-<number> is not in it is reported and left out. Without it every row is written and
  *              Update by id skips, and counts, the ids the plan does not have.
- *   --repo     the repository the space follows (default Drowbe/coffee-pub-chameleon); a row for another repository is reported
+ *   --repo     the repository the space follows (default Coffee-Pub-Studio/coffee-pub-chameleon); a row for another repository is reported
  *   --out      the file to write (default project-plan-roadmap.json); nothing is written with --dry-run
  *
  * It writes a project-plan file for Planner - Projects' Update by id (modules/schedule/src/FORMAT.md): three fields, Area (id
@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readRows } from './roadmap-board-sync.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const DEFAULT_REPO = 'Drowbe/coffee-pub-chameleon';
+export const DEFAULT_REPO = 'Coffee-Pub-Studio/coffee-pub-chameleon';
 const LABEL_MAX = 40; // the format's limits (project-plan.schema.json)
 const OPTIONS_MAX = 30;
 const FIELDS = [

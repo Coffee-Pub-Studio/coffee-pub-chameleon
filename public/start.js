@@ -250,7 +250,7 @@ const WAYS = [
 const footProducts = () => [[product.name, '/products/chameleon'], ['Showrunner', '/products/showrunner'], ['Foundry VTT modules', '/products#modules'], ['All products', '/products']];
 const FOOT_STUDIO = [['About', '/about'], ['Contact', '/contact'], ['Get help', '/support'], ['Design system', '/design-system']];
 // Elsewhere: the studio's own pages elsewhere on the web. They are not on the studio's address, so they are written out.
-const FOOT_ELSEWHERE = [['willhavebeen.com', 'https://willhavebeen.com'], ['Patreon', 'https://www.patreon.com/cw/CoffeePub'], ['GitHub', 'https://github.com/Drowbe']];
+const FOOT_ELSEWHERE = [['willhavebeen.com', 'https://willhavebeen.com'], ['Patreon', 'https://www.patreon.com/cw/CoffeePub'], ['GitHub', 'https://github.com/Coffee-Pub-Studio']];
 function drawHero() {
   const full = product.name; const short = product.productShortName || product.name;
   $('sp-title').textContent = full;
