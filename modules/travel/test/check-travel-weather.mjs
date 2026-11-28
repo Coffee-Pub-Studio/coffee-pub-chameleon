@@ -220,6 +220,8 @@ await test('the page asks through host.weather.days and draws with host.ui.dayWe
   assert.ok(js.includes("dayEl.querySelector('.sdk-day-labels')") && js.includes('host.ui.dayWeather(box, o)'), 'the piece in the label row');
   assert.ok(js.includes("if (state.view === 'days') wantWeather();"), 'asked from the draw, once');
   assert.ok(js.includes('weather.reset();'), 'a change of settings asks again');
+  assert.ok(js.includes("e.animationName === 'sdk-day-weather-in'") && js.includes("classList.add('weather-faded-in')"), 'the first fade-in marks the page');
+  assert.ok(/\.weather-faded-in \.sdk-day-weather \{ animation: none; \}/.test(read('travel.css')), 'a redraw does not replay the fade-in');
   assert.ok(!/fetch\(/.test(read('travel-lib-weather.js')), 'the library asks only through the page\'s ask');
   const html = read('travel.html');
   assert.ok(/class="sdk-day-labels" hidden/.test(html), 'the label row is still in the day header');

@@ -4,6 +4,8 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+- **Planner - Itinerary 0.16.31:** the weather on a day's header fades in once, when the answer arrives, and no longer again each time the plan redraws. Read as code and checked by `check-travel-weather`; not seen in a browser. A negative temperature still prints a hyphen (SDK).
+
 ### Any owner can connect a GitHub repository through an app (2026-11-27)
 
 Written from the code on `main` at `3d68686b` (pull requests #1191, #1192, #1194 and #1195, steps 1 to 3 of [plan-github-app](documentation/plans/plan-github-app.md)), read as code, and from the checks' own descriptions. The follow control's change that hides **Connect to GitHub** on a server with no app was in flight when this was written and is described as the behaviour. Step 4, registering the app and trying it, is Thomas's and has not been done. The documents: [Planner - Projects guide](documentation/userguides/userguide-planner-projects.md), [Settings reference](documentation/userguides/userguide-settings-reference.md) ("Register the GitHub app"), [api-modules](documentation/api/api-modules.md) and [architecture-modules](documentation/architecture/architecture-modules.md).
