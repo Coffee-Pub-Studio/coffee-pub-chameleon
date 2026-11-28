@@ -123,3 +123,4 @@
 .app.narrow .sdk-mk-tag { overflow: visible; }
 .app.narrow .card-more summary { min-height: 44px; }
 .app.narrow .leg::after { content: ""; position: absolute; inset: calc((26px - 2px - 44px) / 2) 0; } /* the way between two stops: a 44px target */
+.weather-faded-in .sdk-day-weather { animation: none; } /* the SDK fades the day weather in once; a redraw builds it again and must not replay it */
