@@ -143,3 +143,19 @@ content-manager edits the rest of `documentation/`, `CHANGELOG.md` and the READM
 describe their changes in their reports. The exception: a module agent run with `/module` may also edit its own
 module's user guide, its known-issues entries, its plan status lines and one CHANGELOG line, and nothing else
 outside `modules/<id>/`.
+
+How sessions are organised (Thomas, 2026-11-28):
+- A dedicated module agent exists only for a module with ongoing work (today Whiteboard, Planner and
+  Documents). A quiet module gets a session when there is something to do. Module agents run through `/module`.
+- Thomas starts module agents and the project manager himself, as top-level sessions, with only the
+  `Coffee-Pub-Studio/coffee-pub-chameleon` repository ticked and the "Coffee Pub Studio" environment. The
+  project manager never starts module or project-manager sessions with `create_session`: a started session
+  is nested under its parent, Thomas cannot talk to it, it may not report back, and messages between
+  sessions have been refused.
+- The project manager starts only short-lived builders as in-process subagents (server-development,
+  experience-design, bug-fixes, content-manager, quality-assurance, product-planner). They return their
+  result directly.
+- Coordination runs through GitHub: issues, pull requests and checks are the shared record. The project
+  manager reads them and uses `send_message` only as a nudge, never as the only channel. Module agents report
+  by pull request and issue comments. Thomas says "go" and names the build kind. Messages between sessions
+  may not arrive, so anything that matters is also written on the issue or pull request.
