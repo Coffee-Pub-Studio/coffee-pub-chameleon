@@ -38,6 +38,7 @@ const SC_FIELD_OPTIONS_MAX = 30;
 const SC_FIELD_LABEL_MAX = 40;
 const SC_ROWS_FIELD = /^field:[a-z][a-z0-9-]{0,40}$/;
 const SC_BOARD_ID = /^[a-z][a-z0-9-]{0,40}$/;
+const SC_COLOR = /^#[0-9a-f]{6}$/; // a column's colour: strict, lower case (the picker's answer)
 const SC_COLUMN_LABEL_MAX = 40;
 const SC_COLUMNS_MAX = 12;
 const SC_ROWS_BY = ['milestone', 'owners'];
@@ -429,7 +430,9 @@ function scCleanBoard(id, raw) {
     const label = scLine(c.label, SC_COLUMN_LABEL_MAX);
     if (!label || columns.length >= SC_COLUMNS_MAX) continue;
     seen.add(c.id);
-    columns.push(c.done === true ? { id: c.id, label, done: true } : { id: c.id, label });
+    const col = c.done === true ? { id: c.id, label, done: true } : { id: c.id, label };
+    if (typeof c.color === 'string' && SC_COLOR.test(c.color)) col.color = c.color;
+    columns.push(col);
   }
   if (!columns.some((c) => c.done) || !columns.some((c) => !c.done)) return null;
   const board = { id: String(id), name: scLine(v.name, SC_COLUMN_LABEL_MAX) || 'Board', field: 'column', columns };
@@ -438,7 +441,7 @@ function scCleanBoard(id, raw) {
 }
 // What is stored for a board: nothing empty.
 function scBoardValue(board) {
-  const out = { id: board.id, name: board.name, field: 'column', columns: board.columns.map((c) => (c.done ? { id: c.id, label: c.label, done: true } : { id: c.id, label: c.label })) };
+  const out = { id: board.id, name: board.name, field: 'column', columns: board.columns.map((c) => ({ id: c.id, label: c.label, ...(c.done ? { done: true } : {}), ...(c.color ? { color: c.color } : {}) })) };
   if (board.rowsBy) out.rowsBy = board.rowsBy;
   return out;
 }
@@ -610,7 +613,7 @@ function scSetColumnFlag(board, entries, columnId, done, o) {
   if (Boolean(col.done) === done) return { board, entries: [] };
   if (!done && board.columns.filter((c) => c.done).length < 2) return { problem: SC_KEEP_DONE };
   if (done && board.columns.filter((c) => !c.done).length < 2) return { problem: SC_KEEP_OPEN };
-  const next = { ...board, columns: board.columns.map((c) => (c.id === columnId ? (done ? { id: c.id, label: c.label, done: true } : { id: c.id, label: c.label }) : c)) };
+  const next = { ...board, columns: board.columns.map((c) => (c.id === columnId ? { id: c.id, label: c.label, ...(done ? { done: true } : {}), ...(c.color ? { color: c.color } : {}) } : c)) };
   const out = scSettled(entries, (e) => (scColumnOf(e, board).id === columnId && e.done !== done ? scDoneOn(e, { ...e, done }, o && o.today) : e), o);
   return { board: next, entries: out };
 }
@@ -656,6 +659,32 @@ function scRenameColumn(board, columnId, label) {
   if (!text) return { problem: 'Give the column a name.' };
   if ([...text].length > SC_COLUMN_LABEL_MAX) return { problem: `A column name is at most ${SC_COLUMN_LABEL_MAX} characters.` };
   return { board: { ...board, columns: board.columns.map((c) => (c.id === columnId ? { ...c, label: text } : c)) } };
+}
+// Sets a column's colour (a strict lower case #rrggbb, as the picker answers) or takes it off ('' or null). The colour is the space's own
+// and changes nothing else about the column. { board } or { problem }.
+function scSetColumnColor(board, columnId, color) {
+  const col = board.columns.find((c) => c.id === columnId);
+  if (!col) return { problem: `There is no column called ${scLine(String(columnId), SC_COLUMN_LABEL_MAX)}.` };
+  const off = color === '' || color === null || color === undefined;
+  if (!off && !(typeof color === 'string' && SC_COLOR.test(color))) return { problem: 'A colour is a # and six lower case hex digits.' };
+  const next = off ? (({ color: gone, ...rest }) => rest)(col) : { ...col, color };
+  return { board: { ...board, columns: board.columns.map((c) => (c.id === columnId ? next : c)) } };
+}
+// The stored board value with one column's colour set or taken off, and nothing else touched: every key, its order and every other column
+// exactly as `raw` holds them (a board written by a service's pull is not rebuilt, and the server lets a followed board's colour through
+// only when that is all that differs). Answers the new value, or null when `raw` is not a stored board with that column or the colour is
+// not '' or a strict #rrggbb.
+function scColourBoardValue(raw, columnId, color) {
+  const off = color === '' || color === null || color === undefined;
+  if (!off && !(typeof color === 'string' && SC_COLOR.test(color))) return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !Array.isArray(raw.columns)) return null;
+  if (!raw.columns.some((c) => c && c.id === columnId)) return null;
+  const columns = raw.columns.map((c) => {
+    if (!c || c.id !== columnId) return c;
+    const { color: was, ...rest } = c;
+    return off ? rest : { ...rest, color };
+  });
+  return { ...raw, columns };
 }
 // Moves a column `by` places (-1 left, 1 right).
 function scMoveColumn(board, columnId, by) {

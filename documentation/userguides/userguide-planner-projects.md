@@ -96,6 +96,7 @@ Each column's **...** menu has **Fold** or **Unfold**, which anyone may use (a f
 - **Rename**, which asks for the new name (at most 40 characters, not empty). The work stays in the column.
 - **Move left** and **Move right**.
 - **Counts as done**, on or off. The work in the column is marked done or not done to match, and so are the milestones above it. The board must keep at least one column that counts as done and at least one that does not: "Keep at least one column that counts as done." or "Keep at least one column that does not count as done."
+- **Colour**, which opens the colour picker (without an opacity slider). The column's heading gets a dot and a light wash in that colour, for everyone, and the name is always shown. **No colour** appears once a column has one and takes it off. It is one change, with **Undo**, and it is carried by Export and Import. On a plan that follows GitHub the columns cannot be changed, so there is no **Colour** there yet.
 - **Delete**, which asks which of the other columns takes its work; the work moves there and takes that column's done state. It is refused for the last column and, with the same two sentences, for the last column that counts as done or the last that does not.
 
 The **Add a column** button above the columns asks for a name and adds the column at the end. A board has at most 12 columns: "A board has at most 12 columns."

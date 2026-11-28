@@ -46,7 +46,8 @@
             "properties": {
               "id": { "$ref": "#/$defs/columnId" },
               "label": { "type": "string", "maxLength": 40, "pattern": "\\S" },
-              "done": { "type": ["boolean", "null"], "description": "true: work in this column counts as done." }
+              "done": { "type": ["boolean", "null"], "description": "true: work in this column counts as done." },
+              "color": { "type": ["string", "null"], "pattern": "^#[0-9a-f]{6}$", "description": "The column's colour, a lower case #rrggbb, drawn as a dot and a light wash on its heading. Optional." }
             }
           }
         }
