@@ -1158,15 +1158,15 @@
   const fieldsFromForm = (was) => ({ ...Object.fromEntries(Object.entries(was || {}).filter(([k]) => !fieldOf(k))), ...fieldPicks() });
   const checked = (box) => [...box.querySelectorAll('input:checked')].map((i) => i.value);
   let ownersPick = null;
-  const dates = { start: null, end: null };
-  const formSnapshot = () => JSON.stringify([$('f-kind').value, $('f-title').value, $('f-start').value, $('f-end').value, ownersPick ? ownersPick.get() : [], $('f-parent').value, checked($('f-waits')), $('f-phase').value, checked($('f-tags')), $('f-done').checked, $('f-notes').value, fieldPicks()]);
+  const dates = { start: null, end: null, target: null };
+  const formSnapshot = () => JSON.stringify([$('f-kind').value, $('f-title').value, $('f-start').value, $('f-end').value, $('f-target').value, ownersPick ? ownersPick.get() : [], $('f-parent').value, checked($('f-waits')), $('f-phase').value, checked($('f-tags')), $('f-done').checked, $('f-notes').value, fieldPicks()]);
   const formDirty = () => Boolean(state.editing && !state.editing.readOnly && state.editing.opened !== undefined && state.editing.opened !== formSnapshot());
   const editor = host.ui.editor($('editor'), {
     size: 'medium',
     isDirty: formDirty,
     onClose: () => {
       state.editing = null;
-      for (const k of ['start', 'end']) if (dates[k]) { dates[k].destroy(); dates[k] = null; }
+      for (const k of ['start', 'end', 'target']) if (dates[k]) { dates[k].destroy(); dates[k] = null; }
       if (ownersPick) { ownersPick.destroy(); ownersPick = null; }
     },
   });
@@ -1223,6 +1223,7 @@
     drawFound();
   }
   // The pulled issue's view (see openEditor): the link, the description as plain text (never markup), and only what an issue has.
+  const targetOf = (e) => (e.end && e.start && e.end > e.start ? e.end : '');
   function showIssueView(shown, on) {
     for (const el of [$('f-kind').closest('label'), $('f-notes-field')]) hide(el, on);
     if (on) for (const id of ['f-dates', 'f-owners-field', 'f-parent-field', 'f-waits-field', 'f-phase-field']) hide($(id), true);
@@ -1233,6 +1234,11 @@
     hide(src, !link);
     $('f-desc').textContent = on ? shown.notes : '';
     hide($('f-desc-field'), !on || !shown.notes);
+    // The one day an issue has here: a target. It is the work's `end` (its `start` stays the day the issue was opened and is not shown), the
+    // plan's own and never sent to GitHub; empty, or the day it was opened, means none.
+    $('f-target').value = on && targetOf(shown);
+    $('f-target-note').textContent = on ? `Kept here, not on ${state.pull.name}. Empty means no target.` : '';
+    hide($('f-target-field'), !on);
   }
   function choice(value, text, on) {
     const el = clone('tpl-check');
@@ -1333,7 +1339,7 @@
     $('f-notes').value = shown.notes;
     $('f-by').textContent = shown.by ? `Added by ${nameOf(shown.by) || 'someone'}` : '';
     editorError('');
-    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !($('f-fields').contains(el) || (!fieldsOnly && (el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)))));
+    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !($('f-fields').contains(el) || $('f-target-field').contains(el) || (!fieldsOnly && (el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)))));
     hide($('f-save'), readOnly);
     hide($('f-cancel'), readOnly);
     hide($('f-delete'), readOnly || partly || !id);
@@ -1344,10 +1350,12 @@
     showIssueView(shown, issueView);
     dates.start = host.ui.datePicker($('f-start'), { clearable: true });
     dates.end = host.ui.datePicker($('f-end'), { clearable: true });
+    dates.target = host.ui.datePicker($('f-target'), { clearable: true });
     state.editing.opened = formSnapshot();
     editor.open({ focus: readOnly ? editor.element : $('f-title') });
     dates.start.refresh();
     dates.end.refresh();
+    dates.target.refresh();
     showLinks(id);
   }
   $('f-cancel').addEventListener('click', () => editor.cancel());
@@ -1415,11 +1423,16 @@
     if (title.length > SC_TITLE_MAX && !ed.fieldsOnly) { editorError(`Give it a title of at most ${SC_TITLE_MAX} characters.`); $('f-title').focus(); return; }
     const done = $('f-done').checked;
     const picked = checked($('f-tags'));
+    // The target date is the work's `end` (the space's own, never sent): empty, or the day the issue was opened, is no target.
+    const target = $('f-target').value;
+    const was = entry(ed.id);
+    if (target && was && was.start && target < was.start) { editorError(`The target date is before the day it was opened (${dayShort(was.start)}).`); $('f-target').focus(); return; }
+    const endOf = (e) => (target ? target : e.start || e.end);
     $('f-save').disabled = true;
     try {
       const r = await sendPulled(ed.id, (e) => {
-        if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields) };
-        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields) }; // a tag the plan no longer lists stays as it is
+        if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields), end: endOf(e) };
+        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields), end: endOf(e) }; // a tag the plan no longer lists stays as it is
         if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard(), today: today() }); if (d.entry) next = d.entry; }
         return next;
       });

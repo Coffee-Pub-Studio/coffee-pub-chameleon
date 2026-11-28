@@ -8,6 +8,9 @@
  *     Notes were, Kind, the days, Owners, Part of, Waits on, Phase and Notes not shown, and no sentence that says "the rest comes from"
  *     GitHub (GitHub has no days, owners or waits on);
  *   - the same markup and code give own work the full window.
+ *   - the one day a pulled issue has: a **Target date** in its view (not Starts and Ends), stored as the work's `end` with `start` left as
+ *     the day it was opened, empty or the opened day meaning none, a date before the opened day refused, enabled for someone who may only
+ *     set the plan's own fields, never sent to GitHub;
  * No page is run here: the live part is tools/check-schedule-fields.mjs, which opens this window on own work and on a pulled issue.
  * Usage: node modules/schedule/test/check-schedule-dialog.mjs. Exits 1 on failure.
  */
@@ -73,6 +76,24 @@ await test('what is saved for a pulled issue and for own work is unchanged', () 
   assert.match(page, /async function savePulled\(ed\)/);
   assert.match(page, /\$\('f-notes'\)\.value,\n\s*parent,/, 'own work still saves its notes');
   assert.match(html, /<textarea id="f-notes" name="notes" rows="3" maxlength="2000">/);
+});
+
+await test('a pulled issue shows one Target date, which is the work\'s end', () => {
+  assert.ok(at('f-fields') < at('f-target-field') && at('f-target-field') < at('f-owners-field'), 'after the fields, before the days of own work');
+  assert.match(form, /id="f-target-field"[^>]* hidden>/, 'hidden unless it is an issue');
+  assert.match(form, /<span class="sdk-label" id="f-target-label">Target date<\/span>/);
+  assert.match(page, /const targetOf = \(e\) => \(e\.end && e\.start && e\.end > e\.start \? e\.end : ''\);/, 'empty when end is the day it was opened');
+  assert.match(page, /\$\('f-target'\)\.value = on && targetOf\(shown\);/);
+  assert.match(page, /hide\(\$\('f-target-field'\), !on\);/);
+  assert.match(page, /\$\('f-target-field'\)\.contains\(el\)/, 'enabled with the plan\'s own fields, even where Title, Done and tags are not');
+  assert.match(page, /const endOf = \(e\) => \(target \? target : e\.start \|\| e\.end\);/, 'empty goes back to the day it was opened');
+  assert.match(page, /return \{ \.\.\.e, fields: fieldsFromForm\(e\.fields\), end: endOf\(e\) \};/);
+  assert.match(page, /fields: fieldsFromForm\(e\.fields\), end: endOf\(e\) \}; \/\/ a tag the plan no longer lists/);
+  assert.match(page, /target < was\.start\) \{ editorError\(`The target date is before the day it was opened/, 'a date before it was opened is refused');
+  assert.match(page, /dates\.target = host\.ui\.datePicker\(\$\('f-target'\), \{ clearable: true \}\);/);
+  assert.match(page, /\[\x27start\x27, \x27end\x27, \x27target\x27\]\) if \(dates\[k\]\)/, 'its picker is destroyed with the others');
+  assert.match(page, /\$\('f-end'\)\.value, \$\('f-target'\)\.value, ownersPick/, 'and counts in the unsaved-changes check');
+  assert.doesNotMatch(page, /host\.issues\.[a-z]+\([^)]*(target|end)/, 'nothing about a day goes to the issue service');
 });
 
 console.log(`check-schedule-dialog: ${n} tests pass`);
