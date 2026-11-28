@@ -949,6 +949,9 @@
   // board:main write, then the work it rewrites; Undo (the bar the import uses) puts the board and the work back. A board still on
   // the template's columns becomes a stored board on the first change, and Undo takes that record away again.
   const canColumns = () => host.can('columns') && !pullOn(); // the board follows the pull while it is on
+  // A column's colour is the one thing of a followed board that is the space's own (the server lets a colour-only change through), so it
+  // is offered to someone with the columns right even while the plan follows a repository.
+  const canColour = () => host.can('columns');
   let columnsBusy = false;
   // `value` (optional) is the board record to store in place of scBoardValue(next): a change that must leave the stored record as it is.
   async function changeColumns(next, rewritten, text, value) {
@@ -997,7 +1000,10 @@
     const r = scSetColumnColor(currentBoard(), c.id, color);
     if (r.problem) { say(r.problem, 'danger'); return; }
     // A stored board is patched where it stands (only this column's colour differs); the template's default board is stored whole, as a rename does.
-    await changeColumns(r.board, [], color ? `Coloured the column ${c.label}.` : `Took the colour off the column ${c.label}.`, scColourBoardValue(state.boardRaw, c.id, color) || undefined);
+    const patched = scColourBoardValue(state.boardRaw, c.id, color);
+    // A followed plan's board is the pull's: the colour goes onto the stored board where it stands, and nothing is stored before the first pull.
+    if (pullOn() && !patched) { say(`The board has not come from ${state.pull.name || 'GitHub'} yet. Pull now first.`, 'danger'); return; }
+    await changeColumns(r.board, [], color ? `Coloured the column ${c.label}.` : `Took the colour off the column ${c.label}.`, patched || undefined);
   }
   // The menu hands the column without its colour, so it is read from the board; the picker opens where the menu's row was (the row goes
   // when the menu closes, so its place is taken first).
@@ -1046,8 +1052,13 @@
   // The Done column's menu on a followed plan also says where the older closed issues are (anyone who can see it); the rest is for someone who
   // may change the columns, and a followed board's columns are not changed here.
   const keepItem = (c) => (c.done && state.pull.keep ? [{ id: 'closed', label: `Closed issues on ${state.pull.name || 'GitHub'}`, icon: 'arrow-up-right-from-square', href: state.pull.keep.url }] : []);
+  // Colour and No colour: the column's own colour, for someone with the columns right (a followed plan too).
+  const colourItems = (c) => [
+    { id: 'colour', label: 'Colour', icon: 'palette', onClick: (item, el) => colourColumn(c, el) },
+    ...(colourOf(c.id) ? [{ id: 'nocolour', label: 'No colour', icon: 'xmark', onClick: () => setColumnColour(c, '') }] : []),
+  ];
   function columnMenu(c) {
-    if (!canColumns()) return keepItem(c);
+    if (!canColumns()) return [...keepItem(c), ...(canColour() && pullOn() ? colourItems(c) : [])];
     const b = currentBoard();
     const at = b.columns.findIndex((x) => x.id === c.id);
     return [
@@ -1055,8 +1066,7 @@
       { id: 'left', label: 'Move left', icon: 'arrow-left', disabled: at <= 0, onClick: () => moveColumn(c, -1) },
       { id: 'right', label: 'Move right', icon: 'arrow-right', disabled: at < 0 || at >= b.columns.length - 1, onClick: () => moveColumn(c, 1) },
       { id: 'done', label: 'Counts as done', icon: c.done ? 'square-check' : 'square', regular: !c.done, current: Boolean(c.done), onClick: () => flagColumn(c) },
-      { id: 'colour', label: 'Colour', icon: 'palette', onClick: (item, el) => colourColumn(c, el) },
-      ...(colourOf(c.id) ? [{ id: 'nocolour', label: 'No colour', icon: 'xmark', onClick: () => setColumnColour(c, '') }] : []),
+      ...colourItems(c),
       { id: 'delete', label: 'Delete', icon: 'trash', danger: true, onClick: () => deleteColumn(c) },
     ];
   }

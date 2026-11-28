@@ -109,11 +109,15 @@ await test('a file whose column colour is not #rrggbb in lower case is refused w
 });
 await test('the page: Colour and No colour in the column menu, the picker with no opacity, one board write, the colour handed to the board', () => {
   const menu = page.match(/function columnMenu\(c\) \{[\s\S]*?\n  \}\n/)[0];
-  assert.match(menu, /if \(!canColumns\(\)\) return keepItem\(c\);/, 'only someone with the columns right, and not on a followed board, gets Colour (anyone gets the closed-issues link on a followed plan\'s Done column)');
-  assert.match(menu, /label: 'Colour'/);
-  assert.match(menu, /colourOf\(c\.id\) \? \[\{ id: 'nocolour', label: 'No colour'/, 'No colour only once there is one');
+  assert.match(menu, /if \(!canColumns\(\)\) return \[\.\.\.keepItem\(c\), \.\.\.\(canColour\(\) && pullOn\(\) \? colourItems\(c\) : \[\]\)\];/, 'on a followed plan someone with the columns right gets Colour and the closed-issues link, and nothing else of the columns');
+  assert.match(menu, /\.\.\.colourItems\(c\),/, 'and on an ordinary plan Colour sits among the column items');
+  const items = page.match(/const colourItems = \(c\) => \[[\s\S]*?\n  \];\n/)[0];
+  assert.match(items, /label: 'Colour'/);
+  assert.match(items, /colourOf\(c\.id\) \? \[\{ id: 'nocolour', label: 'No colour'/, 'No colour only once there is one');
+  assert.match(page, /const canColour = \(\) => host\.can\('columns'\);/, 'the same right as the columns, followed or not');
+  assert.match(page, /if \(pullOn\(\) && !patched\) \{ say\(`The board has not come from \$\{state\.pull\.name \|\| 'GitHub'\} yet\. Pull now first\.`, 'danger'\); return; \}/, 'nothing is stored on a followed plan before the first pull');
   assert.match(page, /host\.ui\.colorPicker\(\{ at, value: was \|\| undefined, opacity: false, label: 'Column colour' \}\)/);
-  assert.match(page, /scSetColumnColor\(currentBoard\(\), c\.id, color\);[\s\S]{0,400}await changeColumns\(r\.board, \[\], [^\n]*scColourBoardValue\(state\.boardRaw, c\.id, color\)/, 'one board write with Undo, patching the stored board');
+  assert.match(page, /scSetColumnColor\(currentBoard\(\), c\.id, color\);[\s\S]{0,300}const patched = scColourBoardValue\(state\.boardRaw, c\.id, color\);[\s\S]{0,500}await changeColumns\(r\.board, \[\], [^\n]*patched \|\| undefined\)/, 'one board write with Undo, patching the stored board');
   assert.match(page, /const columns = b\.columns\.map\(\(c\) => \(\{ id: c\.id, label: c\.label, done: Boolean\(c\.done\), \.\.\.\(c\.color \? \{ color: c\.color \} : \{\}\) \}\)\)/);
   assert.doesNotMatch(page, /host\.issues\.[a-z]+\([^)]*colo/i, 'nothing about a colour goes to the issue service');
 });
