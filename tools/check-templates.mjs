@@ -206,7 +206,7 @@ try {
       assert.deepEqual([l.modules.goals.name, l.modules.goals.settings, l.workspace.layout], [name, { dates: 'optional', progressBy: 'steps' }, { learning: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, mentoring: { shape: 'wide-split', areas: ['documents', 'todo', 'goals'] } }[id]], id);
     }
     assert.deepEqual(templates.get('mentoring').modules.goals.labels, { owner: { one: 'mentee', many: 'mentees' } });
-    assert.deepEqual([p.words.space.one, p.icons.home, p.modules.budget.name, p.modules.todo.settings, p.phases.map((x) => x.id), p.phaseMeasure], ['project', 'diagram-project', 'Effort', { inCalendar: true }, ['start', 'build', 'wrap'], 'dates']);
+    assert.deepEqual([p.words.space.one, p.icons.home, p.modules.budget.name, p.modules.todo.settings, p.phases.map((x) => x.id), p.phaseMeasure], ['project', 'diagram-project', 'Budget', { inCalendar: true }, ['start', 'build', 'wrap'], 'dates']);
     assert.deepEqual(p.starterSpaces, [{ name: 'Your first project', description: 'A place to try things.' }]);
     assert.deepEqual([templates.get('learning').modules.calendar.labels.event.one, templates.get('learning').modules.maps.labels.place.one, templates.get('learning').phaseMeasure], ['session', 'visit', 'goals']);
     assert.deepEqual([templates.get('mentoring').modules.calendar.labels.event.one, templates.get('mentoring').modules.todo.name], ['check-in', 'Next steps']);
