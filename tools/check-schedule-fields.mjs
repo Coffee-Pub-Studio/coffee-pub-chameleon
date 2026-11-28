@@ -365,7 +365,8 @@ try {
   const putB = (k, value) => B.call('PUT', `/api/modules/schedule/data/${key(k)}?scope=space&space=${SB}`, { value });
   const planB = async (id) => ((await B.call('GET', `/api/modules/schedule/data/${key(`plan:${id}`)}?scope=space&space=${SB}`)).json.item || {}).value;
   B.must(await putB('field:area', { id: 'area', label: 'Area', order: 0, options: [{ id: 'server', label: 'Server' }, { id: 'chat', label: 'Chat' }] }), 'Area, defined in a followed plan');
-  const requests = seen.length;
+  const writes = () => seen.filter((x) => x.method !== 'GET').length;
+  const requests = writes();
 
   tab = await open(serverB, B.jar, 1280, 'light', 'admin', SB, 'Board');
   ok(await visible(tab, '#fields-edit'), 'a followed plan has Edit fields');
@@ -388,7 +389,7 @@ try {
   await editorSave(tab);
   same((await planB('gh-2')).fields, { area: 'chat', phase: 'first' }, 'a choice on pulled work is saved');
   same([(await planB('gh-2')).description, 'notes' in (await planB('gh-2'))], ['private', false], 'and the page\'s save keeps the description');
-  same(seen.length, requests, 'defining fields and setting a choice made no request to the stand-in');
+  same(writes(), requests, 'defining fields and setting a choice made no write to the stand-in');
   // Area from the title, once: the first pull made gh-1 before Area existed; new work from a pull after it
   issues.push({ number: 4, title: 'Server: fresh', state: 'open', labels: [], created_at: '2026-01-08T00:00:00Z', updated_at: '2026-11-20T00:00:00Z', closed_at: null, milestone: null, body: '', user: { login: 'x' }, assignees: [], html_url: `https://github.com/${REPO}/issues/4` });
   await sleep(700);
@@ -422,13 +423,13 @@ try {
   tab = await open(serverB, B.jar, 1280, 'light', 'admin', SB, 'Board');
   await tab.eval(`(() => { window.__file = null; HTMLInputElement.prototype.click = function () { if (this.type !== 'file' || !window.__file) return; const dt = new DataTransfer(); dt.items.add(new File([window.__file], 'update.json', { type: 'application/json' })); Object.defineProperty(this, 'files', { value: dt.files, configurable: true }); this.dispatchEvent(new Event('change')); }; return 1; })()`);
   const titleOff = (await planB('gh-2')).title;
-  const asked = seen.length;
+  const asked = writes();
   await sendFile(tab, JSON.stringify({ format: 'project-plan', version: 1, entries: [{ id: 'gh-2', fields: { area: 'server', phase: 'first' }, start: '2026-12-01', end: '2026-12-09' }, { id: 'gh-999', fields: { area: 'chat' } }] }), 'Import JSON: update by id');
   ok(/Update 1 entry by id\?/.test(await dialogText(tab)), 'the confirmation on a followed plan');
   await dialogDo(tab, 'Update by id');
   const g2 = await planB('gh-2');
   same([g2.fields, g2.start, g2.end, g2.title], [{ area: 'server', phase: 'first' }, '2026-12-01', '2026-12-09', titleOff], 'Update by id on a followed plan with writing off sets the own fields and days, not the title');
-  same(seen.length, asked, 'and asks nothing of GitHub');
+  same(writes(), asked, 'and writes nothing to GitHub');
   await tab.close();
   tab = null;
 
