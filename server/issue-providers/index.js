@@ -24,9 +24,10 @@
 //     never followed for a write. Only a title, a state, label names and a new issue's title and labels may be sent.
 //
 // A record, the same for every service (nothing else in the core knows which service it came from):
-//   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open } }
-// `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''. Pull requests, people
-// (authors, assignees), bodies and comments are never in a record.
+//   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open }, body? }
+// `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''; `body` the issue's
+// description as plain text (newlines and tabs only, cut at 2000 characters with an ellipsis), absent when empty. Pull requests,
+// people (authors, assignees) and comments are never in a record.
 //
 // THE RULE (Thomas, 2026-11-25): a registered adapter is for a service that costs nothing and whose free use allows commercial
 // use, its terms read before the adapter is written and named in its header. Registered: GitHub (github.js, terms read

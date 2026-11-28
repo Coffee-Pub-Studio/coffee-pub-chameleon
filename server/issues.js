@@ -357,6 +357,14 @@ function workOf(rec, { repo, provider, tagIds }) {
   const lines = [rec.url];
   if (rec.milestone) lines.push(`Milestone: ${oneLine(rec.milestone.title, 120)}`);
   if (spare.length) lines.push(`Labels: ${spare.join(', ')}`);
+  // The issue's description goes below those lines as text, cut (never the link) to what is left of NOTES_MAX, marked with an ellipsis.
+  const head = lines.filter(Boolean).join('\n');
+  let notes = head;
+  if (typeof rec.body === 'string' && rec.body) {
+    const left = NOTES_MAX - (head ? head.length + 1 : 0);
+    const chars = Array.from(rec.body);
+    if (left > 1) notes = [head, chars.length > left ? `${chars.slice(0, left - 1).join('').trimEnd()}…` : rec.body].filter(Boolean).join('\n');
+  }
   const value = {
     kind: 'work',
     title: cut(rec.title, TITLE_MAX) || `#${rec.number}`,
@@ -366,7 +374,7 @@ function workOf(rec, { repo, provider, tagIds }) {
     // The day it became done is the day it was closed (plan-projects-sizing-burndown.md, decision 2); open work has none.
     ...(column === 'done' && phaseRule.isDay(dayOf(rec.closed)) ? { doneOn: dayOf(rec.closed) } : {}),
     ...(tags.length ? { tags } : {}),
-    notes: lines.filter(Boolean).join('\n').slice(0, NOTES_MAX),
+    notes: Array.from(notes).slice(0, NOTES_MAX).join(''),
     ...(rec.milestone ? { parent: `ghm-${rec.milestone.number}` } : {}),
     by: SYSTEM_BY,
     column,
