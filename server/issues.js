@@ -71,6 +71,14 @@ const SAY = Object.freeze({
   linkFailed: 'GitHub did not finish connecting. Go back and press Connect to GitHub again.',
   linkDenied: 'GitHub was not given access. Go back and press Connect to GitHub again.',
   notInList: 'That repository is not in your list. Press Connect to GitHub again.',
+  // A person's own GitHub account, linked on Profile (plan-github-full-sync.md, section 4).
+  personTaken: 'That GitHub account is linked to someone else here.',
+  personEnded: 'This link has run out. Go back to Profile and press Link your GitHub account again.',
+  personFailed: 'GitHub did not finish linking. Go back to Profile and press Link your GitHub account again.',
+  personDenied: 'GitHub was not given access. Go back to Profile and press Link your GitHub account again.',
+  personSignIn: 'Sign in here as the person who pressed Link your GitHub account, then press it again.',
+  personAgent: 'An agent can\'t link a GitHub account.',
+  personGuest: (guests) => `${guests} can't link a GitHub account.`, // `guests`: the template's word, from word()
   moved: (name) => `${name} says this repository has moved. Try again.`,
   noWriteOut: (name) => `Only someone allowed to change ${name} can change this.`,
   writeSilent: (name) => `${name} did not answer. Nothing was changed; try again.`,

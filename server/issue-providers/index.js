@@ -25,7 +25,9 @@
 //     hasLabel({ repo, label, token }, ask), create({ repo, title, labels, token }, ask), and `writeGapMs` (the least time between
 //     two writes). A token is the repository's installation token from the GitHub app (server/issue-app.js; never logged, never
 //     answered, never kept in a space's data); an adapter that serves the app also has appInfo({ jwt }, ask) and
-//     mintToken({ jwt, installation, repositoryId, permissions }, ask). Each answers { status, wait, limited, message, record? }: `limited` when the answer is a limit to wait out (not a
+//     mintToken({ jwt, installation, repositoryId, permissions }, ask), and for the sign-in exchangeCode, userInstallations,
+//     userRepositories, revokeUserToken and whoAmI({ userToken }, ask) (the signed-in account's { id, login }, for a person's link on
+//     Profile, plan-github-full-sync.md section 4). Each answers { status, wait, limited, message, record? }: `limited` when the answer is a limit to wait out (not a
 //     refusal of the token or the change), `message` the service's own sentence on one line, `record` the issue after the write.
 //     `ask(method, url, headers, body?)` is the core's (server/issues.js, getter): this origin only, 6 seconds, 2 MB, a redirect
 //     never followed for a write. Only a title, a state, label names and a new issue's title and labels may be sent.
