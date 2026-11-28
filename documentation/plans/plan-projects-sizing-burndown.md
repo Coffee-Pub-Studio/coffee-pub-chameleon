@@ -2,7 +2,16 @@
 
 **Audience:** Thomas, who decides; server-development, which builds the shared chart piece's check and any server part; experience-design, which builds the shared chart piece and the Projects view; the Planner - Projects module agent, which builds the module's part in its own lane.
 
-**Status:** Draft for Thomas, 2026-11-28. Nothing is decided and nothing is built. Thomas's idea, relayed by the project manager: sizing and a burndown chart in Planner - Projects. The direction he was given and is weighing (not decided): sizing is a field on the work, points or T-shirt sizes per template; the burndown is a view in Projects of size left against time, with the phases as the period; the chart is Budget's "target left over time" made into one shared SDK piece; Budget stays money only; logged hours and timesheets are a possible later module, not now.
+**Status:** Decided in part, 2026-11-28; nothing is built. Thomas's idea, relayed by the project manager: sizing and a burndown chart in Planner - Projects. Thomas decided where the size lives, how size comes off and what happens to Budget's unit (decisions 1 to 3 below). The chart piece and the view's name were not asked; the planner's leans stand and are recorded as taken (decision 4). The decisions are the contract; the options under them are kept as the reasons.
+
+## Decisions
+
+Thomas, 2026-11-28.
+
+1. **Size lives as a size field.** It is one of the plan's existing fields, marked `size: true`, and each choice carries a number (points or T-shirt sizes, per template). A size is never sent to GitHub. This is option A1.
+2. **The burndown has two lines, Done and Planned.** Done comes from a stored done day, `doneOn`, on the work; Planned comes from each piece of work's end day. Pulled work takes `doneOn` from the issue's closed day (a later small server change). This is option B1.
+3. **Budget's unit is dropped.** Budget is money everywhere. Effort lives in Projects' size field. Hours wait for a later timesheets module. This reverses decision 21 of [plan-templates-redesign](plan-templates-redesign.md).
+4. **Taken on the planner's lean, not asked:** the chart piece is a burndown-only `host.ui.burndown` (option C1), and the view is named "Burndown" and sits on the view switch while sizing is on (option D1). Thomas may overturn either.
 
 ## What it is today
 
@@ -10,15 +19,17 @@
 - **Done has no day.** Work stores `done` as a boolean (`scClean`, `scSetDone`, `scSetColumn`); nothing records when it became done. A burndown of what is actually done needs that day.
 - **Pulled work.** A space that follows GitHub may change only its own fields on pulled work (`OWN_FIELDS` in `server/issues.js`: owners, waitsOn, start, end, rank, fields), so a size kept in `fields` can be set on pulled work with no new exception. The pull knows an issue's closed day.
 - **The chart.** Budget (`modules/budget`, 0.1.33) draws its burndown by hand in `budget.js` (`drawChart`, an SVG): a step line for what is paid, a dashed one for "if all planned is spent", the phase bands behind from `host.util.phaseTimeline()` in each phase's own colour, a Today line, a legend and the same in words under it (`burndownWords`). The numbers come from `burndown(costs, { target, dates })` in `budget-lib.js`. There is no chart piece in `public/sdk/host.js`; `host.ui.board` is a board only.
-- **Budget's unit.** [plan-templates-redesign](plan-templates-redesign.md) decision 21 gives Budget a `unit` (money, hours or effort) set by the template, one per space, with Projects as "time and effort (money optional)". It is not built: Budget's manifest has no `unit`, and its user guide says Budget counts money under every template. `templates/project.json` names the module "Budget".
+- **Budget's unit.** [plan-templates-redesign](plan-templates-redesign.md) decision 21 gave Budget a `unit` (money, hours or effort) set by the template. Decision 3 above reverses it. The unit was never built: Budget's manifest has no `unit`, and its user guide says Budget counts money under every template. `templates/project.json` names the module "Budget".
 
 ## Why sizing is not Budget's unit
 
 A project may want both what it costs and how much work is left. Budget's unit is one choice per space (decision 21), so a space that counts effort in Budget cannot count money there too, and the other way round. Effort in Budget would also be a second list, kept apart from the work: a cost has a category, a payer and a share, not an owner, a column or a done tick, so each piece of work would be entered twice and the two would drift. A size belongs on the work itself and comes off when the work is done, which is what a burndown counts. So sizing lives in Planner - Projects, and Budget can stay money in every template.
 
-This touches decision 21. If Budget stays money only, its hours and effort units have no use left for Projects; Learning and Mentoring still name "Time" in hours. That is question 2 below.
+Decision 3 drops the unit: Budget is money under every template, and hours wait for a later timesheets module. Learning's and Mentoring's "Time" name in `templates/` is a separate matter and is not changed by this plan.
 
 ## Options
+
+Decided: A1, B1, and (on the planner's lean) C1 and D1. The others are kept as the reasons.
 
 ### A. Where the size lives
 
@@ -93,8 +104,4 @@ Small choices, written down so the build has no gaps; Thomas may overturn any of
 
 ## Open questions
 
-1. **Where the size lives** (blocks step 1): A1, a size field (lean); A2, a `size` number; A3, a free estimate.
-2. **Budget's unit** (blocks nothing here, but changes decision 21): drop the unit and keep Budget money only everywhere (lean, with hours left to a later timesheets module); keep the unit for Learning and Mentoring only; keep decision 21 as it is.
-3. **When size comes off** (blocks step 1): B1, a stored done day and two lines (lean); B2, the end day only.
-4. **The chart piece** (blocks step 2): C1, a burndown piece (lean); C2, a general line chart.
-5. **The view's name:** "Burndown" (lean), or a plainer word such as "Progress".
+None block the build. The chart piece and the view's name stand on the planner's lean (decision 4) until Thomas says otherwise. The small choices under "Taken on the planner's lean" also stand.

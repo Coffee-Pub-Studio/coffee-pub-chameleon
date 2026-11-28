@@ -2,7 +2,14 @@
 
 **Audience:** Thomas, who decides; experience-design, which adds colour to the shared `host.ui.board` piece; the Planner - Projects module agent, which stores the colour and opens the picker in its own lane.
 
-**Status:** Draft for Thomas, 2026-11-28. Nothing is decided and nothing is built. Thomas: "we should consider letting the user set a colour when they define boards." It is not yet clear whether he means the board, its columns or its cards; the options below are those readings.
+**Status:** Decided in part, 2026-11-28; nothing is built. Thomas: "we should consider letting the user set a colour when they define boards." He decided the colour is per column (decision 1). The two smaller questions were not asked; the planner's leans stand and are recorded as taken (decision 2). The decisions are the contract; the options are kept as the reasons.
+
+## Decisions
+
+Thomas, 2026-11-28.
+
+1. **The colour is per column.** It is set from the column's menu with the colour picker, stored as the column's `color`, and drawn by the shared `host.ui.board` as a dot and a light wash on the heading, never a coloured border. This is option 1.
+2. **Taken on the planner's lean, not asked:** a board that follows GitHub lets a column's colour through as the space's own, and nothing is sent to GitHub; no template gives its default columns a colour in this build. Thomas may overturn either.
 
 ## What it is today
 
@@ -23,7 +30,9 @@
 
 ## Options
 
-- **1. A colour per column (lean).** A column's "..." menu gains **Colour**, which opens the picker with `opacity: false` and a **No colour** choice as the way back. The heading gets a dot in the colour and a light wash of it (`color-mix(in srgb, <colour> 16%, transparent)`) behind the name; the cards stay as they are. Stored as `color` on the column in `board:main`, under the `columns` right, with Undo like the other column changes, and carried by Export and Import. Cost: one optional key in the piece's `columns` and the module's board record. This is what "when they define boards" reads most like, since defining a board is defining its columns.
+Decided: option 1. The others are kept as the reasons.
+
+- **1. A colour per column (decided).** A column's "..." menu gains **Colour**, which opens the picker with `opacity: false` and a **No colour** choice as the way back. The heading gets a dot in the colour and a light wash of it (`color-mix(in srgb, <colour> 16%, transparent)`) behind the name; the cards stay as they are. Stored as `color` on the column in `board:main`, under the `columns` right, with Undo like the other column changes, and carried by Export and Import. Cost: one optional key in the piece's `columns` and the module's board record. This is what "when they define boards" reads most like, since defining a board is defining its columns.
 - **2. A colour for the board.** One colour for the whole board, perhaps its edge or the view switch's icon. Little use while a space has one board (decision 4 allows several, later and only if asked). Cost is small, value small.
 - **3. A colour per card.** Two ways: (a) each piece of work picks its own colour, a new key on work and a control in its form; (b) a card takes the colour of one field's choice (Area: Planner is blue), so the choice holds the colour and every card follows. (b) is less to set and stays consistent; (a) is free-form. Either way the card's tags already bring colour, so a card colour competes with them.
 
@@ -44,7 +53,7 @@ Option 1, columns, first. It matches "define boards", it touches only the board 
 
 - `scCleanBoard` keeps `color` on a column when it is a strict `#rrggbb`, lower case; `FORMAT.md` and `project-plan.schema.json` gain it. The format stays version 1.
 - The column "..." menu, for someone with `columns`, gains **Colour** (opens `host.ui.colorPicker` at the menu's button, `opacity: false`) and, once a colour is set, **No colour**. One `board:main` write with Undo. A template's default columns have no colours; the first colour stores the board, as a rename does.
-- A space that follows GitHub: see question 2.
+- A space that follows GitHub: a write to `board:main` that changes only column `color` is let through `pulledRefusal` as the space's own (decision 2); every other change to a followed board is still refused. This is a small server change in `server/index.js` (core), part of step 2's needs.
 
 ## Left to build, in order
 
@@ -59,6 +68,4 @@ Option 1, columns, first. It matches "define boards", it touches only the board 
 
 ## Open questions
 
-1. **Which reading** (blocks the build): columns (lean); cards from a field's choice; each card its own; the board.
-2. **A board that follows GitHub** (blocks step 2 only for those spaces): Thomas's own Bug Squash board follows GitHub, whose board is read-only today. Lean: let a column's colour through `pulledRefusal` as the space's own, since nothing about it is sent to GitHub; the other choice is no colours on a followed board.
-3. **Template colours:** whether a template may give its default columns colours (Done green, say). Lean: no, not in this build.
+None block the build. A board that follows GitHub and template colours stand on the planner's lean (decision 2) until Thomas says otherwise. Cards from a field's choice (option 3b) stay a later step if asked.
