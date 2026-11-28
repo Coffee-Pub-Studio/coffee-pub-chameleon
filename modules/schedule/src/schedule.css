@@ -121,6 +121,12 @@ button.link-chip:hover { background: var(--fill-selected); }
 /* ---- pulled work: its number and the link back to where it came from ---- */
 .desc { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; padding: var(--space-2); border: 1px solid var(--edge-hairline); border-radius: var(--radius-small); background: var(--surface-panel); color: var(--text-primary); }
 .desc-edit { width: 100%; min-height: 10em; resize: vertical; }
+.comments { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.comments li { padding: var(--space-2); border: 1px solid var(--edge-hairline); border-radius: var(--radius-small); background: var(--surface-panel); min-width: 0; }
+.comment-head { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; color: var(--text-muted); font-size: var(--text-12); }
+.comment-name { color: var(--text-primary); font-weight: var(--weight-strong); }
+.comment-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: var(--space-1); }
+.comment-actions { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
 .desc-actions { display: flex; justify-content: flex-end; }
 .src-open { display: inline-flex; align-items: center; gap: var(--space-1); }
 .waits { display: grid; gap: var(--space-2); }

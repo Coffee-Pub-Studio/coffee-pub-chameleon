@@ -519,6 +519,22 @@ function scDoneOn(was, next, today) {
   else delete out.doneOn;
   return out;
 }
+// One comment as the issue view draws it, from the host's answer { id, who: { member } | { login }, at, edited, text, mine, canDelete }:
+// the author's name (a member by `nameOf`, else the GitHub login), the time as an ISO text or '', and what the person may do with it.
+function scCommentView(c, nameOf) {
+  const k = c && typeof c === 'object' ? c : {};
+  const who = k.who && typeof k.who === 'object' ? k.who : {};
+  const name = typeof who.member === 'string' ? (typeof nameOf === 'function' && nameOf(who.member)) || 'Someone who left' : typeof who.login === 'string' && who.login ? who.login : 'Someone';
+  return {
+    id: k.id,
+    name,
+    at: typeof k.at === 'string' && !Number.isNaN(Date.parse(k.at)) ? k.at : '',
+    edited: Boolean(k.edited),
+    text: typeof k.text === 'string' ? k.text : '',
+    mine: Boolean(k.mine),
+    canDelete: Boolean(k.canDelete),
+  };
+}
 // What a refused description write says GitHub holds now (plan-github-full-sync.md, section 1): { description, base } from a 409's answer,
 // with `description` null when the answer carried none (the page then reads the issue again); null for any other error.
 function scConflictOf(err) {

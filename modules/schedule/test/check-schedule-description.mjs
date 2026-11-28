@@ -25,20 +25,21 @@ const html = fs.readFileSync(path.join(dir, 'src', 'schedule.html'), 'utf8');
 let n = 0;
 const test = async (name, fn) => { try { await fn(); n += 1; } catch (e) { process.exitCode = 1; console.error(`FAIL ${name}\n${e.stack || e}`); } };
 
-const block = page.slice(page.indexOf('// ---- the issue\'s description (begin) ----'), page.indexOf('// ---- the issue\'s description (end) ----'));
+const block = page.slice(page.indexOf('// ---- the issue\'s description (begin) ----'), page.indexOf('// ---- the issue\'s comments (end) ----'));
 assert.ok(block.length > 500, 'the block is there');
-const { scConflictOf } = new Function(`${lib}\nreturn { scConflictOf };`)();
+const { scConflictOf, scCommentView } = new Function(`${lib}\nreturn { scConflictOf, scCommentView };`)();
 
 // A fake page: every element the block touches is a plain object; `host.issues` is whatever the test gives.
 function world({ issues, through = true, name = 'GitHub' } = {}) {
   const els = {};
-  const $ = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', disabled: false, listeners: {}, addEventListener(t, f) { this.listeners[t] = f; } });
+  const $ = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', disabled: false, children: [], listeners: {}, addEventListener(t, f) { this.listeners[t] = f; }, replaceChildren(...k) { this.children = k; }, append(...k) { this.children.push(...k); } });
   const remembered = []; let rendered = 0;
   const state = { editing: { id: 'gh-7' }, pull: { name } };
   const host = { issues };
   const hide = (el, yes) => { if (el) el.hidden = Boolean(yes); };
-  const make = new Function('$', 'state', 'host', 'hide', 'through', 'remember', 'render', 'scConflictOf', 'SC_PREFIX', `${block}\nreturn { descReset, descLoad, descSave, descDirty, descEditable, descCan, descShowText, tokenNow: () => descToken };`);
-  const api = make($, state, host, hide, () => through, (...a) => remembered.push(a), () => { rendered += 1; }, scConflictOf, 'plan:');
+  const make = new Function('$', 'state', 'host', 'hide', 'through', 'remember', 'render', 'scConflictOf', 'scCommentView', 'nameOf', 'document', 'SC_PREFIX', `${block}\nreturn { descReset, descLoad, descSave, descDirty, descEditable, descCan, descShowText, tokenNow: () => descToken };`);
+  const doc = { createElement: () => ({ append() {}, replaceChildren() {}, addEventListener() {}, setAttribute() {}, focus() {} }) };
+  const api = make($, state, host, hide, () => through, (...a) => remembered.push(a), () => { rendered += 1; }, scConflictOf, scCommentView, (k) => k, doc, 'plan:');
   return { $, state, host, api, remembered, renders: () => rendered };
 }
 const issue = (o = {}) => ({ id: 'gh-7', source: { number: 7 }, description: 'stored copy…', ...o });
@@ -104,7 +105,7 @@ await test('GitHub not answering keeps the stored copy and says so; a closed or 
 });
 await test('Save sends the text and its base, only when the text changed, and the work it answers is kept', async () => {
   const sent = [];
-  const w = world({ issues: { open: async () => ({ description: 'before', base: 'h1' }), describe: async (num, o) => { sent.push([num, o]); return { key: 'plan:gh-7', value: { kind: 'work', title: 'T', description: 'after…' }, version: 3, base: 'h2' }; } } });
+  const w = world({ issues: { open: async () => ({ description: 'before', base: 'h1' }), describe: async (num, o) => { sent.push([num, o]); return { item: { key: 'plan:gh-7', value: { kind: 'work', title: 'T', description: 'after…' }, version: 3 }, description: 'after', base: 'h2' }; } } });
   w.api.descReset();
   await w.api.descLoad(issue());
   assert.deepEqual(await w.api.descSave(), { ok: true, error: '' });

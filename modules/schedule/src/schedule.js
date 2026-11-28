@@ -88,6 +88,7 @@
     boardVersion: undefined,
     fields: [], // the plan's fields (scFieldsFrom), in order
     fieldRows: new Map(), // key -> { value, version }: what is stored under `field:`
+    thread: null, // the open issue's comments: { id, number, comments, older } once GitHub's thread has been read
     desc: null, // the open issue's description: { id, number, base, opened } once GitHub's whole text has been read
     people: [],
     settings: { datesRequired: true, dependencies: true, progressBy: 'milestones', defaultView: 'timeline', boardColumns: 'stages', sizing: 'off', tags: [] },
@@ -1269,6 +1270,7 @@
     $('f-desc-kept-field').hidden = true;
     $('f-desc-kept').value = '';
     $('f-desc').hidden = false;
+    cmtReset();
   }
   // Shows `text` as GitHub holds it: in the box when it can be changed, else as text.
   function descShowText(text) {
@@ -1295,6 +1297,7 @@
     if (mine !== descToken || !state.editing || state.editing.id !== shown.id || !got || typeof got.description !== 'string') return;
     state.desc = { id: shown.id, number: shown.source.number, base: typeof got.base === 'string' ? got.base : '', opened: got.description };
     descShowText(got.description);
+    cmtDraw(shown, got);
   }
   // Saves the description if it changed. Answers { ok, error }: ok when nothing changed or GitHub took it.
   async function descSave() {
@@ -1307,8 +1310,11 @@
     $('f-desc-note').textContent = 'Saving the description.';
     try {
       const r = await host.issues.describe(d.number, { text, base: d.base });
-      if (r && r.key && r.value) remember(String(r.key).slice(SC_PREFIX.length), r.value, r.version);
-      d.opened = text;
+      const item = r && (r.item || (r.key && r.value ? r : null)); // the work as stored now: { key, value, version }
+      if (item && item.key && item.value) remember(String(item.key).slice(SC_PREFIX.length), item.value, item.version);
+      const now = r && typeof r.description === 'string' ? r.description : text; // as the service holds it (line ends and the like may be tidied)
+      d.opened = now;
+      if (now !== text) $('f-desc-edit').value = now;
       $('f-desc-note').textContent = `The description is saved on ${name}.`;
       if (r && typeof r.base === 'string') d.base = r.base; else descLoad({ id: d.id, source: { number: d.number } }); // the new `base`, for the next change
       render();
@@ -1329,9 +1335,137 @@
   }
   $('f-desc-save').addEventListener('click', () => { descSave(); });
   // ---- the issue's description (end) ----
+  // ---- the issue's comments (begin) ----
+  // The issue's conversation, read with the description (`host.issues.open`): the newest 100, oldest first, each as plain text with who wrote it
+  // and when. Someone with `write_out` in a space that writes back adds a comment, and edits or deletes one made here (the host says which:
+  // `mine`, `canDelete`); a comment written on GitHub changes only there. Nothing is stored here: it is read when the window opens.
+  const cmtAdd = () => Boolean(through() && host.issues && typeof host.issues.comment === 'function');
+  const cmtWhen = (at) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const cmtNote = (text) => { $('f-comments-note').textContent = text; };
+  const cmtFail = (err) => cmtNote((err && err.message) || `${state.pull.name || 'GitHub'} did not answer. Nothing was changed; try again.`);
+  function cmtReset() {
+    state.thread = null;
+    $('f-comments').replaceChildren();
+    $('f-comments-older').textContent = '';
+    $('f-comment-add').hidden = true;
+    $('f-comment-text').value = '';
+    $('f-comment-send').disabled = false;
+    cmtNote('');
+    $('f-comments-field').hidden = true;
+  }
+  function cmtDraw(shown, got) {
+    if (!Array.isArray(got.comments)) return;
+    state.thread = { id: shown.id, number: shown.source.number, comments: got.comments.map((c) => scCommentView(c, nameOf)), older: Math.max(0, Number(got.older) || 0) };
+    cmtRender();
+  }
+  function cmtRender() {
+    const t = state.thread;
+    if (!t) return;
+    $('f-comments').replaceChildren(...t.comments.map(cmtItem));
+    $('f-comments-older').textContent = t.older ? `${t.older} older ${t.older === 1 ? 'comment is' : 'comments are'} on ${state.pull.name || 'GitHub'}.` : '';
+    $('f-comment-add').hidden = !cmtAdd();
+    $('f-comments-field').hidden = !t.comments.length && !t.older && !cmtAdd();
+  }
+  function cmtButton(text, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-small btn-quiet';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+  function cmtItem(c) {
+    const li = document.createElement('li');
+    const head = document.createElement('div');
+    head.className = 'comment-head';
+    const name = document.createElement('span');
+    name.className = 'comment-name';
+    name.textContent = c.name;
+    head.append(name);
+    if (c.at) { const when = document.createElement('span'); when.textContent = cmtWhen(c.at); head.append(when); }
+    if (c.edited) { const ed = document.createElement('span'); ed.textContent = 'edited'; head.append(ed); }
+    const text = document.createElement('div');
+    text.className = 'comment-text';
+    text.textContent = c.text;
+    li.append(head, text);
+    const acts = [];
+    if (c.mine && typeof host.issues.editComment === 'function') acts.push(cmtButton('Edit', () => cmtEdit(c, li)));
+    if (c.canDelete && typeof host.issues.deleteComment === 'function') acts.push(cmtButton('Delete', () => cmtDelete(c)));
+    if (acts.length) { const row = document.createElement('div'); row.className = 'comment-actions'; row.append(...acts); li.append(row); }
+    return li;
+  }
+  async function cmtSend() {
+    const t = state.thread;
+    const text = $('f-comment-text').value;
+    if (!t) return;
+    if (!text.trim()) { cmtNote('Write the comment first.'); return; }
+    $('f-comment-send').disabled = true;
+    cmtNote('Adding the comment.');
+    try {
+      const made = await host.issues.comment(t.number, text);
+      t.comments.push(scCommentView(made, nameOf));
+      $('f-comment-text').value = '';
+      cmtNote('');
+      cmtRender();
+    } catch (err) { cmtFail(err); } finally { $('f-comment-send').disabled = false; }
+  }
+  // A comment made here is edited in place: its text becomes a box with Save and Cancel.
+  function cmtEdit(c, li) {
+    const t = state.thread;
+    const box = document.createElement('textarea');
+    box.className = 'desc-edit';
+    box.rows = 4;
+    box.maxLength = 65536;
+    box.value = c.text;
+    box.setAttribute('aria-label', 'Edit the comment');
+    const save = cmtButton('Save', async () => {
+      if (!box.value.trim()) { cmtNote('A comment cannot be empty. Delete it instead.'); return; }
+      save.disabled = true;
+      try {
+        const r = await host.issues.editComment(t.number, c.id, box.value);
+        t.comments = t.comments.map((x) => (x.id === c.id ? scCommentView(r, nameOf) : x));
+        cmtNote('');
+        cmtRender();
+      } catch (err) { save.disabled = false; cmtFail(err); }
+    });
+    const row = document.createElement('div');
+    row.className = 'comment-actions';
+    row.append(save, cmtButton('Cancel', () => { cmtNote(''); cmtRender(); }));
+    li.replaceChildren(box, row);
+    box.focus();
+  }
+  async function cmtDelete(c) {
+    const t = state.thread;
+    let ok = false;
+    try { ok = await host.ui.confirm({ title: 'Delete this comment?', message: `It is deleted on ${state.pull.name || 'GitHub'} too.`, action: 'Delete', kind: 'destructive' }); } catch (err) { ok = false; }
+    if (!ok || !t) return;
+    try {
+      await host.issues.deleteComment(t.number, c.id);
+      t.comments = t.comments.filter((x) => x.id !== c.id);
+      cmtNote('');
+      cmtRender();
+    } catch (err) { cmtFail(err); }
+  }
+  $('f-comment-send').addEventListener('click', () => { cmtSend(); });
+  // ---- the issue's comments (end) ----
   function showIssueView(shown, on) {
     for (const el of [$('f-kind').closest('label'), $('f-notes-field')]) hide(el, on);
-    if (on) for (const id of ['f-dates', 'f-owners-field', 'f-parent-field', 'f-waits-field', 'f-phase-field']) hide($(id), true);
+    if (on) for (const id of ['f-dates', 'f-waits-field', 'f-phase-field']) hide($(id), true);
+    // Owners and the milestone are an issue's too (GitHub's assignees and milestone) once the host can write them (plan-github-full-sync.md,
+    // sections 3 and 5); before that they stay hidden, as "not an issue's". Owners are the people picker, with the logins no member has
+    // linked beside it, read only; Part of lists the plan's milestones from GitHub and "No milestone".
+    const sync = on && descCan();
+    $('f-assignees').textContent = sync && shown.assignees && shown.assignees.length ? `Also assigned on ${state.pull.name || 'GitHub'}: ${shown.assignees.join(', ')}.` : '';
+    if (on) hide($('f-owners-field'), !sync);
+    if (on) {
+      const ms = sync ? list().filter((x) => x.kind === 'milestone' && x.source && x.source.milestone) : [];
+      if (sync) {
+        $('f-parent').replaceChildren(...[{ id: '', title: 'No milestone' }, ...ms].map((x) => Object.assign(document.createElement('option'), { value: x.id, textContent: x.title })));
+        $('f-parent').value = ms.some((x) => x.id === shown.parent) ? shown.parent : '';
+        $('f-parent-label').textContent = cap(kindWord('milestone'));
+      }
+      hide($('f-parent-field'), !sync || (!ms.length && !shown.parent));
+    }
     const src = $('f-source');
     src.replaceChildren();
     const link = on ? sourceLink(shown) : null;
@@ -1448,7 +1582,7 @@
     $('f-notes').value = shown.notes;
     $('f-by').textContent = shown.by ? `Added by ${nameOf(shown.by) || 'someone'}` : '';
     editorError('');
-    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !($('f-fields').contains(el) || $('f-target-field').contains(el) || (!fieldsOnly && (el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)))));
+    for (const el of $('form').querySelectorAll('input, select, textarea')) el.disabled = readOnly || (partly && !($('f-fields').contains(el) || $('f-target-field').contains(el) || (descCan() && ($('f-owners-field').contains(el) || (!fieldsOnly && $('f-parent-field').contains(el)))) || (!fieldsOnly && (el.id === 'f-title' || el.id === 'f-done' || $('f-tags').contains(el)))));
     hide($('f-save'), readOnly);
     hide($('f-cancel'), readOnly);
     hide($('f-delete'), readOnly || partly || !id);
@@ -1537,14 +1671,23 @@
     const was = entry(ed.id);
     if (target && was && was.start && target < was.start) { editorError(`The target date is before the day it was opened (${dayShort(was.start)}).`); $('f-target').focus(); return; }
     const endOf = (e) => (target ? target : e.start || e.end);
+    // Owners and the milestone go with the rest once the host can write them and the window shows them: a change to a linked Owner or the
+    // milestone is sent to GitHub by the server, any other Owner is the plan's own; what GitHub refuses is said in the window.
+    const ownersShown = descCan() && !$('f-owners-field').hidden && ownersPick;
+    const parentShown = descCan() && !$('f-parent-field').hidden && !ed.fieldsOnly;
+    const ownersNow = ownersShown ? ownersPick.get() : null;
+    const parentNow = parentShown ? ($('f-parent').value || null) : undefined;
+    const sameSet = (a, b) => a.length === b.length && a.every((k) => b.includes(k));
     $('f-save').disabled = true;
     try {
       // A changed description goes first, on its own: if GitHub refuses it, the window stays open with the reason and nothing else is saved.
       const d = await descSave();
       if (!d.ok) { editorError(d.error); return; }
       const r = await sendPulled(ed.id, (e) => {
-        if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields), end: endOf(e) };
-        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields), end: endOf(e) }; // a tag the plan no longer lists stays as it is
+        const owned = ownersNow && !sameSet(ownersNow, e.owners || []) ? { owners: ownersNow } : {};
+        const placed = parentNow !== undefined && (parentNow || null) !== (e.parent || null) ? { parent: parentNow } : {};
+        if (ed.fieldsOnly) return { ...e, fields: fieldsFromForm(e.fields), end: endOf(e), ...owned };
+        let next = { ...e, title, tags: [...e.tags.filter((t) => !tagOf(t)), ...picked], fields: fieldsFromForm(e.fields), end: endOf(e), ...owned, ...placed }; // a tag the plan no longer lists stays as it is
         if (done !== Boolean(e.done)) { const d = scSetDone(next, done, { label: (k) => kindWord(k), board: currentBoard(), today: today() }); if (d.entry) next = d.entry; }
         return next;
       });
