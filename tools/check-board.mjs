@@ -44,7 +44,7 @@ const css = read('public/sdk/system.css');
 const from = sdk.indexOf('// board:start');
 const to = sdk.indexOf('// board:end');
 ok(from > 0 && to > from, 'public/sdk/host.js has its board:start and board:end markers');
-const P = new Function(`${sdk.slice(from, to)}\nreturn { boardColumns, boardGroup, boardStep, boardNearest, boardRows, boardRowOf, boardGroupRows, boardNearestCell, boardMoveTo, boardSlot, boardSlotAt };`)();
+const P = new Function(`${sdk.slice(from, to)}\nreturn { boardColumns, boardGroup, boardStep, boardNearest, boardRows, boardRowOf, boardGroupRows, boardNearestCell, boardMoveTo, boardSlot, boardSlotAt, boardWash };`)();
 {
   same(P.boardColumns(null), [], 'no columns is an empty board');
   same(P.boardColumns('x'), [], 'columns that are not a list are an empty board');
@@ -57,6 +57,25 @@ const P = new Function(`${sdk.slice(from, to)}\nreturn { boardColumns, boardGrou
   same(P.boardGroup(cols, 'x').get('now'), [], 'cards that are not a list are no cards');
   same([P.boardStep(cols, 'now', 1), P.boardStep(cols, 'now', -1), P.boardStep(cols, 'inbox', -1), P.boardStep(cols, 'done', 1), P.boardStep(cols, 'nope', 1)], ['__proto__', 'inbox', null, null, null], 'a step goes to the next or the previous column, and stops at an edge');
   same([P.boardNearest(0, 2), P.boardNearest(3, 0), P.boardNearest(3, 5), P.boardNearest(3, -2), P.boardNearest(3, 'x')], [-1, 0, 2, 0, 0], 'the nearest card in the next column');
+  // colour: a column's own #rrggbb, nothing else; no colour leaves the column as it was
+  {
+    same(P.boardColumns([{ id: 'a', color: '#2f6cbf' }, { id: 'b', color: '#2F6CBF' }, { id: 'c', color: 'red' }, { id: 'd', color: '#fff' }, { id: 'e', color: 5 }, { id: 'f', color: '' }]).map((c) => c.color), ['#2f6cbf', undefined, undefined, undefined, undefined, undefined], 'a column keeps only a strict lower case #rrggbb as its colour');
+    ok(!('color' in P.boardColumns([{ id: 'a' }])[0]), 'a column with no colour has no color key, as before');
+    const lum = (hex) => { const n = parseInt(hex.slice(1), 16); const f = (v) => { const q = v / 255; return q <= 0.03928 ? q / 12.92 : ((q + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255); };
+    const contrast = (a, b) => { const p = lum(a); const q = lum(b); return (Math.max(p, q) + 0.05) / (Math.min(p, q) + 0.05); };
+    const light = P.boardWash('#2f6cbf', '#f5f5f5', '#1a1a1a', contrast);
+    same([light.pct, light.faint], [16, false], 'a mid blue on a light panel keeps the full wash and a plain dot');
+    const dark = P.boardWash('#f2d675', '#1c1c1c', '#8a8a8a', contrast);
+    ok(dark.pct < 16 && dark.pct > 0, `a pale colour on a dark panel is lowered (${dark.pct}%) until the words read`);
+    const grey = P.boardWash('#1c1c1c', '#1c1c1c', '#f0f0f0', contrast);
+    ok(grey.faint === true, 'a dot the colour of its surface is faint');
+    for (const [c, sf, t] of [['#f2d675', '#1c1c1c', '#f0f0f0'], ['#ff0000', '#ffffff', '#767676'], ['#00ffff', '#222222', '#9a9a9a'], ['#ffffff', '#f5f5f5', '#767676']]) {
+      const w = P.boardWash(c, sf, t, contrast);
+      const mix = (i, p) => Math.round(parseInt(sf.slice(1 + i * 2, 3 + i * 2), 16) * (1 - p) + parseInt(c.slice(1 + i * 2, 3 + i * 2), 16) * p);
+      const bg = `#${[0, 1, 2].map((i) => mix(i, w.pct / 100).toString(16).padStart(2, '0')).join('')}`;
+      ok(w.pct === 0 || contrast(t, bg) >= 4.5, `the wash (${w.pct}%) of ${c} on ${sf} leaves ${t} at 4.5:1 or better`);
+    }
+  }
   // rows
   {
     const cols = P.boardColumns([{ id: 'a' }, { id: 'b' }]);
@@ -266,6 +285,41 @@ async function chromium() {
         same(await page.ev(`!!document.querySelector('#bd .sdk-board-col.is-done .sdk-board-done')`), true, `${tag}: a done column carries its check and its words, not a colour alone`);
         same(await page.ev(`document.querySelectorAll('#bd [draggable="true"]').length`), phone ? 3 : 4, `${tag}: every card shown drags, stacked or not`);
         same(await page.ev(`getComputedStyle(${colEl('inbox')}).flexDirection + ':' + (document.documentElement.scrollWidth <= innerWidth)`), 'column:true', `${tag}: no sideways scroll of the page`);
+        // --- colour: a dot and a wash on the heading, never a coloured border; words at 4.5:1; a column with no colour as before ---
+        {
+          const r = await page.ev(`(async () => {
+            const host = T.host;
+            const mount = document.createElement('div'); mount.id = 'bdc'; document.getElementById('wrap').append(mount);
+            const b = host.ui.board(mount, { columns: [{ id: 'p', label: 'Pale', color: '#f2d675' }, { id: 'd', label: 'Dark', color: '#1f3a2e' }, { id: 'n', label: 'Plain' }, { id: 'x', label: 'Bad', color: 'red' }], cards: [], name: 'Colour board', onMove: () => {} });
+            await new Promise((r) => setTimeout(r, 200));
+            const rgb = (css) => { const c = document.createElement('canvas'); c.width = c.height = 1; const g = c.getContext('2d'); g.fillStyle = css; g.fillRect(0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2]]; };
+            const lum = (c) => { const f = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+            const ratio = (a, b) => { const p = lum(a); const q = lum(b); return (Math.max(p, q) + 0.05) / (Math.min(p, q) + 0.05); };
+            const out = [];
+            for (const col of mount.querySelectorAll('.sdk-board-col')) {
+              const head = col.querySelector('.sdk-board-head');
+              const dot = col.querySelector('.sdk-board-dot');
+              const cs = getComputedStyle(head);
+              const surface = rgb(getComputedStyle(col).backgroundColor);
+              const c2 = document.createElement('canvas'); c2.width = c2.height = 1; const g2 = c2.getContext('2d', { willReadFrequently: true });
+              g2.fillStyle = getComputedStyle(col).backgroundColor; g2.fillRect(0, 0, 1, 1); g2.fillStyle = cs.backgroundColor; g2.fillRect(0, 0, 1, 1);
+              const px = g2.getImageData(0, 0, 1, 1).data; const washed = [px[0], px[1], px[2]];
+              out.push({ id: col.dataset.col, dot: Boolean(dot), hasColor: head.classList.contains('has-color'), pct: head.style.getPropertyValue('--board-wash'), words: ratio(rgb(cs.color), washed), border: getComputedStyle(col).borderTopColor, headBorder: cs.borderTopWidth, dotFaint: dot ? dot.classList.contains('is-faint') : null, dotRatio: dot ? ratio(rgb(getComputedStyle(dot).backgroundColor), washed) : 0, dotSize: dot ? dot.getBoundingClientRect().width : 0 });
+            }
+            const scrollX = document.documentElement.scrollWidth > document.documentElement.clientWidth;
+            b.destroy(); mount.remove();
+            return { out, scrollX };
+          })()`);
+          const by = Object.fromEntries(r.out.map((o) => [o.id, o]));
+          ok(by.p.dot && by.p.hasColor && by.d.dot && by.d.hasColor, `${tag}: a column with a colour draws a dot and a wash on its heading`);
+          ok(!by.n.dot && !by.n.hasColor && by.n.pct === '', `${tag}: a column with no colour draws none`);
+          ok(!by.x.dot && !by.x.hasColor, `${tag}: a colour that is not #rrggbb is ignored`);
+          ok(by.p.words >= 4.5 && by.d.words >= 4.5, `${tag}: the heading's words read at 4.5:1 or better on a pale and a dark colour (${by.p.words.toFixed(2)}, ${by.d.words.toFixed(2)})`);
+          ok(by.p.dotSize === 8 && by.d.dotSize === 8, `${tag}: the dot is 8 px (${by.p.dotSize})`);
+          ok(by.p.border === by.n.border && by.d.border === by.n.border && by.p.headBorder === '0px', `${tag}: a coloured column's border is the plain edge, and the heading has none`);
+          ok(by.d.dotFaint === (by.d.dotRatio < 3) && by.p.dotFaint === (by.p.dotRatio < 3), `${tag}: a dot under 3:1 against its heading is faint and one above is not (dark green ${by.d.dotRatio.toFixed(2)}, pale ${by.p.dotRatio.toFixed(2)})`);
+          ok(!r.scrollX, `${tag}: coloured columns add no sideways scroll`);
+        }
         await page.shot(`${width}-${mode}-start`);
 
         // --- text is text ---
