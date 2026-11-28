@@ -96,7 +96,7 @@ function fakeGitHub() {
     const had = state.issues.get(number);
     const v = {
       number, title: `Server: issue ${number}`, state: 'open', labels: [], html_url: `https://github.com/${REPO}/issues/${number}`,
-      created_at: had ? had.created_at : t, closed_at: null, milestone: null, body: 'A private body', user: { login: 'someone' },
+      created_at: had ? had.created_at : t, closed_at: null, milestone: null, body: null, user: { login: 'someone' },
       assignees: [{ login: 'someone' }], ...(had || {}), ...o, updated_at: t,
     };
     if (v.state === 'closed' && !v.closed_at) v.closed_at = t;
@@ -240,7 +240,7 @@ const GITHUB = require('../server/issue-providers/github.js');
 const STANDIN = require('../server/issue-providers/test-standin.js');
 
 // --- GitHub's reading ------------------------------------------------------------------------------------------------------
-await test('GitHub\'s answer read as records: pull requests skipped, no person, no body', () => {
+await test('GitHub\'s answer read as records: pull requests skipped, no person, the body as plain text', () => {
   const raw = {
     number: 12, title: '  Chat:\u0007 a title  ', state: 'closed', html_url: 'https://github.com/o/r/issues/12', created_at: '2026-10-01T10:00:00Z',
     updated_at: '2026-10-03T10:00:00Z', closed_at: '2026-10-02T09:00:00Z', labels: [{ name: 'priority: now', color: 'B60205' }, 'bug', { name: '' }],
@@ -250,9 +250,14 @@ await test('GitHub\'s answer read as records: pull requests skipped, no person, 
   assert.deepEqual(r, {
     number: 12, title: 'Chat:  a title', open: false, labels: [{ name: 'priority: now', color: 'b60205' }, { name: 'bug', color: '' }],
     url: 'https://github.com/o/r/issues/12', created: '2026-10-01T10:00:00.000Z', updated: '2026-10-03T10:00:00.000Z', closed: '2026-10-02T09:00:00.000Z',
-    milestone: { number: 3, title: 'Release', due: '2026-12-01', open: true },
+    milestone: { number: 3, title: 'Release', due: '2026-12-01', open: true }, body: 'secret body',
   });
-  assert.ok(!/who|secret/.test(JSON.stringify(r)), 'no login, no body');
+  assert.ok(!/who/.test(JSON.stringify(r)), 'no login');
+  assert.equal('body' in GITHUB.record({ ...raw, body: null }) || 'body' in GITHUB.record({ ...raw, body: '  \r\n ' }) || 'body' in GITHUB.record({ ...raw, body: 5 }), false, 'no text, no body');
+  assert.equal(GITHUB.record({ ...raw, body: 'a\r\nb\rc\u0000\u0007d\te\u007f<b>x</b>' }).body, 'a\nb\ncd\te<b>x</b>', 'newlines kept, other control characters out, markup left as text');
+  const big = GITHUB.record({ ...raw, body: `${'x'.repeat(1999)}\u{1F600}\u{1F600}` }).body;
+  assert.deepEqual([Array.from(big).length, big.endsWith('…'), /[\ud800-\udbff]$/.test(big.slice(0, -1))], [2000, true, false], 'cut on a character with an ellipsis, no half pair');
+  assert.deepEqual(Object.keys(GITHUB.record({ ...raw, assignee: { login: 'a' }, comments: 4, author_association: 'OWNER' })).sort(), ['body', 'closed', 'created', 'labels', 'milestone', 'number', 'open', 'title', 'updated', 'url'], 'only the fields the record names');
   assert.equal(GITHUB.record({ ...raw, pull_request: { url: 'x' } }), null, 'a pull request is not an issue');
   assert.equal(GITHUB.record({ ...raw, html_url: 'javascript:alert(1)' }).url, '', 'only a github.com link');
   assert.equal(GITHUB.record({ ...raw, number: 'x' }), null);
@@ -315,6 +320,13 @@ await test('an issue as a piece of work', () => {
     source: { from: 'github', repo: 'o/r', number: 7, url: 'https://github.com/o/r/issues/1', updated: '2026-10-01T10:00:00.000Z' },
   });
   assert.ok(!('owners' in w), 'no owners');
+  // The issue's description: below the link, the milestone and the labels; the body is cut, never the link.
+  const withBody = I.workOf(rec({ milestone: { number: 2, title: 'M', due: '', open: true }, body: 'Line one\n\nLine two' }), at);
+  assert.equal(withBody.notes, 'https://github.com/o/r/issues/1\nMilestone: M\nLine one\n\nLine two', 'link, milestone, then the body');
+  assert.equal(I.workOf(rec({ body: 'Why' }), at).notes, 'https://github.com/o/r/issues/1\nWhy');
+  assert.equal(I.workOf(rec({}), at).notes, 'https://github.com/o/r/issues/1', 'no body, the notes as before');
+  const longBody = I.workOf(rec({ milestone: { number: 2, title: 'M', due: '', open: true }, body: `${'y'.repeat(1999)}\u{1F600}` }), at).notes;
+  assert.deepEqual([Array.from(longBody).length <= 2000, longBody.startsWith('https://github.com/o/r/issues/1\nMilestone: M\n'), longBody.endsWith('…'), /[\ud800-\udbff]$/.test(longBody)], [true, true, true, false], 'cut at 2000, link kept, marked');
   const closed = I.workOf(rec({ open: false, closed: '2026-10-05T23:00:00.000Z', milestone: { number: 2, title: 'M', due: '', open: true } }), at);
   assert.deepEqual([closed.column, closed.done, closed.end, closed.parent, closed.notes], ['done', true, '2026-10-05', 'ghm-2', 'https://github.com/o/r/issues/1\nMilestone: M']);
   const rows = I.tagRowsOf([rec({ labels: [{ name: 'good first issue', color: '7057ff' }, { name: 'priority: now', color: 'aaaaaa' }, { name: 'bug', color: '' }] })]);
@@ -682,7 +694,7 @@ await test('the adapter\'s writes carry only the fields the plan allows', async 
   assert.ok(sent.every((s) => s.headers.Authorization === `Bearer ${TOKEN}` && !s.url.includes(TOKEN)));
   assert.equal(sent[6].headers['If-None-Match'], 'W/"1"');
   const got = await a.get({ repo: 'o/r', number: 3 }, ask);
-  assert.ok(!JSON.stringify(got).includes('secret'), 'no body in the record');
+  assert.ok(!JSON.stringify(got).includes('secret') || got.record.body === 'secret', 'the description is only the record\'s own text, nothing was sent');
   const lim = (status, headers, message) => ({ status, header: (k) => headers[k] ?? null, json: { message } });
   const now = 1_000_000;
   const wc = (g) => I.writeCall(a, (askX) => a.update({ repo: 'o/r', number: 1, title: 'x' }, async () => g), { now });
@@ -1134,6 +1146,26 @@ await live('Pull now: someone with edit, at most once in the gap', async () => {
   assert.equal(soon.status, 429);
   assert.match(soon.json.error, /^It was pulled a moment ago\. Try again in \d+ seconds?\.$/);
   assert.ok(Number(soon.headers.get('retry-after')) >= 1);
+});
+
+await live('the issue\'s description is pulled as text, replaced when it changes on GitHub, and never sent back', async () => {
+  const key = 'plan:gh-700';
+  const link = `https://github.com/${REPO}/issues/700`;
+  gh.issue(700, { title: 'Server: has a description', body: 'First line\r\nSecond <b>line</b>\u0007' });
+  ok(await pullNow(S.bugs), 'a pull');
+  let e = (await plan(S.bugs))[key];
+  assert.equal(e.value.notes, `${link}\nFirst line\nSecond <b>line</b>`, 'the link, then the body as text');
+  assert.deepEqual(Object.keys(e.value).sort(), ['by', 'column', 'done', 'end', 'kind', 'notes', 'source', 'start', 'title'], 'no person, no comment in what is stored');
+  assert.ok(!/someone|assignee|login/.test(JSON.stringify(e)), 'no login anywhere in the entry');
+  gh.issue(700, { body: 'Edited on GitHub' });
+  ok(await pullNow(S.bugs), 'the next pull');
+  e = (await plan(S.bugs))[key];
+  assert.equal(e.value.notes, `${link}\nEdited on GitHub`, 'the stored notes are replaced');
+  gh.issue(700, { body: null });
+  ok(await pullNow(S.bugs), 'the pull after the description is emptied');
+  assert.equal((await plan(S.bugs))[key].value.notes, link, 'no description, the link alone');
+  assert.ok(gh.seen.every((x) => x.method === 'GET' || !JSON.stringify(x.body || '').includes('Edited on GitHub')), 'nothing of the description was sent');
+  gh.state.issues.delete(700);
 });
 
 await live('the service asks to wait: obeyed, and the timer pulls once the wait is over', async () => {
