@@ -839,7 +839,7 @@
     const v = boardWork();
     const { rows, of } = scBoardRows(v.shown, rowsBy, list(), nameOf, 'Someone who left', state.fields);
     const cards = boardCards(b, v.shown, of);
-    const columns = b.columns.map((c) => ({ id: c.id, label: c.label, done: Boolean(c.done) }));
+    const columns = b.columns.map((c) => ({ id: c.id, label: c.label, done: Boolean(c.done), ...(c.color ? { color: c.color } : {}) }));
     // The rows' own words (the no-row row, the line for a drop on another row) are given when the board is made, so a change of rows draws it again.
     if (board && boardRowsBy !== rowsKey) { board.destroy(); board = null; }
     if (!board) {
@@ -940,12 +940,13 @@
   // the template's columns becomes a stored board on the first change, and Undo takes that record away again.
   const canColumns = () => host.can('columns') && !pullOn(); // the board follows the pull while it is on
   let columnsBusy = false;
-  async function changeColumns(next, rewritten, text) {
+  // `value` (optional) is the board record to store in place of scBoardValue(next): a change that must leave the stored record as it is.
+  async function changeColumns(next, rewritten, text, value) {
     if (columnsBusy) return false;
     columnsBusy = true;
     const plan = { created: [], was: rewritten.map((e) => storedNow(e.id)).filter(Boolean), board: { was: state.boardRaw } };
     try {
-      try { await writeBoard(scBoardValue(next)); } catch (err) { say(err && err.status === 409 ? 'Someone else changed the columns just now. Try again.' : (err && err.message) || 'The columns could not be changed.', 'danger'); render(); return false; }
+      try { await writeBoard(value || scBoardValue(next)); } catch (err) { say(err && err.status === 409 ? 'Someone else changed the columns just now. Try again.' : (err && err.message) || 'The columns could not be changed.', 'danger'); render(); return false; }
       try {
         for (const e of rewritten) { const had = state.entries.get(e.id); await write(e, had ? had.version : undefined); }
       } catch (err) {
@@ -980,6 +981,23 @@
     const r = scMoveColumn(currentBoard(), c.id, by);
     if (r.problem) { say(r.problem, 'danger'); return; }
     await changeColumns(r.board, [], `Moved the column ${c.label} ${by < 0 ? 'left' : 'right'}.`);
+  }
+  // The column's colour: the picker (no opacity) opens at the menu's place; a pick is one board write with Undo. The colour is the space's own.
+  async function setColumnColour(c, color) {
+    const r = scSetColumnColor(currentBoard(), c.id, color);
+    if (r.problem) { say(r.problem, 'danger'); return; }
+    // A stored board is patched where it stands (only this column's colour differs); the template's default board is stored whole, as a rename does.
+    await changeColumns(r.board, [], color ? `Coloured the column ${c.label}.` : `Took the colour off the column ${c.label}.`, scColourBoardValue(state.boardRaw, c.id, color) || undefined);
+  }
+  // The menu hands the column without its colour, so it is read from the board; the picker opens where the menu's row was (the row goes
+  // when the menu closes, so its place is taken first).
+  const colourOf = (id) => (currentBoard().columns.find((x) => x.id === id) || {}).color || '';
+  async function colourColumn(c, el) {
+    const was = colourOf(c.id);
+    const r = el && typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+    const at = r ? { x: Math.round(r.left), y: Math.round(r.bottom) } : { x: 8, y: 4 };
+    const pick = await host.ui.colorPicker({ at, value: was || undefined, opacity: false, label: 'Column colour' });
+    if (pick && pick.color && pick.color !== was) await setColumnColour(c, pick.color);
   }
   async function flagColumn(c) {
     const r = scSetColumnFlag(currentBoard(), list(), c.id, !c.done, { rollup, today: today() });
@@ -1024,6 +1042,8 @@
       { id: 'left', label: 'Move left', icon: 'arrow-left', disabled: at <= 0, onClick: () => moveColumn(c, -1) },
       { id: 'right', label: 'Move right', icon: 'arrow-right', disabled: at < 0 || at >= b.columns.length - 1, onClick: () => moveColumn(c, 1) },
       { id: 'done', label: 'Counts as done', icon: c.done ? 'square-check' : 'square', regular: !c.done, current: Boolean(c.done), onClick: () => flagColumn(c) },
+      { id: 'colour', label: 'Colour', icon: 'palette', onClick: (item, el) => colourColumn(c, el) },
+      ...(colourOf(c.id) ? [{ id: 'nocolour', label: 'No colour', icon: 'xmark', onClick: () => setColumnColour(c, '') }] : []),
       { id: 'delete', label: 'Delete', icon: 'trash', danger: true, onClick: () => deleteColumn(c) },
     ];
   }

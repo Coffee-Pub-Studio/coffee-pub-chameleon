@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
