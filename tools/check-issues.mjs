@@ -39,6 +39,19 @@
  * every request the fake saw holds only the fields the plan allows, nothing of the space or the people, and the token only in
  * Authorization.
  *
+ * Then the full sync's writes and the issue route (documentation/plans/plan-github-full-sync.md, step 3), against the same fake, now
+ * with comments, assignees and milestones on an issue: the adapter's new calls each send exactly their request (a body, a
+ * milestone or none, a comment's text, a linked login; the newest 100 comments from the last page or two); the issue view reads
+ * the whole text and its base and the newest comments (a login for an author no one linked), from memory within a minute, for a
+ * guest too, never for an agent; the description is one PATCH of the body as written, only with write_out and writing on, at most
+ * 65,536 characters, and a text GitHub changed between open and save answers 409 with GitHub's text and base and sends nothing; a
+ * cut description is never replaced from the plan; an unlinked Owner is stored with no request and needs only edit, a linked one
+ * is asked first (GET .../assignees/<login>) and then assigned or unassigned, and a login GitHub will not assign sends nothing and
+ * says so; the milestone is set and cleared, only to one of the plan's; a comment is added with its text as written and
+ * remembered by key (`posted`, at most 500), edited or deleted by its author, deleted by an owner, and one written on GitHub is
+ * refused; 401, 403 with a wait, 422, 429 and silence change nothing in the space; the + takes an optional description; the memory
+ * the reads hold is bounded in entries and characters.
+ *
  * Not checked here: a real request to api.github.com (no network in a check; the terms must be accepted by a person first), and
  * GitHub's real secondary-limit answers.
  */
@@ -97,6 +110,8 @@ function fakeGitHub() {
     issues: new Map(), once: null, onceWrite: null, failClosed: null, slowList: 0, missing: new Set(), clock: Math.floor(Date.now() / 1000) * 1000 - 3 * 86400 * 1000, // a few days ago, so the issues it closes are inside the done window
     labels: new Set(['priority: now', 'priority: next', 'priority: later', 'bug', 'good first issue', 'docs']), created: [],
     milestones: new Map(), onceMilestones: null, // number -> GitHub's milestone; `onceMilestones` replaces the next answer to the list
+    // The issue view's half (plan-github-full-sync.md, step 3): comments by id and the logins GitHub will assign (login -> account id).
+    comments: new Map(), commentId: 9000, assignable: new Map(),
   };
   const tick = () => { state.clock += 1000; return new Date(state.clock).toISOString(); };
   const issue = (number, o = {}) => {
@@ -187,6 +202,11 @@ function fakeGitHub() {
         if (body.title !== undefined) o.title = body.title;
         if (body.state) { o.state = body.state; if (body.state === 'open') o.closed_at = null; }
         if (body.title === '(reject)') return json(res, 422, { message: 'Validation Failed.' });
+        if (body.body !== undefined) o.body = body.body;
+        if (body.milestone !== undefined) {
+          if (body.milestone !== null && !state.milestones.has(body.milestone)) return json(res, 422, { message: 'Validation Failed' });
+          o.milestone = body.milestone === null ? null : state.milestones.get(body.milestone);
+        }
         return json(res, 200, issue(cur.number, o));
       }
       const etag = `W/"${cur.updated_at}"`;
@@ -213,6 +233,56 @@ function fakeGitHub() {
     }
     m = /^\/repos\/([^/]+\/[^/]+)\/labels\/(.+)$/.exec(u.pathname);
     if (m && req.method === 'GET') return state.labels.has(decodeURIComponent(m[2])) ? json(res, 200, { name: decodeURIComponent(m[2]) }) : json(res, 404, { message: 'Not Found' });
+    // Comments: listed by ascending id, 100 a page at most, with an etag; made by the app (its bot login); edited and deleted by id.
+    m = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/comments$/.exec(u.pathname);
+    if (m) {
+      const cur = state.issues.get(Number(m[2]));
+      if (!cur) return json(res, 404, { message: 'Not Found' });
+      if (req.method === 'POST') {
+        if (!body || typeof body.body !== 'string' || !body.body) return json(res, 422, { message: 'Validation Failed' });
+        const t = tick();
+        state.commentId += 1;
+        const c = { id: state.commentId, issue: cur.number, user: { id: 41000, login: 'chameleon-check[bot]', type: 'Bot' }, body: body.body, created_at: t, updated_at: t, author_association: 'NONE' };
+        state.comments.set(c.id, c);
+        issue(cur.number, { comments: cur.comments + 1 });
+        return json(res, 201, c);
+      }
+      const per = Math.min(100, Number(u.searchParams.get('per_page') || 30));
+      const page = Number(u.searchParams.get('page') || 1);
+      const list = [...state.comments.values()].filter((c) => c.issue === cur.number).sort((a, b) => a.id - b.id).slice((page - 1) * per, page * per);
+      const etag = `W/"c${Buffer.from(`${u.search}|${JSON.stringify(list)}`).toString('base64').slice(-24)}"`;
+      if (req.headers['if-none-match'] === etag) { res.writeHead(304, { etag }); return res.end(); }
+      return json(res, 200, list, { etag });
+    }
+    m = /^\/repos\/([^/]+\/[^/]+)\/issues\/comments\/(\d+)$/.exec(u.pathname);
+    if (m && (req.method === 'PATCH' || req.method === 'DELETE')) {
+      const c = state.comments.get(Number(m[2]));
+      if (!c) return json(res, 404, { message: 'Not Found' });
+      if (req.method === 'DELETE') {
+        state.comments.delete(c.id);
+        const cur = state.issues.get(c.issue);
+        if (cur) issue(cur.number, { comments: Math.max(0, cur.comments - 1) });
+        res.writeHead(204);
+        return res.end();
+      }
+      if (!body || typeof body.body !== 'string' || !body.body) return json(res, 422, { message: 'Validation Failed' });
+      Object.assign(c, { body: body.body, updated_at: tick() });
+      return json(res, 200, c);
+    }
+    // Assignees: GitHub takes only the logins it may assign and drops any other without a word, as its documentation says.
+    m = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/assignees$/.exec(u.pathname);
+    if (m && (req.method === 'POST' || req.method === 'DELETE')) {
+      const cur = state.issues.get(Number(m[2]));
+      if (!cur) return json(res, 404, { message: 'Not Found' });
+      const logins = Array.isArray(body && body.assignees) ? body.assignees : [];
+      let list = [...cur.assignees];
+      if (req.method === 'POST') {
+        for (const l of logins) if (state.assignable.has(l) && !list.some((a) => a.login === l)) list.push({ id: state.assignable.get(l), login: l, avatar_url: 'https://x/y.png' });
+      } else list = list.filter((a) => !logins.includes(a.login));
+      return json(res, req.method === 'POST' ? 201 : 200, issue(cur.number, { assignees: list }));
+    }
+    m = /^\/repos\/([^/]+\/[^/]+)\/assignees\/([^/]+)$/.exec(u.pathname);
+    if (m && req.method === 'GET') { res.writeHead(state.assignable.has(decodeURIComponent(m[2])) ? 204 : 404); return res.end(); }
     m = /^\/repos\/([^/]+)\/([^/]+)\/issues$/.exec(u.pathname);
     if (m && req.method === 'POST') {
       for (const name of body.labels || []) if (!state.labels.has(name)) state.created.push(name);
@@ -757,7 +827,7 @@ await test('the write gaps', () => {
 await test('what a change touches: the sent fields, the space\'s own, and GitHub\'s read-only ones', () => {
   const s = { kind: 'work', title: 'A', start: '2026-10-01', end: '2026-10-01', done: false, column: 'next', tags: ['bug'], notes: 'n', by: 'system:issues', source: { from: 'github', repo: 'o/r', number: 1 } };
   const d = (patch) => I.diffWork(s, { ...s, ...patch });
-  assert.deepEqual(d({}), { column: null, title: null, tags: { add: [], remove: [] }, own: false, foreign: [] });
+  assert.deepEqual(d({}), { column: null, title: null, tags: { add: [], remove: [] }, description: null, parent: null, owners: { add: [], remove: [] }, own: false, foreign: [] });
   assert.equal(d({ column: 'now' }).column, 'now');
   assert.equal(d({ column: 'done', done: true }).column, 'done');
   assert.equal(d({ done: true }).column, 'done', 'ticked alone is a move to Done');
@@ -767,15 +837,45 @@ await test('what a change touches: the sent fields, the space\'s own, and GitHub
   assert.equal(d({ tags: undefined }).tags.remove[0], 'bug');
   const own = d({ owners: ['x'], start: '2026-10-02', rank: 'a', fields: { phase: '1' }, waitsOn: ['gh-2'], by: 'someone' });
   assert.deepEqual([own.own, own.foreign, own.column, own.title], [true, [], null, null]);
-  assert.deepEqual(d({ notes: 'other', parent: 'ghm-1', kind: 'note', source: null }).foreign.sort(), ['kind', 'notes', 'parent', 'source']);
+  assert.deepEqual(d({ notes: 'other', parent: 'ghm-1', kind: 'note', source: null, assignees: ['x'] }).foreign.sort(), ['assignees', 'kind', 'notes', 'source']);
   assert.deepEqual(d({ id: 'x' }).foreign, ['id']);
+  // plan-github-full-sync.md, step 3: the description and the milestone are sent; Owners split by the link.
+  assert.equal(d({ description: 'New text' }).description, 'New text');
+  assert.equal(I.diffWork({ ...s, description: 'Had' }, { ...s, description: '' }).description, '', 'emptied');
+  assert.equal(I.diffWork({ ...s, description: 'Had' }, { ...s }).description, null, 'a value with no description leaves the text as it is');
+  assert.equal(I.diffWork({ ...s, description: 'Had' }, { ...s, description: 'Had' }).description, null);
+  assert.deepEqual(d({ parent: 'ghm-3' }).parent, { milestone: 3, ok: true });
+  assert.deepEqual(I.diffWork({ ...s, parent: 'ghm-3' }, { ...s, parent: undefined }).parent, { milestone: null, ok: true }, 'no milestone');
+  assert.deepEqual(I.diffWork({ ...s, parent: 'ghm-3' }, { ...s, parent: '' }).parent, { milestone: null, ok: true });
+  assert.deepEqual(d({ parent: 'm-1' }).parent, { milestone: null, ok: false }, 'not a milestone\'s id');
+  assert.equal(I.diffWork({ ...s, parent: 'ghm-3' }, { ...s, parent: 'ghm-3' }).parent, null);
+  const withOwners = { ...s, owners: ['k-linked', 'k-own'] };
+  const o = (owners) => I.diffWork(withOwners, { ...withOwners, owners }, { linked: new Set(['k-linked', 'k-new']) });
+  assert.deepEqual([o(['k-linked', 'k-own', 'k-new']).owners, o(['k-linked', 'k-own', 'k-new']).own], [{ add: ['k-new'], remove: [] }, false], 'a linked member added is sent');
+  assert.deepEqual([o(['k-own']).owners, o(['k-own']).own], [{ add: [], remove: ['k-linked'] }, false], 'a linked member removed is sent');
+  assert.deepEqual([o(['k-linked']).owners, o(['k-linked']).own], [{ add: [], remove: [] }, true], 'an unlinked one is the space\'s own');
+  assert.deepEqual([o(['k-own', 'k-linked']).owners, o(['k-own', 'k-linked']).own], [{ add: [], remove: [] }, false], 'the order alone changes nothing');
+  assert.deepEqual(I.diffWork(withOwners, { ...withOwners, owners: 'k-own' }).foreign, ['owners'], 'Owners that are not a list');
+  assert.equal(I.diffSends(d({})), false);
+  for (const patch of [{ column: 'now' }, { title: 'B' }, { tags: [] }, { description: 'x' }, { parent: 'ghm-1' }]) assert.equal(I.diffSends(d(patch)), true, JSON.stringify(patch));
+  assert.equal(I.diffSends(o(['k-own'])), true);
+  assert.equal(I.diffSends(o(['k-linked'])), false);
   const rec1 = { number: 1, title: 'A', open: true, labels: [{ name: 'priority: next', color: '' }, { name: 'bug', color: '' }], url: '', created: '', updated: '' };
-  assert.deepEqual(I.changePlan(rec1, { column: 'now' }), { patch: {}, remove: ['priority: next'], add: ['priority: now'] });
-  assert.deepEqual(I.changePlan(rec1, { column: 'inbox' }), { patch: {}, remove: ['priority: next'], add: [] });
-  assert.deepEqual(I.changePlan(rec1, { column: 'done' }), { patch: { state: 'closed', stateReason: 'completed' }, remove: [], add: [] });
-  assert.deepEqual(I.changePlan({ ...rec1, open: false }, { column: 'later' }), { patch: { state: 'open', stateReason: 'reopened' }, remove: ['priority: next'], add: ['priority: later'] });
-  assert.deepEqual(I.changePlan(rec1, { title: 'B', addNames: ['docs'], removeIds: ['bug'] }), { patch: { title: 'B' }, remove: ['bug'], add: ['docs'] });
-  assert.deepEqual(I.changePlan(rec1, { column: 'next' }), { patch: {}, remove: [], add: [] }, 'already there: nothing to send');
+  const none = { assign: [], unassign: [] };
+  assert.deepEqual(I.changePlan(rec1, { column: 'now' }), { patch: {}, remove: ['priority: next'], add: ['priority: now'], ...none });
+  assert.deepEqual(I.changePlan(rec1, { column: 'inbox' }), { patch: {}, remove: ['priority: next'], add: [], ...none });
+  assert.deepEqual(I.changePlan(rec1, { column: 'done' }), { patch: { state: 'closed', stateReason: 'completed' }, remove: [], add: [], ...none });
+  assert.deepEqual(I.changePlan({ ...rec1, open: false }, { column: 'later' }), { patch: { state: 'open', stateReason: 'reopened' }, remove: ['priority: next'], add: ['priority: later'], ...none });
+  assert.deepEqual(I.changePlan(rec1, { title: 'B', addNames: ['docs'], removeIds: ['bug'] }), { patch: { title: 'B' }, remove: ['bug'], add: ['docs'], ...none });
+  assert.deepEqual(I.changePlan(rec1, { column: 'next' }), { patch: {}, remove: [], add: [], ...none }, 'already there: nothing to send');
+  // The text, the milestone and the assignees: only what differs from GitHub's issue now.
+  const rec2 = { ...rec1, body: 'Old', milestone: { number: 2, title: 'M', due: '', open: true }, assignees: [{ id: 1, login: 'Octo-Cat' }] };
+  assert.deepEqual(I.changePlan(rec2, { body: 'New', milestone: 3, assign: ['octo-cat', 'other-one'], unassign: ['octo-cat', 'not-on-it'] }), { patch: { body: 'New', milestone: 3 }, remove: [], add: [], assign: ['other-one'], unassign: ['octo-cat'] });
+  assert.deepEqual(I.changePlan(rec2, { body: 'Old', milestone: 2 }).patch, {}, 'already so');
+  assert.deepEqual(I.changePlan(rec2, { milestone: null }).patch, { milestone: null }, 'no milestone');
+  assert.deepEqual(I.changePlan(rec1, { body: '' }).patch, {}, 'no text on either side');
+  assert.deepEqual(I.changePlan(rec2, { body: '' }).patch, { body: '' }, 'the text emptied');
+  assert.deepEqual(I.changePlan(rec2, {}).patch, {}, 'the milestone left as it is when none is named');
 });
 
 await test('a board change that is only its columns\' colours (plan-board-colour.md, decision 2)', () => {
@@ -835,15 +935,15 @@ await test('the adapter\'s writes carry only the fields the plan allows', async 
   await a.addLabels({ repo: 'o/r', number: 3, labels: ['bug', 'x\u0007y', 5], assignees: ['x'], token: TOKEN }, ask);
   await a.removeLabel({ repo: 'o/r', number: 3, label: 'priority: now', token: TOKEN }, ask);
   await a.hasLabel({ repo: 'o/r', label: 'a/b c', token: TOKEN }, ask);
-  await a.create({ repo: 'o/r', title: 'N', labels: ['bug'], body: 'secret', assignees: ['x'], milestone: 1, token: TOKEN }, ask);
+  await a.create({ repo: 'o/r', title: 'N', labels: ['bug'], body: 'A body', assignees: ['x'], milestone: 1, token: TOKEN }, ask);
   await a.get({ repo: 'o/r', number: 3, etag: 'W/"1"', token: TOKEN }, ask);
   assert.deepEqual(sent.map((s) => [s.method, new URL(s.url).pathname, s.body]), [
-    ['PATCH', '/repos/o/r/issues/3', { title: 'T', state: 'closed', state_reason: 'completed' }],
+    ['PATCH', '/repos/o/r/issues/3', { title: 'T', state: 'closed', state_reason: 'completed', body: 'no', milestone: 1 }],
     ['PATCH', '/repos/o/r/issues/3', { state: 'open' }],
     ['POST', '/repos/o/r/issues/3/labels', { labels: ['bug'] }],
     ['DELETE', '/repos/o/r/issues/3/labels/priority%3A%20now', undefined],
     ['GET', '/repos/o/r/labels/a%2Fb%20c', undefined],
-    ['POST', '/repos/o/r/issues', { title: 'N', labels: ['bug'] }],
+    ['POST', '/repos/o/r/issues', { title: 'N', labels: ['bug'], body: 'A body' }],
     ['GET', '/repos/o/r/issues/3', undefined],
   ]);
   assert.ok(sent.every((s) => s.headers.Authorization === `Bearer ${TOKEN}` && !s.url.includes(TOKEN)));
@@ -862,6 +962,119 @@ await test('the adapter\'s writes carry only the fields the plan allows', async 
   assert.equal((await wc(lim(422, {}, 'Validation Failed.'))).error, 'Test stand-in (not an issue service) refused the change: Validation Failed.');
   assert.equal((await wc(lim(404, {}, 'Not Found'))).status, 404);
   assert.match((await wc(lim(502, {}, ''))).error, /did not answer\. Nothing was changed; try again\.$/);
+});
+
+await test('the issue view\'s calls (plan-github-full-sync.md, step 3): exactly the request each needs, and only these fields', async () => {
+  const sent = [];
+  const answer = { status: 200, json: null, headers: {} };
+  const ask = async (method, url, headers, body) => { sent.push({ method, url, headers, body }); return { status: answer.status, header: (k) => answer.headers[k] ?? null, json: typeof answer.json === 'function' ? answer.json(url) : answer.json }; };
+  const a = STANDIN;
+  const shapeOf = () => sent.map((x) => [x.method, new URL(x.url).pathname + new URL(x.url).search, x.body]);
+  const issueJson = { number: 3, title: 'T', state: 'open', created_at: '2026-10-01T00:00:00Z', html_url: 'https://github.com/o/r/issues/3', labels: [], assignees: [{ id: 7, login: 'octo' }] };
+  const commentJson = (id, o = {}) => ({ id, user: { id: 5, login: 'writer', avatar_url: 'https://x/y.png', email: 'w@x.y' }, body: `text ${id}\r\nline\u0007`, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', reactions: { total_count: 3 }, ...o });
+  // update: the body and the milestone only when named; nothing at all when nothing is.
+  answer.json = issueJson;
+  await a.update({ repo: 'o/r', number: 3, body: '', token: TOKEN }, ask);
+  await a.update({ repo: 'o/r', number: 3, milestone: null, token: TOKEN }, ask);
+  await a.update({ repo: 'o/r', number: 3, milestone: 0, body: 5, token: TOKEN }, ask);
+  await a.update({ repo: 'o/r', number: 3, body: 'x'.repeat(65537), token: TOKEN }, ask);
+  assert.deepEqual(shapeOf(), [['PATCH', '/repos/o/r/issues/3', { body: '' }], ['PATCH', '/repos/o/r/issues/3', { milestone: null }]], 'an empty body and no milestone are sent; nothing else is');
+  sent.length = 0;
+  // comments: one page when there are at most 100 (conditional), the last two pages past that (the newest 100, oldest first).
+  answer.json = [commentJson(11), commentJson(12, { updated_at: '2026-10-02T00:00:00Z', user: null }), { id: 'x' }];
+  const one = await a.comments({ repo: 'o/r', number: 3, total: 2, etag: 'W/"c1"', token: TOKEN }, ask);
+  assert.deepEqual(one.comments, [{ id: 11, author: { id: 5, login: 'writer' }, at: '2026-10-01T00:00:00.000Z', edited: false, text: 'text 11\nline' }, { id: 12, author: null, at: '2026-10-01T00:00:00.000Z', edited: true, text: 'text 12\nline' }]);
+  assert.deepEqual([one.status, one.total], [200, 2]);
+  assert.ok(!/png|w@x|reactions/.test(JSON.stringify(one)), 'no picture, no e-mail address, no reactions');
+  assert.deepEqual(shapeOf(), [['GET', '/repos/o/r/issues/3/comments?per_page=100&page=1', undefined]]);
+  assert.equal(sent[0].headers['If-None-Match'], 'W/"c1"');
+  sent.length = 0;
+  // 248 comments: page 2 holds ids 1100 to 1199, page 3 ids 1200 to 1247.
+  answer.json = (url) => (new URL(url).searchParams.get('page') === '2' ? Array.from({ length: 100 }, (_, i) => commentJson(1100 + i)) : Array.from({ length: 48 }, (_, i) => commentJson(1200 + i)));
+  const many = await a.comments({ repo: 'o/r', number: 3, total: 248, etag: 'W/"c1"', token: TOKEN }, ask);
+  assert.deepEqual(shapeOf().map((x) => x[1]), ['/repos/o/r/issues/3/comments?per_page=100&page=2', '/repos/o/r/issues/3/comments?per_page=100&page=3'], 'the last two pages');
+  assert.ok(sent.every((x) => !x.headers['If-None-Match']), 'unconditional past one page');
+  assert.deepEqual([many.comments.length, many.comments[0].id, many.comments[99].id, many.total], [100, 1148, 1247, 248], 'the newest 100, oldest first');
+  sent.length = 0;
+  answer.status = 304; answer.json = null; answer.headers = { etag: 'W/"c1"' };
+  assert.deepEqual([(await a.comments({ repo: 'o/r', number: 3, total: 2, etag: 'W/"c1"' }, ask)).status], [304]);
+  answer.status = 200; answer.headers = {};
+  sent.length = 0;
+  // A comment made, edited and deleted: its text as written, by its id; nothing else in the body.
+  answer.json = commentJson(77); answer.status = 201;
+  const added = await a.addComment({ repo: 'o/r', number: 3, text: 'As written, by nobody named', who: 'Mia', token: TOKEN }, ask);
+  assert.deepEqual([added.status, added.comment.id], [201, 77]);
+  answer.status = 200;
+  await a.editComment({ repo: 'o/r', id: 77, text: 'Changed', token: TOKEN }, ask);
+  answer.status = 204; answer.json = null;
+  assert.equal((await a.deleteComment({ repo: 'o/r', id: 77, token: TOKEN }, ask)).status, 204);
+  for (const bad of [a.addComment({ repo: 'o/r', number: 3, text: '   ' }, ask), a.addComment({ repo: 'o/r', number: 3, text: 'x'.repeat(65537) }, ask), a.editComment({ repo: 'o/r', id: 0, text: 'x' }, ask), a.deleteComment({ repo: 'o/r', id: 'x' }, ask)]) assert.equal((await bad).status, 0, 'nothing sent');
+  answer.status = 201; answer.json = issueJson;
+  const assigned = await a.assign({ repo: 'o/r', number: 3, logins: ['octo', 'octo', 'bad login', 'x[bot]', 5], token: TOKEN }, ask);
+  assert.deepEqual(assigned.record.assignees, [{ id: 7, login: 'octo' }], 'the answer read as the issue');
+  answer.status = 200;
+  await a.unassign({ repo: 'o/r', number: 3, logins: ['octo'], token: TOKEN }, ask);
+  assert.equal((await a.assign({ repo: 'o/r', number: 3, logins: [] }, ask)).status, 0);
+  answer.status = 204; answer.json = null;
+  assert.equal((await a.canAssign({ repo: 'o/r', login: 'octo', token: TOKEN }, ask)).status, 204);
+  assert.equal((await a.canAssign({ repo: 'o/r', login: '../x', token: TOKEN }, ask)).status, 404, 'not a login: refused without a request');
+  assert.deepEqual(shapeOf(), [
+    ['POST', '/repos/o/r/issues/3/comments', { body: 'As written, by nobody named' }],
+    ['PATCH', '/repos/o/r/issues/comments/77', { body: 'Changed' }],
+    ['DELETE', '/repos/o/r/issues/comments/77', undefined],
+    ['POST', '/repos/o/r/issues/3/assignees', { assignees: ['octo'] }],
+    ['DELETE', '/repos/o/r/issues/3/assignees', { assignees: ['octo'] }],
+    ['GET', '/repos/o/r/assignees/octo', undefined],
+  ]);
+  assert.ok(sent.every((x) => x.headers.Authorization === `Bearer ${TOKEN}` && !x.url.includes(TOKEN)), 'the token in Authorization only');
+  // writeCall: a 204 is done.
+  const wc = await I.writeCall(a, () => a.deleteComment({ repo: 'o/r', id: 1 }, async () => ({ status: 204, header: () => null, json: null })));
+  assert.equal(wc.ok, true);
+});
+
+await test('the base of a text, the posted comments\' cap, and the memory the reads may hold', () => {
+  assert.equal(I.baseOf('abc'), I.baseOf('abc'));
+  assert.notEqual(I.baseOf('abc'), I.baseOf('abd'));
+  assert.match(I.baseOf(''), /^[0-9a-f]{32}$/);
+  assert.equal(I.baseOf(undefined), I.baseOf(''));
+  // posted: the newest 500, each id once (the later kept), only whole ids and numbers and a key; never more than the cap.
+  const many = Array.from({ length: 620 }, (_, i) => ({ id: i + 1, number: 3, by: 'k1', at: '2026-11-28T00:00:00Z' }));
+  const kept = I.cleanPosted(many);
+  assert.deepEqual([I.POSTED_MAX, kept.length, kept[0].id, kept[499].id], [500, 500, 121, 620], 'the newest 500, oldest first');
+  assert.deepEqual(I.cleanPosted([{ id: 1, number: 1, by: 'a' }, { id: 1, number: 2, by: 'b' }, { id: 0, number: 1, by: 'a' }, { id: 2, number: 0, by: 'a' }, { id: 3, number: 1, by: '' }, { id: 4, number: 1, by: 5 }, null, 'x']).map((p) => [p.id, p.number, p.by]), [[1, 2, 'b']]);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'issues-posted-'));
+  const pulls = new I.IssuePulls(dir);
+  pulls.set('space1', { provider: 'github', repo: 'o/r', on: true, posted: many });
+  assert.equal(pulls.get('space1').posted.length, 500);
+  pulls.addPosted('space1', { id: 9999, number: 4, by: 'k2', at: '2026-11-28T00:00:00Z' });
+  const rec2 = JSON.parse(fs.readFileSync(path.join(dir, 'issues.json'), 'utf8')).spaces.space1;
+  assert.deepEqual([rec2.posted.length, rec2.posted[499].id, rec2.posted[0].id], [500, 9999, 122], 'stored: still 500, the oldest dropped');
+  assert.deepEqual(pulls.postedOf('space1', 9999), { id: 9999, number: 4, by: 'k2', at: '2026-11-28T00:00:00.000Z' });
+  pulls.dropPosted('space1', 9999);
+  assert.equal(pulls.postedOf('space1', 9999), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+  // The memory: at most so many entries and so many characters; the oldest goes first; one too big is never kept.
+  const c = new I.SizedCache({ maxEntries: 3, maxChars: 100, sizeOf: (v) => v.length });
+  c.set('a', 'x'.repeat(40)).set('b', 'x'.repeat(40));
+  assert.deepEqual([c.size, c.chars], [2, 80]);
+  c.set('c', 'x'.repeat(30));
+  assert.deepEqual([c.has('a'), c.has('b'), c.has('c'), c.chars], [false, true, true, 70], 'over the characters: the oldest dropped');
+  c.set('d', 'x').set('e', 'x');
+  assert.deepEqual([c.size, c.has('b')], [3, false], 'over the entries: the oldest dropped');
+  c.set('big', 'x'.repeat(101));
+  assert.deepEqual([c.has('big'), c.size], [false, 3], 'too big alone: not kept, nothing else lost');
+  c.set('c', 'y');
+  assert.equal(c.get('c'), 'y');
+  assert.equal(c.chars, 3, 'a value set again is counted once');
+  // As the server holds an issue's reads: 500 issues of 65,536 characters each would be 32 million; the budget keeps it near 4 million.
+  const reads = new I.SizedCache({ maxEntries: 500, maxChars: 4 * 1024 * 1024 });
+  for (let i = 0; i < 500; i += 1) reads.set(`k${i}`, { etag: 'W/"1"', record: { number: i, body: 'z'.repeat(65536) }, at: 1 });
+  assert.ok(reads.chars <= 4 * 1024 * 1024 && reads.size < 70 && reads.has('k499'), `${reads.size} kept, ${reads.chars} characters`);
+  // The server's own caches are these, with these bounds.
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  assert.match(src, /const issueReads = new issuesLib\.SizedCache\(\{ maxEntries: 500, maxChars: ISSUE_CACHE_CHARS \}\)/);
+  assert.match(src, /const issueCommentReads = new issuesLib\.SizedCache\(\{ maxEntries: 200, maxChars: ISSUE_CACHE_CHARS \}\)/);
+  assert.match(src, /const ISSUE_CACHE_CHARS = 4 \* 1024 \* 1024;/);
 });
 
 // --- the done window: the pieces (documentation/plans/plan-done-window.md, step 1) ---------------------------------------------
@@ -1575,10 +1788,12 @@ await live('tags are labels that exist: one added, one removed, a tag with no la
 
 await live('GitHub-only fields are refused with nothing sent; the space\'s own are stored here with no request', async () => {
   const at = gh.seen.length;
-  for (const patch of [{ notes: 'mine' }, { source: null }, { kind: 'note' }, { parent: 'ghm-9' }, { id: 'x' }]) {
+  for (const patch of [{ notes: 'mine' }, { source: null }, { kind: 'note' }, { assignees: ['x'] }, { id: 'x' }]) {
     const r = await edit('plan:gh-11', patch, S.mod);
     assert.deepEqual([r.status, r.json.error], [403, FROM_GITHUB], JSON.stringify(patch));
   }
+  const noMilestone = await edit('plan:gh-11', { parent: 'ghm-9' }, S.mod);
+  assert.deepEqual([noMilestone.status, noMilestone.json.error], [400, 'That is not a milestone in this plan.'], 'a milestone the plan does not have');
   const newKey = await putKey(S.bugs, 'plan:gh-999', { kind: 'work', title: 'new', start: '2026-11-01', end: '2026-11-01', done: false }, S.mod);
   assert.deepEqual([newKey.status, newKey.json.error], [403, FROM_GITHUB], 'a new object is made only through the new-issue route');
   assert.equal((await putKey(S.bugs, 'board:main', { id: 'main', name: 'Board', field: 'column', columns: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B', done: true }] }, S.admin)).status, 403, 'the board stays the pull\'s');
@@ -1912,6 +2127,302 @@ await live('the roadmap fields: defining one and setting a choice make no reques
   assert.ok(gh.seen.slice(at, full).every((x) => !/field|area|phase/i.test(`${x.url} ${x.raw || ''}`)), 'no word of a field in any request');
 });
 
+// --- live: the issue view and the full sync's writes (documentation/plans/plan-github-full-sync.md, step 3) --------------------------
+const LINKED = { id: 7001, login: 'octo-linked' }; // the moderator's own GitHub account, linked on Profile
+const OUTSIDE = { id: 7002, login: 'outside-helper' }; // an account no one here linked
+const V = (n) => `/api/spaces/${S.bugs}/issues/${n}`;
+const T3 = 'Test stand-in (not an issue service)';
+const hold3 = (status, headers, body) => (req, res) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(body)); };
+const postedNow = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.bugs].posted;
+// The service's rest is over once the issue view answers again (it is refused with 429 while the repository rests).
+const waitRest = () => until('the rest to end', async () => (await call('GET', V(40), { token: S.mod })).status === 200, 8000);
+
+await live('full sync, set up: the moderator links a GitHub account; milestones, assignees and a comment written on GitHub', async () => {
+  links.state.person.account = LINKED;
+  const start = ok(await call('POST', '/api/me/github', { token: S.mod, body: {} }), 'Link your GitHub account');
+  const authorize = await fetch(start.json.url, { redirect: 'manual' });
+  await authorize.arrayBuffer();
+  const back = await fetch(authorize.headers.get('location'), { redirect: 'manual' });
+  await back.text();
+  const done = await fetch(new URL(back.headers.get('location'), base).href, { redirect: 'manual', headers: { authorization: `Bearer ${S.mod}` } });
+  await done.text();
+  assert.deepEqual([done.status, done.headers.get('location')], [302, '/profile']);
+  assert.deepEqual(ok(await call('GET', '/api/me', { token: S.mod }), 'me').json.github, { login: LINKED.login });
+  gh.state.assignable.set(LINKED.login, LINKED.id);
+  gh.state.assignable.set(OUTSIDE.login, OUTSIDE.id);
+  gh.state.milestones.set(4, { number: 4, title: 'Release four', state: 'open', due_on: null });
+  gh.state.milestones.set(5, { number: 5, title: 'Release five', state: 'open', due_on: null });
+  gh.issue(40, { title: 'Server: forty', labels: [], body: 'The first text.', assignees: [OUTSIDE] });
+  gh.issue(41, { title: 'Server: forty-one', labels: [], body: 'y'.repeat(2500) });
+  gh.issue(42, { title: 'Server: forty-two', labels: [], body: null, assignees: [LINKED] });
+  gh.state.commentId += 1;
+  gh.state.comments.set(gh.state.commentId, { id: gh.state.commentId, issue: 40, user: { id: OUTSIDE.id, login: OUTSIDE.login, avatar_url: 'https://x/y.png' }, body: 'Written on GitHub.\r\nSecond line.', created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z' });
+  S.githubComment = gh.state.commentId;
+  gh.issue(40, { comments: 1 });
+  ok(await pullNow(S.bugs), 'a pull');
+  const p = await plan(S.bugs);
+  assert.ok(p['plan:ghm-4'] && p['plan:ghm-5'], 'the open milestones are in the plan');
+  assert.deepEqual([p['plan:gh-40'].value.assignees, p['plan:gh-40'].value.owners], [[OUTSIDE.login], undefined]);
+  assert.deepEqual([p['plan:gh-42'].value.owners, p['plan:gh-42'].value.assignees], [[S.modKey], undefined], 'the linked assignee is an Owner, as the member');
+  assert.deepEqual([p['plan:gh-41'].value.source.cut, Array.from(p['plan:gh-41'].value.description).length], [true, 2000]);
+});
+
+await live('the issue view: the whole text and its base, the newest comments by login, from memory within a minute; for anyone who reads the plan', async () => {
+  const at = gh.seen.length;
+  const r = ok(await call('GET', V(40), { token: S.mia }), 'a member opens it').json;
+  assert.deepEqual(Object.keys(r).sort(), ['base', 'comments', 'description', 'older', 'url']);
+  assert.deepEqual([r.description, r.base, r.older, r.url], ['The first text.', I.baseOf('The first text.'), 0, `https://github.com/${REPO}/issues/40`]);
+  assert.deepEqual(r.comments, [{ id: S.githubComment, who: { login: OUTSIDE.login }, at: '2026-11-01T00:00:00.000Z', edited: false, text: 'Written on GitHub.\nSecond line.', mine: false, canDelete: false }], 'a comment written on GitHub shows its login, to be changed only there');
+  assert.ok(!/png|avatar/.test(JSON.stringify(r)), 'no picture');
+  assert.deepEqual(gh.seen.slice(at).map((x) => [x.method, new URL(x.url, 'http://x').pathname.replace(`/repos/${REPO}`, '')]), [['GET', '/issues/40'], ['GET', '/issues/40/comments']], 'one read of the issue, one of its comments');
+  assert.equal(gh.seen[gh.seen.length - 1].headers.authorization, `Bearer ${TOKEN}`);
+  const whole = ok(await call('GET', V(41), { token: S.mia }), 'the long one').json;
+  assert.equal(whole.description, 'y'.repeat(2500), 'the whole text, not the stored cut');
+  const again = gh.seen.length;
+  ok(await call('GET', V(40), { token: S.admin }), 'opened again');
+  assert.equal(gh.seen.length, again, 'within a minute: from memory, no request');
+  const guest = ok(await call('GET', `${V(40)}?guest=${encodeURIComponent(S.guest)}`), 'a guest who may read the plan').json;
+  assert.equal(guest.comments[0].who.login, OUTSIDE.login, 'logins show to everyone who sees the plan (decision 5)');
+  for (const [n, want] of [[999, 404], ['0', 404], ['x', 404], ['1234567890', 404]]) {
+    const no = await call('GET', V(n), { token: S.mia });
+    assert.deepEqual([no.status, no.json.error], [want, 'That issue is not in this plan.'], String(n));
+  }
+  assert.ok([401, 403, 404].includes((await call('GET', V(40), { token: S.agent })).status), 'an agent does not read comments');
+  assert.equal((await call('GET', V(40))).status, 401, 'nobody signed in');
+  assert.equal((await call('GET', `/api/spaces/${S.other}/issues/40`, { token: S.admin })).status, 409, 'a space that follows nothing');
+  assert.deepEqual(mutations(at), [], 'reading sent no change');
+});
+
+await live('the description: one PATCH of the body as written; only with write_out and writing on; 65,536 at most', async () => {
+  const put = (n, body, token = S.mod) => call('PUT', `${V(n)}/description`, { token, body });
+  const open = ok(await call('GET', V(40), { token: S.mod }), 'opened').json;
+  let at = gh.seen.length;
+  assert.deepEqual([(await put(40, { text: 'Mine', base: open.base }, S.mia)).status, (await put(40, { text: 'Mine', base: open.base }, S.mia)).json.error], [403, `Only someone allowed to change ${T3} can change this.`], 'a member without write_out');
+  assert.equal((await put(40, { text: 'Mine', base: open.base }, null)).status, 401);
+  assert.deepEqual([(await put(40, { text: 'x'.repeat(65537), base: open.base })).status, (await put(40, { text: 'x'.repeat(65537), base: open.base })).json.error], [400, 'GitHub holds at most 65,536 characters.']);
+  assert.deepEqual([(await put(40, { text: 'Mine' })).status, (await put(40, { text: 'Mine', base: 'nope' })).json.error], [400, 'Send the base the description was opened with.']);
+  assert.deepEqual([(await put(40, { base: open.base })).status, (await put(40, { text: 5, base: open.base })).json.error], [400, 'Send the text as words.']);
+  assert.equal((await put(999, { text: 'Mine', base: open.base })).status, 404);
+  assert.equal(gh.seen.length, at, 'nothing refused asked anything');
+  const text = 'A new text\nwritten here, with **markup** left as text.';
+  const r = ok(await put(40, { text, base: open.base }), 'the moderator saves it');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/40', { body: text }]], 'exactly the body');
+  assert.deepEqual([r.json.description, r.json.base, r.json.item.value.description, r.json.item.value.by], [text, I.baseOf(text), text, S.modKey]);
+  assert.equal(gh.state.issues.get(40).body, text);
+  assert.deepEqual(ok(await call('GET', V(40), { token: S.mia }), 'opened after').json.description, text, 'the view reads it at once');
+  // The long one: edited from the whole text read when the view opened, never from the stored cut.
+  const long = ok(await call('GET', V(41), { token: S.mod }), 'the long one').json;
+  at = gh.seen.length;
+  ok(await put(41, { text: `${long.description} and more`, base: long.base }), 'the whole text saved');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/41', { body: `${'y'.repeat(2500)} and more` }]]);
+  // An empty text empties it (GitHub allows that).
+  const empty = ok(await call('GET', V(42), { token: S.mod }), 'forty-two').json;
+  at = gh.seen.length;
+  ok(await put(42, { text: 'Briefly', base: empty.base }), 'a text where there was none');
+  const brief = ok(await call('GET', V(42), { token: S.mod }), 'again').json;
+  ok(await put(42, { text: '', base: brief.base }), 'emptied');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/42', { body: 'Briefly' }], ['PATCH', '/issues/42', { body: '' }]]);
+  // The same text again sends nothing.
+  const same = ok(await call('GET', V(40), { token: S.mod }), 'forty').json;
+  at = gh.seen.length;
+  ok(await put(40, { text: same.description, base: same.base }), 'unchanged');
+  assert.deepEqual(mutations(at), [], 'nothing to send');
+});
+
+await live('the description\'s conflict: GitHub changed the text between open and save: 409 with GitHub\'s text and base, nothing sent', async () => {
+  const open = ok(await call('GET', V(40), { token: S.mod }), 'opened').json;
+  gh.issue(40, { body: 'Changed on GitHub meanwhile.' });
+  const at = gh.seen.length;
+  const r = await call('PUT', `${V(40)}/description`, { token: S.mod, body: { text: 'My edit', base: open.base } });
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.json, { error: 'This changed on GitHub a moment ago. It now shows GitHub\'s version. Your text is kept below; copy what you need.', description: 'Changed on GitHub meanwhile.', base: I.baseOf('Changed on GitHub meanwhile.') });
+  assert.deepEqual(mutations(at), [], 'nothing was sent');
+  assert.equal(gh.state.issues.get(40).body, 'Changed on GitHub meanwhile.');
+  assert.equal((await plan(S.bugs))['plan:gh-40'].value.description, 'Changed on GitHub meanwhile.', 'the plan shows GitHub\'s version');
+  ok(await call('PUT', `${V(40)}/description`, { token: S.mod, body: { text: 'My edit', base: r.json.base } }), 'saved over the new base');
+  assert.equal(gh.state.issues.get(40).body, 'My edit');
+});
+
+await live('the description through the plan: sent when it is whole, refused when the plan holds it cut', async () => {
+  let at = gh.seen.length;
+  ok(await edit('plan:gh-40', { description: 'From the editor' }, S.mod), 'a whole one');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/40', { body: 'From the editor' }]]);
+  at = gh.seen.length;
+  const cut = await edit('plan:gh-41', { description: 'Short now' }, S.mod);
+  assert.deepEqual([cut.status, cut.json.error], [403, 'This description is longer than the plan holds, so it can\'t be replaced from here.']);
+  assert.equal((await edit('plan:gh-40', { description: 'Mine' }, S.mia)).status, 403, 'a member without write_out');
+  assert.deepEqual(mutations(at), [], 'nothing sent');
+  // GitHub changed it since the plan last saw it: GitHub wins.
+  gh.issue(40, { body: 'Again on GitHub.' });
+  const r = await edit('plan:gh-40', { description: 'Stale' }, S.mod);
+  assert.deepEqual([r.status, r.json.error, r.json.current.value.description], [409, 'This changed on GitHub a moment ago. It now shows GitHub\'s version.', 'Again on GitHub.']);
+  assert.deepEqual(mutations(at), []);
+});
+
+await live('Owners: an unlinked one is the space\'s own (edit, nothing sent); a linked one is assigned and unassigned on GitHub (write_out)', async () => {
+  const miaKey = (await call('GET', '/api/users', { token: S.admin })).json.users.find((u) => u.login === 'mia').key;
+  let at = gh.seen.length;
+  const own = ok(await edit('plan:gh-40', { owners: [miaKey] }, S.mia), 'a member makes herself an Owner (she has no link)');
+  assert.deepEqual([own.json.item.value.owners, own.json.item.value.assignees], [[miaKey], [OUTSIDE.login]]);
+  assert.equal(gh.seen.length, at, 'no request of any kind');
+  const linked = await edit('plan:gh-40', { owners: [miaKey, S.modKey] }, S.mia);
+  assert.deepEqual([linked.status, linked.json.error], [403, FROM_GITHUB], 'a linked Owner needs write_out');
+  assert.equal(gh.seen.length, at);
+  const r = ok(await edit('plan:gh-40', { owners: [miaKey, S.modKey] }, S.mod), 'the moderator adds himself');
+  assert.deepEqual(shape(gh.seen.slice(at).filter((x) => !/\/issues\/40$/.test(x.url) || x.method !== 'GET')), [['GET', `/assignees/${LINKED.login}`, undefined], ['POST', '/issues/40/assignees', { assignees: [LINKED.login] }]], 'asked first, then exactly his login');
+  assert.deepEqual([[...r.json.item.value.owners].sort(), r.json.item.value.assignees], [[miaKey, S.modKey].sort(), [OUTSIDE.login]], 'he is an Owner as the member; the login no one linked stays a login');
+  assert.deepEqual(gh.state.issues.get(40).assignees.map((a) => a.login), [OUTSIDE.login, LINKED.login]);
+  at = gh.seen.length;
+  const off = ok(await edit('plan:gh-40', { owners: [miaKey] }, S.mod), 'and takes himself off');
+  assert.deepEqual(shape(mutations(at)), [['DELETE', '/issues/40/assignees', { assignees: [LINKED.login] }]]);
+  assert.deepEqual([off.json.item.value.owners, gh.state.issues.get(40).assignees.map((a) => a.login)], [[miaKey], [OUTSIDE.login]]);
+  // GitHub will not take the login: nothing is sent, and the person reads why.
+  gh.state.assignable.delete(LINKED.login);
+  at = gh.seen.length;
+  const refused = await edit('plan:gh-40', { owners: [miaKey, S.modKey] }, S.mod);
+  assert.deepEqual([refused.status, refused.json.error], [422, 'Mo Derator can\'t be assigned on GitHub in this repository.']);
+  assert.deepEqual(mutations(at), [], 'nothing sent');
+  assert.deepEqual((await plan(S.bugs))['plan:gh-40'].value.owners, [miaKey], 'nothing changed here');
+  gh.state.assignable.set(LINKED.login, LINKED.id);
+  // Assignees no one linked are GitHub's: refused.
+  assert.deepEqual([(await edit('plan:gh-40', { assignees: [] }, S.mod)).status], [403]);
+  // GitHub changed the assignees since the plan last saw them: GitHub wins.
+  gh.issue(40, { assignees: [OUTSIDE, LINKED] });
+  at = gh.seen.length;
+  const stale = await edit('plan:gh-40', { owners: [miaKey, S.modKey] }, S.mod);
+  assert.equal(stale.status, 409);
+  assert.deepEqual([[...stale.json.current.value.owners].sort(), mutations(at)], [[miaKey, S.modKey].sort(), []], 'GitHub\'s version, nothing sent');
+  // With writing off, the space's own Owners still change and the linked ones are GitHub's.
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: false } }), 'writing off');
+  at = gh.seen.length;
+  ok(await edit('plan:gh-40', { owners: [S.modKey] }, S.mia), 'an unlinked Owner taken off');
+  assert.equal((await edit('plan:gh-40', { owners: [] }, S.mod)).status, 403, 'a linked one is GitHub\'s');
+  assert.equal(gh.seen.length, at);
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: true } }), 'writing on again');
+});
+
+await live('the milestone: Part of sets it and clears it; only the plan\'s milestones; GitHub wins on the same field', async () => {
+  let at = gh.seen.length;
+  const r = ok(await edit('plan:gh-40', { parent: 'ghm-4' }, S.mod), 'Part of: Release four');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/40', { milestone: 4 }]]);
+  assert.equal(r.json.item.value.parent, 'ghm-4');
+  at = gh.seen.length;
+  const none = ok(await edit('plan:gh-40', { parent: undefined }, S.mod), 'No milestone');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/40', { milestone: null }]]);
+  assert.equal('parent' in none.json.item.value, false);
+  at = gh.seen.length;
+  for (const parent of ['ghm-99', 'gh-40', 'x']) {
+    const bad = await edit('plan:gh-40', { parent }, S.mod);
+    assert.deepEqual([bad.status, bad.json.error], [400, 'That is not a milestone in this plan.'], parent);
+  }
+  assert.equal((await edit('plan:gh-40', { parent: 'ghm-4' }, S.mia)).status, 403, 'a member without write_out');
+  assert.equal(gh.seen.length, at, 'nothing asked');
+  gh.issue(40, { milestone: gh.state.milestones.get(5) });
+  const stale = await edit('plan:gh-40', { parent: 'ghm-4' }, S.mod);
+  assert.deepEqual([stale.status, stale.json.current.value.parent], [409, 'ghm-5']);
+  assert.deepEqual(mutations(at), [], 'nothing sent');
+  ok(await edit('plan:gh-40', { parent: undefined }, S.mod), 'cleared again');
+});
+
+await live('comments: added by the app with the text as written; the author edits and deletes theirs; an owner deletes any made here', async () => {
+  const post = (n, text, token = S.mod) => call('POST', `${V(n)}/comments`, { token, body: { text } });
+  let at = gh.seen.length;
+  assert.deepEqual([(await post(40, 'Hi', S.mia)).status, (await post(40, 'Hi', S.mia)).json.error], [403, `Only someone allowed to change ${T3} can change this.`]);
+  assert.deepEqual([(await post(40, '   ')).status, (await post(40, '   ')).json.error], [400, 'Write a comment first.']);
+  assert.deepEqual([(await post(40, 'x'.repeat(65537))).status, (await post(40, 'x'.repeat(65537))).json.error], [400, 'GitHub holds at most 65,536 characters.']);
+  assert.equal((await call('POST', `${V(40)}/comments`, { token: S.mod, body: {} })).status, 400);
+  assert.equal(gh.seen.length, at, 'nothing refused asked anything');
+  const r = ok(await post(40, 'A comment made here.\nWith a second line.'), 'the moderator comments', 201).json.comment;
+  assert.deepEqual(shape(mutations(at)), [['POST', '/issues/40/comments', { body: 'A comment made here.\nWith a second line.' }]], 'exactly the text, nothing of the person');
+  assert.deepEqual([r.who, r.text, r.mine, r.canDelete, r.edited], [{ member: S.modKey }, 'A comment made here.\nWith a second line.', true, true, false]);
+  const posted = postedNow();
+  assert.deepEqual(posted.map((p) => [p.id, p.number, p.by]), [[r.id, 40, S.modKey]], 'remembered as his, by key');
+  assert.ok(!JSON.stringify(posted).includes(LINKED.login), 'never a login');
+  const second = ok(await post(40, 'Another one.'), 'and another', 201).json.comment;
+  const viewOf = async (token) => Object.fromEntries(ok(await call('GET', V(40), { token }), 'the view').json.comments.map((c) => [c.id, c]));
+  const asMia = await viewOf(S.mia);
+  assert.deepEqual([asMia[r.id].who, asMia[r.id].mine, asMia[r.id].canDelete, asMia[S.githubComment].who], [{ member: S.modKey }, false, false, { login: OUTSIDE.login }], 'shown as the member who made it here');
+  const asOwner = await viewOf(S.admin);
+  assert.deepEqual([asOwner[r.id].mine, asOwner[r.id].canDelete, asOwner[S.githubComment].canDelete], [false, true, false], 'an owner may delete one made here, not one written on GitHub');
+  const comment = (id) => `${V(40)}/comments/${id}`;
+  at = gh.seen.length;
+  for (const [token, want, error] of [[S.mia, 403, 'Only the person who wrote this comment can change it.'], [S.admin, 403, 'Only the person who wrote this comment can change it.']]) {
+    const no = await call('PATCH', comment(r.id), { token, body: { text: 'Not mine' } });
+    assert.deepEqual([no.status, no.json.error], [want, error]);
+  }
+  const theirs = await call('PATCH', comment(S.githubComment), { token: S.admin, body: { text: 'x' } });
+  assert.deepEqual([theirs.status, theirs.json.error], [403, 'Only a comment made here can be changed here.'], 'a comment written on GitHub changes only there');
+  assert.equal((await call('DELETE', comment(S.githubComment), { token: S.admin })).json.error, 'Only a comment made here can be changed here.');
+  assert.equal((await call('PATCH', `${V(41)}/comments/${r.id}`, { token: S.mod, body: { text: 'x' } })).status, 403, 'not this issue\'s');
+  assert.equal((await call('PATCH', comment('abc'), { token: S.mod, body: { text: 'x' } })).status, 403);
+  const miaDel = await call('DELETE', comment(r.id), { token: S.mia });
+  assert.deepEqual([miaDel.status, miaDel.json.error], [403, 'Only the person who wrote this comment, or an owner, can delete it.']);
+  assert.deepEqual(mutations(at), [], 'nothing refused was sent');
+  const edited = ok(await call('PATCH', comment(r.id), { token: S.mod, body: { text: 'A comment made here, changed.' } }), 'the author edits it').json.comment;
+  assert.deepEqual(shape(mutations(at)), [['PATCH', `/issues/comments/${r.id}`, { body: 'A comment made here, changed.' }]]);
+  assert.deepEqual([edited.text, edited.edited, edited.mine], ['A comment made here, changed.', true, true]);
+  at = gh.seen.length;
+  assert.deepEqual(ok(await call('DELETE', comment(second.id), { token: S.admin }), 'an owner deletes one made here').json, { deleted: second.id });
+  ok(await call('DELETE', comment(r.id), { token: S.mod }), 'the author deletes his');
+  assert.deepEqual(shape(mutations(at)), [['DELETE', `/issues/comments/${second.id}`, undefined], ['DELETE', `/issues/comments/${r.id}`, undefined]]);
+  assert.deepEqual([postedNow(), gh.state.comments.has(r.id), gh.state.comments.has(second.id)], [[], false, false], 'forgotten here, gone on GitHub');
+  assert.deepEqual(Object.keys(await viewOf(S.mia)).map(Number), [S.githubComment], 'the view reads it at once');
+  assert.equal((await call('DELETE', comment(r.id), { token: S.mod })).status, 403, 'a comment deleted is no longer one made here');
+  // Deleted on GitHub meanwhile: 404 with its sentence, and forgotten here.
+  const third = ok(await post(40, 'Third.'), 'a third', 201).json.comment;
+  gh.state.comments.delete(third.id);
+  const gone = await call('PATCH', comment(third.id), { token: S.mod, body: { text: 'x' } });
+  assert.deepEqual([gone.status, gone.json.error, postedNow()], [404, `That comment is not on ${T3} any more.`, []]);
+});
+
+await live('the full sync\'s writes: 401, 403 with a wait, 422, 429 and silence each change nothing in the space', async () => {
+  const before = async () => { const p = (await plan(S.bugs))['plan:gh-40']; return [p.version, p.value.description, p.value.owners, p.value.parent]; };
+  const open = ok(await call('GET', V(40), { token: S.mod }), 'opened').json;
+  const was = await before();
+  const tries = [
+    ['silence', (req) => req.destroy(), 502, `${T3} did not answer. Nothing was changed; try again.`],
+    ['401', hold3(401, {}, { message: 'Bad credentials' }), 502, `${T3} refused this server's access.`],
+    ['422', hold3(422, {}, { message: 'Validation Failed.' }), 502, `${T3} refused the change: Validation Failed.`],
+    ['403 with a wait', hold3(403, { 'retry-after': '1' }, { message: 'You have exceeded a secondary rate limit.' }), 429, null],
+    ['429', hold3(429, { 'retry-after': '1' }, { message: 'Slow down.' }), 429, null],
+  ];
+  const writes = [
+    ['the description', () => call('PUT', `${V(40)}/description`, { token: S.mod, body: { text: 'Never stored', base: open.base } })],
+    ['a comment', () => call('POST', `${V(40)}/comments`, { token: S.mod, body: { text: 'Never stored' } })],
+    ['an Owner', () => edit('plan:gh-40', { owners: (was[2] || []).includes(S.modKey) ? was[2].filter((k) => k !== S.modKey) : [...(was[2] || []), S.modKey] }, S.mod)],
+    ['the milestone', () => edit('plan:gh-40', { parent: 'ghm-4' }, S.mod)],
+  ];
+  for (const [what, write] of writes) {
+    for (const [why, answer, wantStatus, wantError] of tries) {
+      await waitRest();
+      gh.state.onceWrite = answer;
+      const r = await write();
+      assert.equal(r.status, wantStatus, `${what}, ${why}: ${r.text.slice(0, 200)}`);
+      if (wantError) assert.equal(r.json.error, wantError, `${what}, ${why}`);
+      else assert.match(r.json.error, /asked to wait\. Try again in \d+ seconds?\.$/, `${what}, ${why}`);
+      assert.deepEqual(await before(), was, `${what}, ${why}: nothing changed in the space`);
+      assert.deepEqual(postedNow(), [], `${what}, ${why}: no comment remembered`);
+      gh.state.onceWrite = null;
+    }
+  }
+  assert.equal(gh.state.issues.get(40).body, open.description, 'and nothing changed on GitHub');
+  await waitRest();
+});
+
+await live('the + takes an optional description: sent as the new issue\'s body, at most 65,536 characters', async () => {
+  const create = (body) => call('POST', `/api/spaces/${S.bugs}/issues`, { token: S.mod, body });
+  const at = gh.seen.length;
+  assert.deepEqual([(await create({ title: 'Call: long', column: 'inbox', description: 'x'.repeat(65537) })).status], [400]);
+  assert.equal((await create({ title: 'Call: bad', column: 'inbox', description: 5 })).status, 400);
+  assert.deepEqual(mutations(at), []);
+  const r = ok(await create({ title: 'Call: with a text', column: 'inbox', description: 'Steps: open it.\nIt breaks.' }), 'made', 201);
+  assert.deepEqual(shape(mutations(at)), [['POST', '/issues', { title: 'Call: with a text', body: 'Steps: open it.\nIt breaks.' }]]);
+  assert.equal(r.json.item.value.description, 'Steps: open it.\nIt breaks.');
+  // The fake's milestones are every repository's: these two go, so the repositories followed later list none.
+  gh.state.milestones.delete(4);
+  gh.state.milestones.delete(5);
+});
+
 // --- live: the app's own troubles (documentation/plans/plan-github-app.md, section 9) -----------------------------------------------
 await live('the app is gone, paused or renamed: the sentence, reads without a token, writes refused, and it heals', async () => {
   const GONE = 'The GitHub app is no longer installed on other/repo. Install it again and press Connect to GitHub, or stop following.';
@@ -1974,7 +2485,8 @@ await live('a write that meets a 301 is made again once, after a new token, and 
 await live('what GitHub was sent holds only what the plan allows, and no one\'s name', async () => {
   const sent = mutations();
   assert.ok(sent.length > 20, `${sent.length} writes seen`);
-  const ALLOWED = { PATCH: ['title', 'state', 'state_reason'], POST: ['title', 'labels'], DELETE: [] };
+  // plan-github-full-sync.md, step 3: also a body, a milestone, a comment's text and a linked Owner's login.
+  const ALLOWED = { PATCH: ['title', 'state', 'state_reason', 'body', 'milestone'], POST: ['title', 'labels', 'body', 'assignees'], DELETE: ['assignees'] };
   const names = ['Bug Squash', 'Elsewhere', 'Mia', 'Mo Derator', 'mia', 'mod', 'admin', S.bugs, S.other, S.modKey, 'system:issues', 'plan:gh', 'schedule', 'owners', 'rank', 'column'];
   for (const x of sent) {
     const where = `${x.method} ${x.url}`;
@@ -1982,7 +2494,8 @@ await live('what GitHub was sent holds only what the plan allows, and no one\'s 
     assert.ok(ALLOWED[x.method], where);
     const keys = x.body && typeof x.body === 'object' ? Object.keys(x.body) : [];
     assert.ok(keys.every((k) => ALLOWED[x.method].includes(k)), `${where}: only ${ALLOWED[x.method]} (sent ${keys})`);
-    assert.ok(x.method !== 'POST' || !/\/issues$/.test(x.url) || x.body.body === undefined, `${where}: an empty body`);
+    assert.ok(x.method !== 'POST' || !/\/issues$/.test(x.url) || x.body.body === undefined || x.body.body === 'Steps: open it.\nIt breaks.', `${where}: an empty body, unless a description was given`);
+    assert.ok(!x.body || !x.body.assignees || x.body.assignees.every((l) => l === LINKED.login), `${where}: only the linked login`);
     assert.equal(x.headers.authorization, `Bearer ${TOKEN}`, `${where}: the token in Authorization`);
     assert.ok(!x.url.includes(TOKEN) && !(x.raw || '').includes(TOKEN), `${where}: never elsewhere`);
     for (const word of names) assert.ok(!`${x.url} ${x.raw || ''}`.includes(word), `${where}: nothing of ${word}`);
@@ -2472,7 +2985,7 @@ await live('no secret is in an answer, the data, the record, the log or a reques
   assert.deepEqual(Object.keys(record.spaces).sort(), [S.bugs, S.other, S.window].sort());
   assert.equal(record.spaces[S.bugs].repo, REPO);
   assert.deepEqual([record.spaces[S.bugs].via, record.spaces[S.bugs].installation, record.spaces[S.bugs].repositoryId, record.spaces[S.bugs].writeOk, typeof record.spaces[S.bugs].linkBy, Boolean(record.spaces[S.bugs].linkAt), record.spaces[S.bugs].appError], ['app', 7, 777, true, 'string', true, '']);
-  assert.ok(Object.keys(record.spaces[S.bugs]).every((k) => ['provider', 'repo', 'on', 'since', 'etag', 'last', 'tried', 'fullAt', 'next', 'restUntil', 'error', 'counts', 'by', 'at', 'write', 'writeBy', 'writeAt', 'via', 'installation', 'repositoryId', 'writeOk', 'linkBy', 'linkAt', 'appError', 'keepDays'].includes(k)), 'only the fields the plan names');
+  assert.ok(Object.keys(record.spaces[S.bugs]).every((k) => ['provider', 'repo', 'on', 'since', 'etag', 'last', 'tried', 'fullAt', 'next', 'restUntil', 'error', 'counts', 'by', 'at', 'write', 'writeBy', 'writeAt', 'via', 'installation', 'repositoryId', 'writeOk', 'linkBy', 'linkAt', 'appError', 'keepDays', 'posted'].includes(k)), 'only the fields the plan names');
   // What reached the fake: the repository's requests carry the installation token in Authorization only; the app's carry a JWT only.
   for (const x of gh.seen.filter((r) => /^\/repos\/(Drowbe|other)\//.test(r.url))) {
     assert.ok(!x.url.includes(TOKEN) && !(x.raw || '').includes(TOKEN), `${x.method} ${x.url}: the token only in Authorization`);
