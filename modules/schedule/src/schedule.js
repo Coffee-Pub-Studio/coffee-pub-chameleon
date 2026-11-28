@@ -96,7 +96,7 @@
     filter: scFilterEmpty(), // this person's Board filters (kept in this browser)
     rows: '', // where changes can't be stored in the board (a followed plan), this person's own rows for the Board (kept in this browser)
     loaded: false,
-    pull: { on: false, name: 'GitHub', last: '', next: '', error: '', write: false }, // the space's issue pull (host.issues.status)
+    pull: { on: false, name: 'GitHub', last: '', next: '', error: '', write: false, keep: null }, // the space's issue pull (host.issues.status)
     sent: '', // the last refused change to GitHub, as the server said it (shown in the status line for a while)
     canFollow: false, // an owner may set the pull up (host.setup.can): the empty plan offers the way
     editing: null,
@@ -299,7 +299,7 @@
     if (v && v.on) status.push({ text: `Showing ${v.shown.length} of ${v.works.length} ${kindWord('work', { many: v.works.length !== 1 })}`, icon: 'filter' });
     // A status item holds 60 characters: the line that says changes go back is its own item; a refusal shows as a short item with the sentence as its hover text.
     if (writeOn()) status.unshift({ text: `Changes go to ${state.pull.name || 'GitHub'}`, icon: 'arrow-up-right-from-square' });
-    if (pullOn()) status.unshift(pullStatus());
+    if (pullOn()) status.unshift(...[pullStatus(), keepStatus()].filter(Boolean));
     if (state.sent) status.unshift({ text: `Not changed on ${state.pull.name || 'GitHub'}`, title: state.sent, icon: 'triangle-exclamation' });
     host.status.set(status).catch(() => {});
   }
@@ -326,17 +326,27 @@
     const c = p.counts && p.counts.total ? `, ${p.counts.open} open of ${p.counts.total}` : '';
     return { text: p.last ? `From ${name}, pulled ${ago(p.last)}${c}` : `From ${name}, not pulled yet`, icon: 'rotate' };
   }
+  // How far back a followed plan keeps closed issues (the pull view's `keep`: { days, from, url }): the day, and the service's own list of
+  // what was closed before it. Nothing is drawn without a web address (http or https, never a script) (`keep` is null while the pull is off or has no list).
+  const keepOf = (k) => (k && typeof k === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(String(k.from || '')) && /^https?:\/\//.test(String(k.url || '')) ? { days: Number(k.days) || 0, from: k.from, url: String(k.url) } : null);
+  const keepDay = (d) => { const x = dayDate(d); return x.toLocaleDateString(undefined, { day: 'numeric', month: 'long', ...(x.getFullYear() !== thisYear ? { year: 'numeric' } : {}) }); };
+  function keepStatus() {
+    const k = state.pull.keep;
+    if (!k) return null;
+    return { text: `Issues closed before ${keepDay(k.from)} are on ${state.pull.name || 'GitHub'}.`, title: `The closed issues are in the Done column's menu: Closed issues on ${state.pull.name || 'GitHub'}.`, icon: 'box-archive' };
+  }
   // Takes a status from the server. A change of whether the pull is on redraws the controls that depend on it.
   function takePull(v) {
     const was = pullOn();
     const had = state.pull.last;
+    const hadKeep = JSON.stringify(state.pull.keep);
     const wrote = writeOn();
-    state.pull = v && typeof v === 'object' ? { on: Boolean(v.on), name: v.name || 'GitHub', last: v.last || '', next: v.next || '', error: v.error || '', counts: v.counts || null, write: Boolean(v.on && v.write) } : { on: false, name: 'GitHub', last: '', next: '', error: '', write: false };
+    state.pull = v && typeof v === 'object' ? { on: Boolean(v.on), name: v.name || 'GitHub', last: v.last || '', next: v.next || '', error: v.error || '', counts: v.counts || null, write: Boolean(v.on && v.write), keep: v.on ? keepOf(v.keep) : null } : { on: false, name: 'GitHub', last: '', next: '', error: '', write: false, keep: null };
     if (was !== pullOn() || wrote !== writeOn()) {
       if (outline) { outline.destroy(); outline = null; $('outline').replaceChildren(); }
       if (board) { board.destroy(); board = null; $('board').replaceChildren(); }
     }
-    return was !== pullOn() || wrote !== writeOn() || had !== state.pull.last;
+    return was !== pullOn() || wrote !== writeOn() || had !== state.pull.last || hadKeep !== JSON.stringify(state.pull.keep);
   }
   async function refreshPull(reload) {
     if (!host.issues || !host.issues.status) return;
@@ -1033,8 +1043,11 @@
     await changeColumns(r.board, r.entries, `Deleted the column ${c.label}.`);
   });
   $('col-add').addEventListener('click', addColumn);
+  // The Done column's menu on a followed plan also says where the older closed issues are (anyone who can see it); the rest is for someone who
+  // may change the columns, and a followed board's columns are not changed here.
+  const keepItem = (c) => (c.done && state.pull.keep ? [{ id: 'closed', label: `Closed issues on ${state.pull.name || 'GitHub'}`, icon: 'arrow-up-right-from-square', href: state.pull.keep.url }] : []);
   function columnMenu(c) {
-    if (!canColumns()) return [];
+    if (!canColumns()) return keepItem(c);
     const b = currentBoard();
     const at = b.columns.findIndex((x) => x.id === c.id);
     return [
