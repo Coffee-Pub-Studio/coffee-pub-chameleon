@@ -82,7 +82,7 @@ export function startProblems(root) {
   // exactly one link out
   // Every link out is the studio's address (productSiteUrl) with a path on it. The one exception: the footer's "Elsewhere" column, three
   // pages that are not on the studio's address (listed here, exactly).
-  const ELSEWHERE = ['https://willhavebeen.com', 'https://www.patreon.com/cw/CoffeePub', 'https://github.com/Drowbe'];
+  const ELSEWHERE = ['https://willhavebeen.com', 'https://www.patreon.com/cw/CoffeePub', 'https://github.com/Coffee-Pub-Studio'];
   const literal = [...(H + J).matchAll(/https?:\/\/[^\s"'`)<]*/g)].map((m) => m[0]).filter((u) => !/^https?:\/\/(?:\$\{|localhost)/.test(u) && !ELSEWHERE.includes(u.replace(/['",;\]]+$/, '')));
   if (literal.length) out.push(`start.html/start.js: an address is written in the page: ${literal.join(', ')}`);
   const hrefs = [...H.matchAll(/href="([^"]*)"/g)].map((m) => m[1]).filter((u) => !/^(#|\/|mailto:)/.test(u) && u !== '');
@@ -301,7 +301,7 @@ async function live() {
           assert.equal(g.signup, 0, 'no sign-up on the page');
           assert.equal(g.password, 0, 'no password field');
           const site = 'https://example.com';
-          assert.ok(g.external.length >= 14 && g.external.every((u) => u.startsWith(`${site}/`) || ['https://willhavebeen.com/', 'https://www.patreon.com/cw/CoffeePub', 'https://github.com/Drowbe'].includes(u)), `every link out is the studio's or one of the three elsewhere: ${g.external.join(' ')}`);
+          assert.ok(g.external.length >= 14 && g.external.every((u) => u.startsWith(`${site}/`) || ['https://willhavebeen.com/', 'https://www.patreon.com/cw/CoffeePub', 'https://github.com/Coffee-Pub-Studio'].includes(u)), `every link out is the studio's or one of the three elsewhere: ${g.external.join(' ')}`);
           for (const want of ['/products/thing', '/contact', '/support', '/products/chameleon/travel', '/products/chameleon/games', '/products/chameleon/projects', '/products/chameleon/mentoring', '/products/chameleon/real-estate']) assert.ok(g.external.includes(`${site}${want}`), `a link to ${want}`);
           assert.equal(g.heroTitle, `${g.brandText} ${g.prodText}`, 'the hero title is the product name');
           assert.equal(g.badge, 'Private Beta'); assert.equal(g.inviteText, 'Request an Invite'); assert.equal(g.waysHead, `Ways to use ${g.prodText}`);

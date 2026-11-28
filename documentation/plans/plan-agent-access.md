@@ -141,7 +141,7 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
    marked for one of its own spaces (Maps' "everyone and this space" places), and only those. Another person's list,
    unmarked environment objects and other spaces stay refused. For an agent, `search_objects` `from` also returns the
    named module's own kinds; people's searches are unchanged. Object summaries gained an optional `type`. See
-   drowbe/coffee-pub-chameleon#1001.
+   coffee-pub-studio/coffee-pub-chameleon#1001.
 4. **Rights: a member's rights, narrowed by a fixed gate.** The Roles tab's member permissions apply, and the gate's
    list of routes narrows them. Never a moderator, owner or admin. No new role to explain.
    Note (2026-11-20): the agent's rights come from its own Agent column on the Roles grid, no longer the member column,

@@ -503,7 +503,7 @@ await test('MET Norway: what is sent, Expires, If-Modified-Since and a 304', asy
   // can be opened), and nothing personal.
   assert.equal(metSeen[0].headers['User-Agent'], `${userAgent()} (+${REPOSITORY_URL})`);
   assert.equal(metSeen[0].headers['User-Agent'], userAgent({ contact: REPOSITORY_URL }));
-  assert.match(metSeen[0].headers['User-Agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')} \\(\\+https://github\\.com/Drowbe/coffee-pub-chameleon\\)$`));
+  assert.match(metSeen[0].headers['User-Agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')} \\(\\+https://github\\.com/Coffee-Pub-Studio/coffee-pub-chameleon\\)$`));
   assert.deepEqual(Object.keys(metSeen[0].headers).sort(), ['Accept', 'User-Agent'], 'no other header the first time');
   assert.equal(first.days['2026-12-02'].code, 'rain');
   assert.equal(first.days['2026-12-10'].state, 'unavailable', 'a part day: nothing drawn');

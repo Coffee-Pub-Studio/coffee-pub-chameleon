@@ -37,7 +37,7 @@ The compose file mounts two volumes: the data folder and a second one for the Va
 
 ## Where to read more
 
-Documentation lives in the [wiki](https://github.com/Drowbe/coffee-pub-chameleon/wiki): guides for running
+Documentation lives in the [wiki](https://github.com/Coffee-Pub-Studio/coffee-pub-chameleon/wiki): guides for running
 a call and managing an environment, the OBS link reference for integrators, and the architecture.
 It is the same material as the `documentation/` folder in this repository.
 

@@ -58,8 +58,8 @@ const PEM = KEYS.privateKey.export({ type: 'pkcs1', format: 'pem' });
 const CLIENT_ID = 'Iv1.checkissuesclient';
 const CLIENT_SECRET = 'checkissuesclientsecret0123456789abcdef0123';
 // The fake's installations: the repository each one reaches, by id.
-const INSTALLS = { 7: { id: 777, name: 'Drowbe/coffee-pub-chameleon' }, 8: { id: 888, name: 'other/repo' }, 9: { id: 999, name: 'other/repo' }, 10: { id: 1010, name: 'other/repo' } };
-const REPO = 'Drowbe/coffee-pub-chameleon';
+const INSTALLS = { 7: { id: 777, name: 'Coffee-Pub-Studio/coffee-pub-chameleon' }, 8: { id: 888, name: 'other/repo' }, 9: { id: 999, name: 'other/repo' }, 10: { id: 1010, name: 'other/repo' } };
+const REPO = 'Coffee-Pub-Studio/coffee-pub-chameleon';
 // The sign-in half of the fake (tools/lib/github-link-fake.mjs) and what the signed-in GitHub account reaches: the person may write to
 // repositories 777 and 999 (push) and only read 888 and 1010 (pull).
 const links = linkFake({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });

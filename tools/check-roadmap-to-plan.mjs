@@ -28,8 +28,8 @@ const fails = [];
 async function test(name, fn) { try { await fn(); passed += 1; } catch (err) { fails.push(`${name}: ${err.message}`); } }
 
 const rows = readRows(fx('roadmap.csv'));
-const everyone = buildFile(rows, { repo: 'Drowbe/coffee-pub-chameleon' });
-const known = buildFile(rows, { repo: 'Drowbe/coffee-pub-chameleon', known: knownFrom(fx('plan.json')) });
+const everyone = buildFile(rows, { repo: 'Coffee-Pub-Studio/coffee-pub-chameleon' });
+const known = buildFile(rows, { repo: 'Coffee-Pub-Studio/coffee-pub-chameleon', known: knownFrom(fx('plan.json')) });
 const by = (b) => Object.fromEntries(b.file.entries.map((e) => [e.id, e]));
 
 await test('the happy case: every row of the repository, read by scParseUpdate with no refusal', () => {
