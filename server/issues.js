@@ -361,9 +361,9 @@ function workOf(rec, { repo, provider, tagIds }) {
   const head = lines.filter(Boolean).join('\n');
   let notes = head;
   if (typeof rec.body === 'string' && rec.body) {
-    const room = NOTES_MAX - (head ? head.length + 1 : 0);
+    const left = NOTES_MAX - (head ? head.length + 1 : 0);
     const chars = Array.from(rec.body);
-    if (room > 1) notes = [head, chars.length > room ? `${chars.slice(0, room - 1).join('').trimEnd()}…` : rec.body].filter(Boolean).join('\n');
+    if (left > 1) notes = [head, chars.length > left ? `${chars.slice(0, left - 1).join('').trimEnd()}…` : rec.body].filter(Boolean).join('\n');
   }
   const value = {
     kind: 'work',
