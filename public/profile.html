@@ -84,6 +84,17 @@
           </span>
         </div>
 
+        <!-- GitHub (plan-github-full-sync.md, section 4): your own GitHub account, linked by signing in to GitHub through the
+             server's GitHub app, so your GitHub assignments show as you in plans that follow GitHub. Your own profile only. -->
+        <div class="row" id="github-row" hidden>
+          <span class="field-label">GitHub</span>
+          <span class="sdk-status" id="github-state">not linked</span>
+          <button class="btn btn-small btn-primary" id="github-link" type="button" hidden>Link your GitHub account</button>
+          <button class="btn btn-small" id="github-unlink" type="button" hidden>Unlink</button>
+          <span class="hint" id="github-hint"></span>
+          <span class="status" id="github-status" role="status"></span>
+        </div>
+
         <div class="row danger-row" id="danger-row" hidden>
           <button class="btn btn-small" id="mute-btn" type="button">Mute mic</button>
           <button class="btn btn-small" id="kick-btn" type="button">Kick</button>

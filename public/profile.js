@@ -17,6 +17,10 @@ let user = null; // whose profile this is: me, or the person being edited
 let mfaRequired = false; // the environment requires a second factor of the signed-in person (their own profile only)
 let mfaOffered = true; // the server offers two-step sign-in at all (ENABLE_MFA)
 let mfaBypass = false; // the server's admin lockout bypass applies to the signed-in person: no code asked, own reset offered
+// Your own GitHub account (plan-github-full-sync.md, section 4), from GET /api/me: `github` { login } or null, and `githubApp`
+// { on, why }: whether one can be linked on this server, and the sentence to show when it can't.
+let github = null;
+let githubApp = { on: false, why: '' };
 let spacesById = new Map(); // every real space (not the Lobby), for the per-space sections below
 let environmentName = ''; // the environment's own name, for the calendar feed's hint
 // Your own Calendars tab's addresses, from GET /api/me/calendars (plan-space-calendars.md, section 4): { switches, reasons,
@@ -76,6 +80,8 @@ async function reload() {
     mfaRequired = Boolean(res.mfaRequired);
     mfaOffered = res.mfaOffered !== false;
     mfaBypass = Boolean(res.mfaBypass);
+    github = res.github && typeof res.github.login === 'string' ? res.github : null;
+    githubApp = res.githubApp && typeof res.githubApp === 'object' ? { on: res.githubApp.on === true, why: String(res.githubApp.why || '') } : { on: false, why: '' };
   }
 }
 
@@ -187,6 +193,7 @@ function render() {
     $('account-clear-password').hidden = fixed || !user.hasPassword;
   }
   renderMfa(editing);
+  renderGithub(editing);
   // Seeing and copying your own link isn't an editing action -- only
   // creating, regenerating or turning it off is.
   $('link-value').textContent = user.link || 'off';
@@ -1071,6 +1078,35 @@ function renderMfa(editing) {
         : (mfaRequired ? `This ${word('environment')} requires a second step. Set it up now.` : 'A code from an authenticator app after the password, if you want one.');
   if (!editing && !on && mfaRequired && !mfaBypass && $('mfa-block').hidden) $('mfa-on').click();
 }
+// Your GitHub account: only on your own profile (nobody else reads your link, not an owner editing you). Linked: who, what it
+// means, and Unlink (which works even when the server's app is gone). Not linked: Link your GitHub account, and what linking
+// does, or the reason it can't be done on this server.
+function renderGithub(editing) {
+  $('github-row').hidden = editing;
+  if (editing) return;
+  const linked = Boolean(github);
+  $('github-state').textContent = linked ? 'linked' : 'not linked';
+  if (linked) $('github-state').dataset.tone = 'ok'; else delete $('github-state').dataset.tone;
+  $('github-link').hidden = linked || !githubApp.on;
+  $('github-unlink').hidden = !linked;
+  $('github-hint').textContent = linked
+    ? `Linked as ${github.login}. Your GitHub assignments show as you in plans that follow GitHub.`
+    : githubApp.on
+      ? 'Once linked, GitHub decides which issues are yours in plans that follow GitHub: an issue is yours exactly while you are assigned to it there.'
+      : githubApp.why;
+}
+$('github-link').addEventListener('click', () => run(async () => {
+  const { url } = await api('POST', '/api/me/github');
+  location.assign(url); // GitHub, then back to this page
+}, $('github-status')));
+$('github-unlink').addEventListener('click', () => run(async () => {
+  if (!await confirmDialog({ title: 'Unlink your GitHub account?', message: 'Your GitHub assignments show as your GitHub login again from the next pull.', action: 'Unlink', kind: 'destructive' })) return;
+  await api('DELETE', '/api/me/github');
+  await reload();
+  render();
+  sayField($('github-status'), 'unlinked');
+}, $('github-status')));
+
 $('mfa-self-reset').addEventListener('click', () => {
   mountDisable($('mfa-block'), { disable: '/api/me/mfa/reset', label: 'Reset', password: true, onDone: async () => { await reload(); render(); say('your second factor is reset; set it up again when you are ready'); } });
 });

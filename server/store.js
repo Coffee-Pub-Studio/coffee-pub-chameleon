@@ -863,7 +863,7 @@ class Store {
       },
       // A deep copy: DEFAULT_SETTINGS is every store's, and its roles, themes, icons and reactions must not be shared.
       settings: { ...structuredClone(DEFAULT_SETTINGS), ...migrateMfaSettings(raw.settings) },
-      users: Array.isArray(raw.users) ? raw.users.map((u) => this.sanitizeUser(u)).filter(Boolean) : [],
+      users: oneGithubEach(Array.isArray(raw.users) ? raw.users.map((u) => this.sanitizeUser(u)).filter(Boolean) : []),
       spaces: Array.isArray(raw.spaces) ? raw.spaces.map((r) => this.sanitizeSpace(r)).filter(Boolean) : [],
       // Asides (plan-names step 8): their own record, never among the spaces. Each lives only while someone is in it
       // (pruneAsides), so a list from before a restart is swept on the first presence poll that finds it empty.
@@ -1138,6 +1138,10 @@ class Store {
       ...(cleanAgreed(u.agreed).length ? { agreed: cleanAgreed(u.agreed) } : {}),
       // When they marked the welcome note read (GitHub #870): an ISO time; left off until they have.
       ...(typeof u.welcomeSeen === 'string' && !Number.isNaN(Date.parse(u.welcomeSeen)) ? { welcomeSeen: new Date(u.welcomeSeen).toISOString() } : {}),
+      // Their linked GitHub account (plan-github-full-sync.md, section 4): GitHub's account id, its login as last seen, and when
+      // they linked it. Only ever from a verified sign-in (POST /api/me/github); never on an agent; left off while they have none.
+      // At most one person per GitHub id in an environment (load keeps the first, linkGithub refuses a second).
+      ...(!agent && cleanGithub(u.github) ? { github: cleanGithub(u.github) } : {}),
       // A demo person (server/demo-loader.js): made by a demo load, the only kind of account a later load may give a new
       // password. Never on a host admin's stand-in; left off for everyone else.
       ...(u.demo === true && !u.hostAdmin && !agent ? { demo: true } : {}),
@@ -2260,6 +2264,50 @@ class Store {
     if (!user) throw new StoreError('no such user', 404);
     if (!user.welcomeSeen) { user.welcomeSeen = at; this.save(); }
     return user.welcomeSeen;
+  }
+
+  // --- a person's GitHub account (plan-github-full-sync.md, section 4) ---------------------------------------------
+  // Only the person's own routes read or change it (GET, POST and DELETE /api/me/github) and the issue pull reads the map of ids;
+  // it is never in another person's answer, an agent's, an export (environment-export.js leaves it out) or a log line.
+
+  // Links `key`'s person to GitHub account { id, login }: { ok: true, github } or { ok: false, taken: true } when someone else here
+  // has that id already. An agent never links (null). Relinking the same id refreshes its login and time.
+  linkGithub(key, { id, login }, at = new Date().toISOString()) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    const github = cleanGithub({ id, login, at });
+    if (user.agent || !github) return null;
+    if (this.data.users.some((u) => u.key !== key && u.github && u.github.id === github.id)) return { ok: false, taken: true };
+    user.github = github;
+    this.save();
+    return { ok: true, github };
+  }
+
+  unlinkGithub(key) {
+    const user = this.userByKey(key);
+    if (!user || !user.github) return false;
+    delete user.github;
+    this.save();
+    return true;
+  }
+
+  // Map(GitHub account id -> person key) of everyone here who linked one: what the issue pull matches assignees by.
+  githubLinks() {
+    return new Map(this.data.users.filter((u) => u.github && !u.agent).map((u) => [u.github.id, u.key]));
+  }
+
+  // The pull saw these accounts ([{ id, login }]): a linked person whose account now has another login (renamed on GitHub) keeps
+  // the link, with the new login stored. Answers how many changed.
+  refreshGithubLogins(accounts) {
+    let changed = 0;
+    for (const a of Array.isArray(accounts) ? accounts : []) {
+      const fresh = a && cleanGithub({ id: a.id, login: a.login, at: new Date().toISOString() });
+      if (!fresh) continue;
+      const user = this.data.users.find((u) => u.github && u.github.id === fresh.id);
+      if (user && user.github.login !== fresh.login) { user.github = { ...user.github, login: fresh.login }; changed += 1; }
+    }
+    if (changed) this.save();
+    return changed;
   }
 
   // --- the first password (plan-first-password.md) ----------------------------------------------------------------
@@ -3399,6 +3447,26 @@ function cleanFirstPassword(u) {
   if (typeof raw.hash === 'string' && /^[0-9a-f]{64}$/.test(raw.hash)) return { hash: raw.hash, expiresAt: raw.expiresAt };
   if (typeof raw.claim === 'string' && /^[0-9a-f]{32}$/.test(raw.claim) && when(raw.claimedAt)) return { claim: raw.claim, claimedAt: raw.claimedAt, expiresAt: raw.expiresAt };
   return null;
+}
+
+// A person's linked GitHub account as stored (plan-github-full-sync.md, section 4): { id, login, at }, `id` GitHub's account id
+// (a positive whole number), `login` as GitHub makes them (letters, digits and single dashes, at most 39), `at` an ISO time. Null
+// for anything else. Nothing else of the account is ever kept (no name, picture or e-mail address).
+const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+function cleanGithub(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (!Number.isSafeInteger(raw.id) || raw.id < 1 || typeof raw.login !== 'string' || !GITHUB_LOGIN.test(raw.login)) return null;
+  if (typeof raw.at !== 'string' || Number.isNaN(Date.parse(raw.at))) return null;
+  return { id: raw.id, login: raw.login, at: new Date(raw.at).toISOString() };
+}
+// The people as loaded, with at most one per GitHub id: a later record that names an id already linked loses its link.
+function oneGithubEach(users) {
+  const seen = new Set();
+  for (const u of users) {
+    if (!u.github) continue;
+    if (seen.has(u.github.id)) delete u.github; else seen.add(u.github.id);
+  }
+  return users;
 }
 
 // A person's other calendars as stored: at most five, each with its address sealed (an "aesgcm$" value); one with a

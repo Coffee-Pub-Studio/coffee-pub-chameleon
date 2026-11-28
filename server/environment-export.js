@@ -10,8 +10,9 @@
 //              on each person passwordHash, linkToken (personal link), mfa (two-step secret, pending secret and
 //              recovery-code hashes), externalCalendars (addresses sealed with a key the copy does not carry) and
 //              calendarFeed (their calendar address), also per space, and firstPassword (a new owner's first-password
-//              link: the hash of a one-time token and its end) and agreed (what they agreed to and when: everyone
-//              is asked again after a restore of the copy); on each space guestToken (guest link: a new one
+//              link: the hash of a one-time token and its end), agreed (what they agreed to and when: everyone
+//              is asked again after a restore of the copy) and github (their linked GitHub account: only ever theirs to
+//              see, so it is linked again after a restore); on each space guestToken (guest link: a new one
 //              is made when asked for); settings.publishedCalendarFeed (the published calendar's address).
 //   modules/assistant/ai.json   the AI setting; the key is not kept in it (it is the AI Assistant's sealed secret, in
 //              modules/secrets.json, which is never copied), and a `key` field a file carries anyway is dropped, so the AI
@@ -48,7 +49,7 @@ const APP_LEFT_OUT = ['secrets', 'invites'];
 // `agent` and `off` mark an agent account and whether it is turned off
 // (plan-agent-access.md), and `kind` a set-up agent (plan-admin-agent.md): kept, its token is not (tokens.json).
 const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'colorGrid', 'colorRecent', 'demo', 'agent', 'kind', 'off', 'createdAt'];
-const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen'];
+const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen', 'github'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];
 const USER_SPACE_LEFT_OUT = ['calendarFeed'];

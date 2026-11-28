@@ -4680,6 +4680,8 @@ app.get('/api/me', requireUser, (req, res) => {
     mfaEnrolled: Boolean(user.mfa),
     mfaRequired: !user.mfa && mfaPolicyRequires(user),
     mfaBypass: mfaBypassApplies(user),
+    // Their own linked GitHub account ({ login } or null) and whether one can be linked here (plan-github-full-sync.md, section 4).
+    ...githubMeView(user),
   });
 });
 
@@ -14021,7 +14023,10 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
   const tagIds = ensureIssueTags(ctx, kept);
   const known = new Map();
   for (const r of kept) if (r.milestone) known.set(r.milestone.number, r.milestone);
-  const at = { repo: rec.repo, provider: adapter.id, tagIds };
+  // The people here who linked their GitHub account (plan-github-full-sync.md, section 4): an assignee who is one is an Owner, as
+  // that person, matched by GitHub's account id; a linked account that comes back with a new login keeps its link, renamed.
+  const linked = issueLinked(kept);
+  const at = { repo: rec.repo, provider: adapter.id, tagIds, linked };
   const area = rec.write ? issueAreaField(ctx) : null;
   let written = 0;
   let error = '';
@@ -14032,7 +14037,7 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
     if (!stored.has(key)) size += 1;
     if (issuesLib.olderThanStored(stored.get(key), r)) continue;
     const work = issuesLib.workOf(r, at);
-    if (issueWrite(ctx, key, rec.write ? issuesLib.keepOwn(stored.get(key), work, { area }) : work, stored)) written += 1;
+    if (issueWrite(ctx, key, rec.write ? issuesLib.keepOwn(stored.get(key), work, { area, linked: [...linked.values()] }) : work, stored)) written += 1;
   }
   if (full) {
     for (const key of [...stored.keys()]) {
@@ -14050,6 +14055,20 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
   for (const key of [...stored.keys()]) if (issuesLib.MILESTONE_KEY.test(key) && !milestones.has(key) && issueRemove(ctx, key, stored)) removed += 1;
   const done = [...works.values()].filter((v) => v.done).length;
   return { counts: { total: works.size, open: works.size - done, done, written, removed }, error };
+}
+
+// Map(GitHub account id -> person key) of the people in this environment who linked their GitHub account, after refreshing the
+// login of any whose account `records` name with another one (renamed on GitHub; matching is by id). Nothing of it is written to
+// the space: only the person's key goes into `owners`.
+function issueLinked(records = []) {
+  const linked = store.githubLinks();
+  if (!linked.size) return linked;
+  const seen = [];
+  for (const r of records) for (const a of Array.isArray(r.assignees) ? r.assignees : []) if (linked.has(a.id)) seen.push(a);
+  if (seen.length) {
+    try { store.refreshGithubLogins(seen); } catch (err) { console.warn(`The issue pull could not refresh a linked GitHub login: ${err.message}`); }
+  }
+  return linked;
 }
 
 // The repository's open milestones as last listed (plan-github-full-sync.md, section 5), in memory only:
@@ -14280,7 +14299,8 @@ function issueStore(ctx, key, record, { by = '', given = null, rec, adapter, exp
   let value;
   if (record) {
     const tagIds = ensureIssueTags(sys, [record]);
-    value = issuesLib.keepOwn(had ? had.value : null, issuesLib.workOf(record, { repo: rec.repo, provider: adapter.id, tagIds }), { area: issueAreaField(ctx) });
+    const linked = issueLinked([record]);
+    value = issuesLib.keepOwn(had ? had.value : null, issuesLib.workOf(record, { repo: rec.repo, provider: adapter.id, tagIds, linked }), { area: issueAreaField(ctx), linked: [...linked.values()] });
   } else value = { ...(had ? had.value : {}) };
   if (given) for (const k of issuesLib.OWN_FIELDS) { if (given[k] !== undefined) value[k] = given[k]; else delete value[k]; }
   if (by) value.by = by;
@@ -14562,6 +14582,15 @@ app.get('/api/issues-link/back', async (req, res) => {
   if (!link) return issueLinkPage(res, 400, issuesLib.SAY.linkEnded, '/');
   const home = `${slugAddress(link.slug)}/`;
   const adapter = issueAdapterOf(link.provider);
+  // The other kind: a person linking their own GitHub account on Profile (plan-github-full-sync.md, section 4). The account is read
+  // and the user token revoked here; the same person's browser then finishes it in their environment (GET /api/me/github/back).
+  if (link.kind === 'person') {
+    const profile = `${slugAddress(link.slug)}/profile`;
+    if (str(req.query.error) || !str(req.query.code) || !adapter) { issueApp.drop(link.id); return issueLinkPage(res, 400, issuesLib.SAY.personDenied, profile); }
+    const read = await issueApp.completePerson(adapter, link, str(req.query.code));
+    if (!read.ok) { issueApp.drop(link.id); return issueLinkPage(res, 502, read.error, profile); }
+    return res.set('Referrer-Policy', 'no-referrer').redirect(302, `${slugAddress(link.slug)}/api/me/github/back?link=${encodeURIComponent(link.id)}&done=${encodeURIComponent(read.done)}`);
+  }
   if (str(req.query.error) || !str(req.query.code) || !adapter) { issueApp.drop(link.id); return issueLinkPage(res, 400, issuesLib.SAY.linkDenied, home); }
   const done = await issueApp.complete(adapter, link, str(req.query.code));
   if (!done.ok) { issueApp.drop(link.id); return issueLinkPage(res, 502, done.error, home); }
@@ -14581,6 +14610,69 @@ app.get('/api/spaces/:id/issues-link', async (req, res) => {
   const adapter = issueAdapterOf(link.provider);
   if (adapter) await issueApp.ensureApp(adapter, Date.now()).catch(() => null);
   res.json({ repositories: link.list.repositories, more: link.list.more, installUrl: adapter ? issueApp.installUrl(adapter, link) : '' });
+});
+
+// --- a person's own GitHub account (documentation/plans/plan-github-full-sync.md, section 4) ---------------------------------
+// A person links the GitHub account that is theirs by signing in to GitHub through the app, so the pull can show their GitHub
+// assignments as them. Only the person reads or changes their own link: it is in no other person's answer, no agent's, no export,
+// no log line, not in issues.json and not in a space's data. Guests and agents never link.
+// Why linking can't be started on this server ('' when it can): no app (or an adapter that cannot read the account), the app not
+// working, or GitHub's terms not accepted.
+function githubLinkWhy() {
+  const adapter = issueAppAdapter();
+  if (!adapter || typeof adapter.whoAmI !== 'function' || typeof adapter.exchangeCode !== 'function') return issuesLib.SAY.appOff;
+  const why = issueApp.refusal();
+  if (why) return why;
+  if (!serviceTerms.accepted(adapter)) return issuesLib.SAY.terms(adapter.name, word('module', { many: true, cap: true }));
+  return '';
+}
+// What GET /api/me says of it: `github` the person's own link ({ login }) or null; `githubApp` whether a link can be made here, and
+// the row's sentence when it can't.
+function githubMeView(user) {
+  const why = githubLinkWhy();
+  return {
+    github: user && !user.agent && user.github ? { login: user.github.login } : null,
+    githubApp: { on: !why, why: why === issuesLib.SAY.appOff ? 'This server has no GitHub app, so a GitHub account can\'t be linked.' : why },
+  };
+}
+// A guest (no account) or an agent is refused before anything else: 403 with one sentence.
+const githubLinkPerson = (req, res, next) => {
+  if (!currentUser(req) && hasGuestAccess(req)) return res.status(403).json({ error: issuesLib.SAY.personGuest(word('guest', { many: true, cap: true })) });
+  if (req._user && req._user.agent) return res.status(403).json({ error: issuesLib.SAY.personAgent });
+  next();
+};
+
+// The person starts linking: { url }, GitHub's authorize address to send them to. 409 without a working app here ("This server has
+// no GitHub app.", or the app's or the terms' sentence). Nothing of the person goes to GitHub.
+app.post('/api/me/github', githubLinkPerson, requireUser, (req, res) => {
+  const user = currentUser(req);
+  const why = githubLinkWhy();
+  if (why) return res.status(409).json({ error: why });
+  const made = issueApp.beginPerson(issueAppAdapter(), { slug: currentEnvironment().slug || '', person: user.key, redirectUri: issueLinkAddress(req) });
+  res.set('Cache-Control', 'no-store').json({ url: made.url });
+});
+
+// GitHub's back address sends the person here once it has read their account (GET /api/issues-link/back, a link of kind 'person'),
+// with the link and its completion secret, which only the browser that came back from GitHub holds. Only the person who started it,
+// signed in here, finishes it: the account is stored on them and they are sent to Profile. Every refusal is a plain page with one
+// sentence and a way back to Profile; the link is used once.
+app.get('/api/me/github/back', (req, res) => {
+  const str = (v) => (typeof v === 'string' && v.length <= 300 ? v : '');
+  const user = currentUser(req);
+  if (!user) return issueLinkPage(res, 401, issuesLib.SAY.personSignIn, '/profile');
+  const link = issueApp.personLinkFor(str(req.query.link), { slug: currentEnvironment().slug || '', person: user.key }, str(req.query.done));
+  if (!link) return issueLinkPage(res, 400, issuesLib.SAY.personEnded, '/profile');
+  issueApp.drop(link.id);
+  const made = store.linkGithub(user.key, link.account);
+  if (!made) return issueLinkPage(res, 403, issuesLib.SAY.personAgent, '/profile');
+  if (!made.ok) return issueLinkPage(res, 409, issuesLib.SAY.personTaken, '/profile');
+  res.set({ 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' }).redirect(302, '/profile');
+});
+
+// The person unlinks their GitHub account: { github: null }. Their GitHub assignments show by login again from the next pull.
+app.delete('/api/me/github', githubLinkPerson, requireUser, (req, res) => {
+  store.unlinkGithub(currentUser(req).key);
+  res.set('Cache-Control', 'no-store').json({ github: null });
 });
 
 // Someone with Projects' `edit` and `writeOut` opens a new issue from a column ({ title, column }): the service makes it (an empty

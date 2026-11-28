@@ -33,7 +33,13 @@
 // What a write may carry is fixed here: a title, a state and its reason, a label's name, and for a new issue its title and
 // labels. Never (until plan-github-full-sync.md step 3 adds them) a body, a comment, an assignee or a milestone, and never
 // anything of the space or the person. Read, besides the issues: the repository's open milestones (GET .../milestones?state=open,
-// one page of 100, conditional), to keep a milestone with no issue in the plan.
+// one page of 100, conditional), to keep a milestone with no issue in the plan; and, for a person who links their own GitHub
+// account on Profile (plan-github-full-sync.md, section 4), GET /user with their user token, of which only the account's `id` and
+// `login` are read (never a name, picture or e-mail address). Re-read on 2026-11-28 at docs.github.com ("Get the authenticated
+// user": 200 with `login` and `id`, both required, 304, 401, 403; a token with no scopes still authenticates as its owner; "Delete
+// an app token": DELETE /applications/{client_id}/token, Basic auth with the client id and secret and no bearer, `access_token` in
+// the body, 204, 422; "Generating a user access token for a GitHub App": `state` must match or the flow is aborted, PKCE's
+// `code_verifier` with the exchange).
 'use strict';
 
 const { userAgent } = require('../product-name');
@@ -83,6 +89,7 @@ function bodyText(v) {
 
 // A GitHub login as GitHub makes them (letters, digits and single dashes, at most 39), or a bot's (`name[bot]`); '' for anything else.
 const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/;
+const USER_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/; // a person's own account, as GET /user names it
 const ASSIGNEES_MAX = 10;
 // An issue's assignees: [{ id, login }], each with GitHub's account id (matching is by id, plan-github-full-sync.md section 4), at
 // most ASSIGNEES_MAX, each id once.
@@ -381,6 +388,18 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
     async revokeUserToken({ clientId, clientSecret, userToken }, ask) {
       const headers = { Accept: 'application/vnd.github+json', 'User-Agent': userAgent(), 'X-GitHub-Api-Version': '2022-11-28', Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}` };
       return answerOf(await ask('DELETE', `${origin}/applications/${encodeURIComponent(clientId)}/token`, headers, { access_token: userToken }), false);
+    },
+    // The account the user token belongs to (GET /user): { id, login } on a 200, read from GitHub's answer and nothing else of it.
+    // A person's login, never a bot's.
+    async whoAmI({ userToken }, ask) {
+      const got = await ask('GET', `${origin}/user`, writeHeaders(userToken));
+      const out = answerOf(got, false);
+      if (got.status === 200) {
+        const j = got.json && typeof got.json === 'object' && !Array.isArray(got.json) ? got.json : {};
+        if (!Number.isSafeInteger(j.id) || j.id < 1 || typeof j.login !== 'string' || !USER_LOGIN.test(j.login)) out.bad = true;
+        else { out.id = j.id; out.login = j.login; }
+      }
+      return out;
     },
     // A new issue: its title and its labels, an empty body. Answers the record.
     async create({ repo, title, labels, token = '' }, ask) {
