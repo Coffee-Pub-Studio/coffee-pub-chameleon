@@ -185,7 +185,10 @@ function restLeft(rec, now = Date.now()) {
 // sign-in), the environment, space and person it belongs to, and once GitHub has sent the person back, the list of repositories
 // they can reach through the app. A `state` works once. The user token GitHub gives is held in a local variable for the seconds
 // the lists take and revoked before the list is answered; it is never kept, logged or answered.
-const linksById = new Map(); // link id -> { id, provider, slug, spaceId, person, redirectUri, verifier, state, installState, ends, list }
+// A link of the other kind (`kind: 'person'`, plan-github-full-sync.md section 4) is made when a person presses Link your GitHub
+// account on Profile: the same sign-in and back address, no space; once GitHub sends them back it holds only the account's id and
+// login (GET /user), until the same person's browser finishes it in their environment (personLinkFor).
+const linksById = new Map(); // link id -> { id, kind, provider, slug, spaceId, person, redirectUri, verifier, state, installState, ends, list, account, doneHash }
 const linksByState = new Map(); // the sign-in's state -> link id
 const linksByInstall = new Map(); // the install address's state -> link id
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -219,7 +222,16 @@ function authorizeUrl(adapter, link) {
 function begin(adapter, { slug, spaceId, person, redirectUri }, now = Date.now()) {
   sweep(now);
   for (const l of [...linksById.values()]) if (l.slug === slug && l.spaceId === spaceId && l.person === person) forget(l);
-  const link = { id: random(), provider: adapter.id, slug, spaceId, person, redirectUri, verifier: '', state: '', installState: '', ends: now + LINK_MS, list: null, doneHash: null };
+  const link = { id: random(), kind: 'space', provider: adapter.id, slug, spaceId, person, redirectUri, verifier: '', state: '', installState: '', ends: now + LINK_MS, list: null, account: null, doneHash: null };
+  linksById.set(link.id, link);
+  return { url: authorizeUrl(adapter, link), id: link.id };
+}
+// A new link of a person's own GitHub account, for this person in this environment (an earlier one of theirs is dropped). Answers
+// the GitHub address to send them to.
+function beginPerson(adapter, { slug, person, redirectUri }, now = Date.now()) {
+  sweep(now);
+  for (const l of [...linksById.values()]) if (l.kind === 'person' && l.slug === slug && l.person === person) forget(l);
+  const link = { id: random(), kind: 'person', provider: adapter.id, slug, spaceId: '', person, redirectUri, verifier: '', state: '', installState: '', ends: now + LINK_MS, list: null, account: null, doneHash: null };
   linksById.set(link.id, link);
   return { url: authorizeUrl(adapter, link), id: link.id };
 }
@@ -241,7 +253,7 @@ function restart(adapterOf, installState, now = Date.now()) {
   linksByInstall.delete(installState);
   const link = id ? linksById.get(id) : null;
   const adapter = link ? adapterOf(link.provider) : null;
-  if (!link || !adapter) return null;
+  if (!link || !adapter || link.kind !== 'space') return null;
   link.installState = '';
   link.doneHash = null;
   link.ends = now + LINK_MS;
@@ -308,7 +320,47 @@ function linkFor(id, { slug, spaceId, person }, done, now = Date.now()) {
   const link = typeof id === 'string' ? linksById.get(id) : null;
   const given = crypto.createHash('sha256').update(typeof done === 'string' ? done : '').digest();
   const sameDone = Boolean(link && link.doneHash) && crypto.timingSafeEqual(given, link.doneHash);
-  return link && link.list && sameDone && link.slug === slug && link.spaceId === spaceId && link.person === person ? link : null;
+  return link && link.kind === 'space' && link.list && sameDone && link.slug === slug && link.spaceId === spaceId && link.person === person ? link : null;
+}
+
+// The person's own sign-in came back (a link of kind 'person'): exchanges the code, reads the account (GET /user: its id and login,
+// nothing else), revokes the user token before anything is answered, and keeps { id, login } on the link until the same person's
+// browser finishes it (personLinkFor). { ok: true, done } (`done` the completion secret, as complete() makes it) or { ok: false,
+// error }. The code and the user token never leave this function and are never logged.
+async function completePerson(adapter, link, code, { now = Date.now(), fetchImpl } = {}) {
+  if (!configured() || !clientSecret || typeof adapter.exchangeCode !== 'function' || typeof adapter.whoAmI !== 'function') return { ok: false, error: SAY.appBroken };
+  const via = (call) => issuesLib.writeCall(adapter, call, { fetchImpl, now }).catch(() => null);
+  const failed = { ok: false, error: SAY.personFailed };
+  const got = await via((ask) => adapter.exchangeCode({ clientId: config.clientId, clientSecret, code, redirectUri: link.redirectUri, verifier: link.verifier }, ask));
+  if (!got || !got.ok) return failed;
+  let userToken = got.answer.userToken;
+  let account = null;
+  try {
+    const me = await via((ask) => adapter.whoAmI({ userToken }, ask));
+    if (me && me.ok && Number.isSafeInteger(me.answer.id) && typeof me.answer.login === 'string') account = { id: me.answer.id, login: me.answer.login };
+  } finally {
+    // The person's own token is no longer needed: revoked whatever happened above, before anything is answered.
+    const ask = issuesLib.getter(adapter, { fetchImpl }).ask;
+    let revoked = null;
+    try { revoked = await adapter.revokeUserToken({ clientId: config.clientId, clientSecret, userToken }, ask); } catch { revoked = null; }
+    userToken = '';
+    if (!revoked || revoked.status !== 204) console.warn('GitHub did not confirm that a sign-in token was revoked; it expires on its own.');
+  }
+  if (!account) return failed;
+  link.account = account;
+  link.ends = now + LINK_MS;
+  const done = random();
+  link.doneHash = crypto.createHash('sha256').update(done).digest();
+  return { ok: true, done };
+}
+// The person link `id` for this person and environment, with the account its sign-in read, inside its 15 minutes and with the
+// completion secret the person's browser was sent back with; else null. Used once: the caller drops it.
+function personLinkFor(id, { slug, person }, done, now = Date.now()) {
+  sweep(now);
+  const link = typeof id === 'string' ? linksById.get(id) : null;
+  const given = crypto.createHash('sha256').update(typeof done === 'string' ? done : '').digest();
+  const sameDone = Boolean(link && link.doneHash) && crypto.timingSafeEqual(given, link.doneHash);
+  return link && link.kind === 'person' && link.account && sameDone && link.slug === slug && link.person === person ? link : null;
 }
 // The address to install the app on GitHub, carrying the link's own state (the page shows it beside the list).
 const installUrl = (adapter, link) => {
@@ -324,7 +376,7 @@ function status(adapter) {
 }
 
 module.exports = {
-  begin, claim, restart, drop, complete, linkFor, installUrl, status, LINK_MS,
+  begin, claim, restart, drop, complete, linkFor, beginPerson, completePerson, personLinkFor, installUrl, status, LINK_MS,
   start, readConfig, signJwt, token, dropToken, refusal, configured, appOf, ensureApp, restSet, restLeft,
   isStarted: () => started, REFRESH_BEFORE_MS,
 };

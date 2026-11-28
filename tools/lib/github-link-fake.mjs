@@ -7,6 +7,9 @@
  *                                              `error=access_denied` when `state.deny` is set): the person's click on GitHub
  *   POST   /login/oauth/access_token           checks the client id, the client secret, the code (once), the redirect address and the
  *                                              PKCE verifier against the challenge; answers an expiring user token and a refresh token
+ *   GET    /user                               with the user token, until revoked: the signed-in account, `state.person.account`
+ *                                              ({ id, login }, with a name, an e-mail address and a picture beside them, as GitHub's
+ *                                              has; 500 while `state.breakUser` is set), for a person's link on Profile
  *   GET    /user/installations                 with the user token, until revoked: the installations `state.person` reaches
  *   GET    /user/installations/:id/repositories  the repositories in one, each with the person's `permissions`
  *   DELETE /applications/:client_id/token      Basic auth with the client id and secret, the token in the body: revokes it (204)
@@ -19,9 +22,10 @@ import crypto from 'node:crypto';
 
 export function linkFake({ clientId, clientSecret }) {
   const state = {
-    person: { installations: [] },
+    person: { installations: [], account: { id: 4242, login: 'someone' } },
     deny: false, // the person refuses on GitHub
     breakLists: false, // the installations list answers 500
+    breakUser: false, // GET /user answers 500
     verifiers: [], // every PKCE verifier an exchange carried
     requests: [], // { method, path, query, body } for each
     revoked: [], // user tokens revoked, in order
@@ -34,7 +38,7 @@ export function linkFake({ clientId, clientSecret }) {
   const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
   const bearer = (req) => (/^Bearer (.+)$/.exec(req.headers.authorization || '') || [])[1] || '';
   const page = (list, u) => { const per = Number(u.searchParams.get('per_page') || 30); const n = Number(u.searchParams.get('page') || 1); return list.slice((n - 1) * per, n * per); };
-  const MINE = /^\/(login\/oauth\/(authorize|access_token)|user\/installations(\/\d+\/repositories)?|applications\/[^/]+\/token)$/;
+  const MINE = /^\/(login\/oauth\/(authorize|access_token)|user|user\/installations(\/\d+\/repositories)?|applications\/[^/]+\/token)$/;
 
   // Answers true when the request is one of the sign-in's, and then answers it (after reading its body).
   function handle(req, res) {
@@ -100,6 +104,11 @@ export function linkFake({ clientId, clientSecret }) {
     }
     const t = state.tokens.get(bearer(req));
     if (req.method !== 'GET' || !t || t.revoked) return json(res, 401, { message: 'Bad credentials' });
+    if (u.pathname === '/user') {
+      if (state.breakUser) return json(res, 500, { message: 'Server Error' });
+      const a = state.person.account;
+      return json(res, 200, { login: a.login, id: a.id, node_id: 'U_x', avatar_url: 'https://avatars.example.test/u/1.png', name: 'A Person', email: 'person@example.test', type: 'User', site_admin: false });
+    }
     if (u.pathname === '/user/installations') {
       if (state.breakLists) return json(res, 500, { message: 'Server Error' });
       const all = state.person.installations.map((i) => ({ id: i.id, suspended_at: i.suspended_at || null, account: { login: 'someone' } }));
