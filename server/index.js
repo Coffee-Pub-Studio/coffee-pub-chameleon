@@ -14066,7 +14066,9 @@ async function pullIssues(spaceId) {
   if (auth.renamed) rec = issuePulls.get(spaceId) || rec;
   const full = !rec.fullAt || now - Date.parse(rec.fullAt) >= adapter.fullEveryMs;
   issuePulls.set(spaceId, { tried: isoAt(now) });
-  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: auth.token || '', full }, { now });
+  // A full pull asks for the open issues, then the closed ones since the done window's cutoff (plan-done-window.md, step 3).
+  const askedFrom = full ? issueCutoff(rec, spaceId) : '';
+  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: auth.token || '', full, closedSince: askedFrom }, { now });
   // Turned off, or turned to another repository, while the service was asked: what it answered is not written.
   const cur = issuePulls.get(spaceId);
   if (!cur || !cur.on || cur.repo !== rec.repo || cur.provider !== rec.provider) return cur;
@@ -14087,7 +14089,10 @@ async function pullIssues(spaceId) {
   }
   const at = issuePullAt(store.spaceById(spaceId));
   if (at.error) return issuePulls.set(spaceId, { error: at.error, next: next(wait) });
-  const out = writeIssues(at.ctx, cur, adapter, { list: got.records, full: full && got.complete });
+  // The sweep (whatever stored the lists do not name is gone) only after every page of both lists, and only when the window has not
+  // grown earlier while the service was asked: closed work between the two cutoffs was never asked for, so it is not gone.
+  const sweep = full && got.complete && (!askedFrom || issueCutoff(cur, spaceId) >= askedFrom);
+  const out = writeIssues(at.ctx, cur, adapter, { list: got.records, full: sweep });
   const newest = got.records.map((r) => r.updated).filter(Boolean).sort().pop() || '';
   return issuePulls.set(spaceId, {
     error: out.error, restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag,
@@ -14116,7 +14121,7 @@ function pullIssuesQueued(env, spaceId) {
 // `appState`: this server's GitHub app, as the Service terms say it ('off' | 'broken' | 'working' | 'unchecked'), worked out with no
 // request to GitHub; `app`: { name, slug } once the app has answered, else null; `keep`: the done window while the pull is on,
 // { days, from, url } (`days` the record's keepDays, `from` the cutoff day, closed issues before it are on the service; `url` the
-// service's list of them, '' until the adapter has `closedBefore`, plan-done-window.md step 3), else null). Never the etag, a token
+// service's own list of them from the adapter's `closedBefore`, plan-done-window.md step 3; '' when it can't make one), else null). Never the etag, a token
 // or an installation or repository id.
 function issuePullView(spaceId) {
   const st = issueApp.status(issueAppAdapter());

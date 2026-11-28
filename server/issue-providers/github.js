@@ -40,6 +40,7 @@ const ORIGIN = 'https://api.github.com';
 const WEB_ORIGIN = 'https://github.com';
 const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const PER_PAGE = 100;
+const STATES = Object.freeze(['all', 'open', 'closed']); // which issues a list asks for
 
 // "owner/name" from what a person typed or pasted: owner/name itself, a github.com address (https, or none; with or without www.,
 // a trailing slash, .git, or a deeper path, query or hash such as /issues/12 or /tree/main: the first two segments count), or
@@ -169,13 +170,13 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
     repoFrom,
     validRepo: (repo) => typeof repo === 'string' && REPO.test(repo) && !/\/\.{1,2}$/.test(repo),
     // One page of the list. `page`: the address `more` gave, or null for the first. `etag` is sent only on the first page.
-    // `get(url, headers)` is the core's (server/issues.js): it asks only this adapter's origin, caps the answer and the time,
-    // and answers { status, header(name), json }.
-    async list({ repo, since = '', etag = '', token = '', page = null }, get) {
+    // `state`: 'all' (the default), 'open' or 'closed'; anything else is 'all'. `get(url, headers)` is the core's
+    // (server/issues.js): it asks only this adapter's origin, caps the answer and the time, and answers { status, header(name), json }.
+    async list({ repo, since = '', etag = '', token = '', page = null, state = 'all' }, get) {
       let url = page;
       if (!url) {
         const u = new URL(`${origin}/repos/${repo}/issues`);
-        u.searchParams.set('state', 'all');
+        u.searchParams.set('state', STATES.includes(state) ? state : 'all');
         u.searchParams.set('per_page', String(PER_PAGE));
         u.searchParams.set('sort', 'updated');
         u.searchParams.set('direction', 'asc');
@@ -193,6 +194,21 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
       if (!Array.isArray(got.json)) return { status: 0, etag: '', records: [], more: null, wait, bad: true };
       const records = got.json.map((r) => record(r)).filter(Boolean);
       return { status: 200, etag: tag, records, more: nextPage(got.header('link'), origin), wait };
+    },
+
+    // The service's own list of the issues closed before `from` (a YYYY-MM-DD day), as an address a person can open
+    // (plan-done-window.md, "The link"): {webOrigin}/<owner>/<name>/issues?q=is:issue is:closed closed:<<from>. Only on the web
+    // origin, never the API's; '' for a repository or a day that is not one. Asks nothing.
+    closedBefore(repo, from) {
+      if (typeof repo !== 'string' || !REPO.test(repo) || /\/\.{1,2}$/.test(repo)) return '';
+      if (typeof from !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return '';
+      const at = Date.parse(`${from}T00:00:00Z`);
+      if (!Number.isFinite(at) || new Date(at).toISOString().slice(0, 10) !== from) return '';
+      let u;
+      try { u = new URL(`/${repo}/issues`, webOrigin); } catch { return ''; }
+      if (u.origin !== new URL(webOrigin).origin || u.pathname !== `/${repo}/issues`) return '';
+      u.searchParams.set('q', `is:issue is:closed closed:<${from}`);
+      return u.href;
     },
 
     // The writes (plan-github-two-way.md, section 13). `ask(method, url, headers, body)` is the core's: this origin only, 6 seconds,

@@ -79,15 +79,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- a fake GitHub ---------------------------------------------------------------------------------------------------------
 // Holds issues (and pull requests) in GitHub's shape; answers GET /repos/:owner/:repo/issues with state, since, per_page and
-// page, a Link header to the next page, an etag per answer and a 304 to a matching If-None-Match. `once` replaces the next
-// answer (a 429, a 403, a redirect). Every request is kept.
+// page (state 'open' when none is named, as GitHub does), a Link header to the next page, an etag per answer and a 304 to a
+// matching If-None-Match. `once` replaces the next answer (a 429, a 403, a redirect); `failClosed` the next answer to a closed
+// list (the full pull's second ask). Every request is kept.
 function fakeGitHub() {
   const seen = [];
   const app = []; // every request to the app's endpoints, apart from `seen` (the issues): { method, path, body, jwt, headers }
   const jwts = new Set(); // every JWT the fake received, to look for in the outputs
   const state = {
     mints: [], mintOnce: null, mintTtlMs: 3600 * 1000, mintToken: null, installs: { 7: { mode: 'ok' }, 8: { mode: 'ok' }, 9: { mode: 'ok' }, 10: { mode: 'ok' } }, publicKey: KEYS.publicKey,
-    issues: new Map(), once: null, onceWrite: null, slowList: 0, missing: new Set(), clock: Math.floor(Date.now() / 1000) * 1000 - 3 * 86400 * 1000, // a few days ago, so the issues it closes are inside the done window
+    issues: new Map(), once: null, onceWrite: null, failClosed: null, slowList: 0, missing: new Set(), clock: Math.floor(Date.now() / 1000) * 1000 - 3 * 86400 * 1000, // a few days ago, so the issues it closes are inside the done window
     labels: new Set(['priority: now', 'priority: next', 'priority: later', 'bug', 'good first issue', 'docs']), created: [],
   };
   const tick = () => { state.clock += 1000; return new Date(state.clock).toISOString(); };
@@ -200,11 +201,14 @@ function fakeGitHub() {
       return json(res, 201, issue(number, { title: body.title, labels: (body.labels || []).map((n) => label(n)), ...(body.body !== undefined ? { body: body.body } : { body: null }) }));
     }
     if (!m || state.missing.has(`${m[1]}/${m[2]}`)) { res.writeHead(404, { 'content-type': 'application/json' }); return res.end('{"message":"Not Found"}'); }
+    const which = u.searchParams.get('state') || 'open';
+    if (which === 'closed' && state.failClosed) { const f = state.failClosed; state.failClosed = null; return f(req, res); }
     const send = () => {
       const since = u.searchParams.get('since');
       const per = Number(u.searchParams.get('per_page') || 30);
       const page = Number(u.searchParams.get('page') || 1);
       let list = [...state.issues.values()].sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+      if (which !== 'all') list = list.filter((i) => i.state === which);
       if (since) list = list.filter((i) => i.updated_at >= since);
       const slice = list.slice((page - 1) * per, page * per);
       const text = JSON.stringify(slice);
@@ -399,6 +403,98 @@ await test('the ask: every page, a 304, the token only in Authorization, refusal
     await assert.rejects(web(m, u, {}, {}), /not the service's address/, `${m} ${u}`);
   }
   assert.deepEqual(asked, ['https://web.example.test/login/oauth/access_token'], 'only the exchange was sent');
+});
+
+// --- the full pull's two asks (documentation/plans/plan-done-window.md, step 3) -------------------------------------------------
+const qOf = (x) => { const u = new URL(x.url, 'http://x'); return [u.searchParams.get('state'), u.searchParams.get('since')]; };
+await test('the full pull asks for the open issues, then the closed ones since the cutoff; the old closed ones are never read', async () => {
+  gh.state.issues.clear();
+  gh.state.missing.clear();
+  const cutoff = new Date(gh.state.clock).toISOString().slice(0, 10); // the fake's clock is inside this day from here on
+  // Closed before the cutoff day (updated then, and never since): GitHub's `since` keeps them out of the closed list.
+  for (let i = 1; i <= 120; i += 1) gh.issue(i, { state: 'closed' });
+  const old = new Date(`${cutoff}T00:00:00Z`).getTime() - 86400 * 1000;
+  for (const v of gh.state.issues.values()) { v.updated_at = new Date(old).toISOString(); v.closed_at = v.updated_at; }
+  for (let i = 121; i <= 330; i += 1) gh.issue(i); // 210 open: three pages
+  for (let i = 331; i <= 335; i += 1) gh.issue(i, { state: 'closed' }); // closed since the cutoff
+  gh.issue(336, { pull_request: { url: 'x' }, state: 'closed' });
+  gh.seen.length = 0;
+  const got = await I.askIssues(STANDIN, { repo: REPO, full: true, closedSince: cutoff, since: '2026-01-01T00:00:00Z', etag: 'W/"x"' });
+  assert.deepEqual([got.ok, got.complete, got.etag, got.records.length], [true, true, '', 215], 'every open issue and the five closed since the cutoff, the pull request dropped');
+  assert.deepEqual(gh.seen.map(qOf), [['open', null], ['open', null], ['open', null], ['closed', `${cutoff}T00:00:00Z`]], 'open, every page, no since; then closed since the cutoff day');
+  assert.ok(gh.seen.every((x) => x.method === 'GET' && !x.headers['if-none-match']), 'only reads, no etag');
+  assert.ok(gh.seen.every((x) => !/state=all/.test(x.url)), 'never every issue at once');
+  assert.ok(got.records.every((r) => r.number > 120), 'no issue closed before the cutoff was read');
+  assert.deepEqual(got.records.filter((r) => !r.open).map((r) => r.number), [331, 332, 333, 334, 335]);
+  // No cutoff day (the window could not be told): one list of every issue, as before.
+  gh.seen.length = 0;
+  for (const bad of ['', 'not a day', '2026-13-01']) {
+    const one = await I.askIssues(STANDIN, { repo: REPO, full: true, closedSince: bad });
+    assert.deepEqual([one.ok, one.complete, one.records.length], [true, true, 335], `no cutoff (${JSON.stringify(bad)}): every issue`);
+  }
+  assert.ok(gh.seen.every((x) => qOf(x)[0] === 'all' && qOf(x)[1] === null), 'state=all, no since');
+});
+
+await test('the two lists merge by number: an issue closed between the asks is there once, closed', async () => {
+  const cutoff = new Date(gh.state.clock).toISOString().slice(0, 10);
+  gh.seen.length = 0;
+  const fetchImpl = async (href, init) => { if (/state=closed/.test(href)) gh.issue(200, { state: 'closed' }); return fetch(href, init); };
+  const got = await I.askIssues(STANDIN, { repo: REPO, full: true, closedSince: cutoff }, { fetchImpl });
+  assert.equal(got.ok, true);
+  const two = got.records.filter((r) => r.number === 200);
+  assert.deepEqual([two.length, two[0].open, Boolean(two[0].closed)], [1, false, true], 'once, as the closed list has it');
+  assert.equal(new Set(got.records.map((r) => r.number)).size, got.records.length, 'every number once');
+  assert.ok(got.records.every((r, i, a) => i === 0 || a[i - 1].updated <= r.updated), 'oldest change first');
+  const a = { number: 1, updated: '2026-11-01T00:00:00.000Z', open: true };
+  const b = { number: 1, updated: '2026-11-02T00:00:00.000Z', open: false };
+  assert.deepEqual(I.mergeByNumber([b], [a]), [b], 'the newer record wins, whichever list it is in');
+  assert.deepEqual(I.mergeByNumber([a], [b]), [b]);
+});
+
+await test('a failed second ask fails the whole full pull with its sentence; the page cap and an incremental pull as before', async () => {
+  const cutoff = new Date(gh.state.clock).toISOString().slice(0, 10);
+  gh.seen.length = 0;
+  gh.state.failClosed = (req, res) => { res.writeHead(502); res.end(); };
+  const bad = await I.askIssues(STANDIN, { repo: REPO, full: true, closedSince: cutoff });
+  assert.deepEqual([bad.ok, bad.status, bad.error, 'records' in bad], [false, 502, 'Test stand-in (not an issue service) did not answer.', false], 'no records at all: nothing to write or remove');
+  assert.deepEqual(gh.seen.map((x) => qOf(x)[0]), ['open', 'open', 'open', 'closed']);
+  const t = Date.now();
+  gh.state.failClosed = (req, res) => { res.writeHead(429, { 'retry-after': '9' }); res.end(); };
+  const slow = await I.askIssues(STANDIN, { repo: REPO, full: true, closedSince: cutoff }, { now: t });
+  assert.deepEqual([slow.ok, slow.restUntil], [false, t + 9000], 'a limit on the second ask: rest, as on the first');
+  // The page cap is the pull's, both lists together: 50 requests at most, and no closed list after an open one cut short.
+  const asked = [];
+  const endless = (openPages) => ({ name: 'Endless', origin: 'https://endless.test', list: async ({ state, page }) => {
+    asked.push(state);
+    const n = asked.filter((s) => s === state).length;
+    return { status: 200, etag: '', records: [], wait: {}, more: state === 'open' && n >= openPages ? null : `https://endless.test/p${asked.length}` };
+  } });
+  let r = await I.askIssues(endless(Infinity), { repo: 'o/r', full: true, closedSince: cutoff });
+  assert.deepEqual([r.ok, r.complete, asked.length, asked.every((s) => s === 'open')], [true, false, 50, true], 'the open list cut at the cap: not complete, no closed list');
+  asked.length = 0;
+  r = await I.askIssues(endless(3), { repo: 'o/r', full: true, closedSince: cutoff });
+  assert.deepEqual([r.complete, asked.length, asked.slice(0, 4)], [false, 50, ['open', 'open', 'open', 'closed']], 'three open pages, then the closed list up to the cap');
+  // An incremental pull: one list of every issue, since and the etag, whatever closedSince says.
+  gh.seen.length = 0;
+  const since = new Date(gh.state.clock - 1500).toISOString();
+  const inc = await I.askIssues(STANDIN, { repo: REPO, since, etag: 'W/"old"', closedSince: cutoff });
+  assert.equal(inc.ok, true);
+  assert.deepEqual([gh.seen.length, qOf(gh.seen[0]), gh.seen[0].headers['if-none-match']], [1, ['all', since], 'W/"old"'], 'state=all, since, the etag');
+  assert.ok(inc.etag, 'its etag kept for the next');
+});
+
+await test('closedBefore: GitHub\'s closed issues before a day, on github.com only; \'\' for anything invalid', () => {
+  assert.equal(GITHUB.closedBefore('Coffee-Pub-Studio/coffee-pub-chameleon', '2026-10-29'), 'https://github.com/Coffee-Pub-Studio/coffee-pub-chameleon/issues?q=is%3Aissue+is%3Aclosed+closed%3A%3C2026-10-29');
+  assert.equal(new URL(GITHUB.closedBefore('o/r.js', '2026-01-01')).origin, 'https://github.com', 'the web origin, never api.github.com');
+  assert.equal(new URL(GITHUB.closedBefore('o/r', '2026-01-01')).searchParams.get('q'), 'is:issue is:closed closed:<2026-01-01');
+  for (const [repo, day] of [['o/r', ''], ['o/r', '2026-02-30'], ['o/r', '2026-10-29T00:00:00Z'], ['o/r', '29-10-2026'], ['o/r', null], ['', '2026-10-29'], ['o', '2026-10-29'],
+    ['o/r/x', '2026-10-29'], ['o/..', '2026-10-29'], ['-o/r', '2026-10-29'], ['https://github.com/o/r', '2026-10-29'], ['o/r?x=1', '2026-10-29'], ['o/r#x', '2026-10-29'], [7, '2026-10-29'], [null, null]]) {
+    assert.equal(GITHUB.closedBefore(repo, day), '', `${JSON.stringify(repo)} ${JSON.stringify(day)}`);
+  }
+  assert.equal(STANDIN.closedBefore('o/r', '2026-10-29'), `${ORIGIN}/o/r/issues?q=is%3Aissue+is%3Aclosed+closed%3A%3C2026-10-29`, 'the stand-in: its own web origin');
+  const { valid } = require('../server/issue-providers');
+  assert.equal(valid({ ...GITHUB, closedBefore: 'https://x' }), false, 'closedBefore, when there, is a function');
+  assert.equal(valid({ ...GITHUB, closedBefore: undefined }), true, 'an adapter may have none');
 });
 
 // --- the GitHub app: credentials, the JWT, installation tokens (documentation/plans/plan-github-app.md, step 1) -----------------
@@ -1021,7 +1117,7 @@ await live('on: the board fixed to five columns, every issue once, by the pull',
   assert.equal(value('boardColumns'), 'priority');
   assert.deepEqual(value('tags').map((t) => [t.id, t.color]), [['bug', '#d73a4a'], ['good-first-issue', '#7057ff']]);
   assert.ok(gh.seen.every((x) => x.headers.authorization === `Bearer ${TOKEN}`), 'the token in Authorization');
-  assert.ok(gh.seen.every((x) => !/since=/.test(x.url)), 'the first pull is a full one');
+  assert.deepEqual(gh.seen.map(qOf), [['open', null], ['closed', `${s.keep.from}T00:00:00Z`]], 'the first pull is a full one: the open issues, then the closed since the cutoff');
 });
 
 await live('again: in place, never a copy; then a 304 that costs nothing and changes nothing', async () => {
@@ -1188,9 +1284,10 @@ await live('the full pull removes an issue that is gone', async () => {
   const s0 = await status(S.bugs);
   assert.ok((await plan(S.bugs))['plan:gh-5'], 'still there before the full pull');
   await sleep(Math.max(0, FULL_MS - (Date.now() - Date.parse(s0.last)) + 200));
+  const from = gh.seen.length;
   const r = ok(await pullNow(S.bugs), 'the full pull').json;
   assert.equal(r.counts.removed, 1);
-  assert.ok(!/since=/.test(gh.seen[gh.seen.length - 1].url), 'it read every page');
+  assert.deepEqual(gh.seen.slice(from).filter((x) => x.url.startsWith(`/repos/${REPO}/issues?`)).map(qOf), [['open', null], ['closed', `${r.keep.from}T00:00:00Z`]], 'it read every open issue and the closed ones since the cutoff');
   const p = await plan(S.bugs);
   assert.equal(p['plan:gh-5'], undefined, 'gone');
   assert.equal(Object.keys(p).filter((k) => k.startsWith('plan:')).length, 5);
@@ -2087,7 +2184,7 @@ await live('the done window: closed work inside is kept with doneOn from its clo
   ok(await putKey(S.plain, 'plan:hand', { kind: 'work', title: 'Old, by hand', start: '2020-01-01', end: '2020-01-02', done: true, doneOn: '2020-01-02' }, S.admin), 'own old done work');
   ok(await putKey(S.plain, 'plan:gh-103', { kind: 'work', title: 'Mine, not pulled', start: '2020-01-01', end: '2020-01-02', done: true, doneOn: '2020-01-02' }, S.admin), 'a key like a pulled one, by hand');
   const r = ok(await call('PUT', P(S.window), { token: S.admin, body: { on: true, repo: WREPO, provider: 'issues-standin' } }), 'follows, no link');
-  assert.deepEqual(r.json.keep, { days: 30, from: dayAgo(30), url: '' }, 'the view: 30 days, the cutoff day, no link until the adapter has one');
+  assert.deepEqual(r.json.keep, { days: 30, from: dayAgo(30), url: `${ORIGIN}/${WREPO}/issues?q=is%3Aissue+is%3Aclosed+closed%3A%3C${dayAgo(30)}` }, 'the view: 30 days, the cutoff day, the service\'s list of the closed issues before it');
   const s = await until('the first pull', async () => { const v = await status(S.window); return v.last ? v : null; });
   assert.equal(s.error, '');
   const p = await plan(S.window);
@@ -2132,7 +2229,7 @@ await live('the done window: a shorter window trims stored closed work at the ne
   const s = ok(await pullNow(S.window), 'a pull').json;
   const asked = gh.seen.slice(seen).filter((x) => x.url.startsWith(`/repos/${WREPO}`));
   assert.ok(asked.length >= 1 && asked.every((x) => x.method === 'GET'), 'only reads');
-  assert.deepEqual([asked.length, /since=/.test(asked[0].url), Boolean(asked[0].headers['if-none-match'])], [1, true, true], 'one conditional read, answered 304 (nothing changed)');
+  assert.deepEqual([asked.length, qOf(asked[0])[0], /since=/.test(asked[0].url), Boolean(asked[0].headers['if-none-match'])], [1, 'all', true, true], 'one conditional read of every issue, answered 304 (nothing changed)');
   const p = await plan(S.window);
   assert.deepEqual(pulled(p), ['plan:gh-101', 'plan:gh-102', 'plan:gh-105'], 'closed twenty days ago: gone; open work of any age: kept');
   assert.equal(s.counts.removed, 1);
@@ -2176,12 +2273,13 @@ await live('the done window: a person\'s write may not set doneOn on pulled work
 await live('the done window: never shorter than the phase that holds today; a longer window brings old issues back at the full pull', async () => {
   ok(await call('PATCH', '/api/settings', { token: S.admin, body: { template: 'project' } }), 'a template with phases');
   ok(await call('PATCH', `/api/spaces/${S.window}`, { token: S.admin, body: { phases: { start: { start: dayAgo(80) }, build: { start: dayAgo(60), end: dayAgo(-30) } } } }), 'the phase holding today began 60 days ago');
-  assert.deepEqual((await status(S.window)).keep, { days: 7, from: dayAgo(60), url: '' }, 'the phase\'s start wins over 7 days');
+  assert.deepEqual((await status(S.window)).keep, { days: 7, from: dayAgo(60), url: `${ORIGIN}/${WREPO}/issues?q=is%3Aissue+is%3Aclosed+closed%3A%3C${dayAgo(60)}` }, 'the phase\'s start wins over 7 days');
   gh.issue(107, { title: 'Chat: closed 45 days ago', state: 'closed', closed_at: at(-45) });
   const s0 = await status(S.window);
   await sleep(Math.max(0, FULL_MS - (Date.now() - Date.parse(s0.last)) + 200));
+  const from = gh.seen.length;
   ok(await pullNow(S.window), 'the full pull');
-  assert.ok(!/since=/.test(gh.seen.filter((x) => x.url.startsWith(`/repos/${WREPO}`)).at(-1).url), 'it read every page');
+  assert.deepEqual(gh.seen.slice(from).filter((x) => x.url.startsWith(`/repos/${WREPO}/issues?`)).map(qOf), [['open', null], ['closed', `${dayAgo(60)}T00:00:00Z`]], 'every open issue, then the closed since the phase\'s start');
   let p = await plan(S.window);
   assert.deepEqual(pulled(p), ['plan:gh-101', 'plan:gh-103', 'plan:gh-104', 'plan:gh-105', 'plan:gh-106', 'plan:gh-107'], 'inside the phase: back at the full pull; closed 90 and more days ago: not');
   ok(await call('PATCH', '/api/settings', { token: S.admin, body: { template: 'default' } }), 'back to no phases');
@@ -2192,6 +2290,31 @@ await live('the done window: never shorter than the phase that holds today; a lo
   assert.equal(s.counts.removed, 2);
   ok(await call('PUT', P(S.window), { token: S.admin, body: { keepDays: 30 } }), 'thirty days');
   assert.equal(windowWrites().length, 0, 'nothing sent to the service');
+});
+
+await live('the done window: a full pull whose closed list fails removes nothing and says so; the next full pull sweeps', async () => {
+  const recOf = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.window];
+  const fullAt = recOf().fullAt;
+  const had = pulled(await plan(S.window));
+  assert.ok(had.includes('plan:gh-105') && had.includes('plan:gh-106'), 'open and closed work stored');
+  gh.state.issues.delete(105); // gone on the service: a full pull that read both lists would remove it
+  gh.state.issues.delete(104); // not stored (a 7-day window trimmed it); gone too, so the full pull below cannot bring it back
+  await sleep(Math.max(0, FULL_MS - (Date.now() - Date.parse(fullAt)) + 200));
+  gh.state.failClosed = (req, res) => { res.writeHead(500); res.end(); };
+  const from = gh.seen.length;
+  const s = ok(await pullNow(S.window), 'a full pull that fails half way', 502).json;
+  const asked = gh.seen.slice(from).filter((x) => x.url.startsWith(`/repos/${WREPO}`));
+  assert.deepEqual(asked.map(qOf), [['open', null], ['closed', `${s.keep.from}T00:00:00Z`]], 'the open list read, the closed list failed');
+  assert.equal(s.error, 'Test stand-in (not an issue service) did not answer.', 'the error is said');
+  assert.deepEqual(pulled(await plan(S.window)), had, 'nothing removed, nothing written: not the closed work, not the issue gone');
+  assert.equal(recOf().fullAt, fullAt, 'not counted as a full pull');
+  await sleep(1200); // the least time between two pulls a person asks for
+  const at2 = gh.seen.length;
+  const s2 = ok(await pullNow(S.window), 'the next pull, full again').json;
+  assert.deepEqual(gh.seen.slice(at2).filter((x) => x.url.startsWith(`/repos/${WREPO}`)).map(qOf), [['open', null], ['closed', `${s2.keep.from}T00:00:00Z`]], 'full again: both lists');
+  const p = pulled(await plan(S.window));
+  assert.deepEqual([s2.error, p.includes('plan:gh-105'), p.includes('plan:gh-106')], ['', false, true], 'now the gone issue is removed; the closed work in the window stays');
+  assert.equal(windowWrites().length, 0, 'nothing sent to the service but reads');
 });
 
 await live('the done window: the limit of 1000 is as it was, counted after the window\'s removals', async () => {

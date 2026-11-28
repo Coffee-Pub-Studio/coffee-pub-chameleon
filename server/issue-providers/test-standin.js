@@ -4,7 +4,8 @@
 // Its timings come from the check: ISSUES_TEST_POLL_MS (the timer's wait), ISSUES_TEST_FULL_MS (how long a full pull lasts) and
 // ISSUES_TEST_GAP_MS (the least time between two pulls asked by a person) and ISSUES_TEST_WRITE_GAP_MS (between two writes; 0 here);
 // each defaults to GitHub's but the last. Its writes are GitHub's adapter's, sent to the check's fake service, which records every
-// request it receives (tools/check-issues.mjs); the stand-in itself is only an origin.
+// request it receives (tools/check-issues.mjs); the stand-in itself is only an origin. Its list takes GitHub's `state` ('all',
+// 'open', 'closed') and its `closedBefore` makes GitHub's closed-issues address on the fake's origin (its web origin here).
 'use strict';
 
 const { makeAdapter } = require('./github');
