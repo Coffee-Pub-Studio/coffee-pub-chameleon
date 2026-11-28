@@ -2381,6 +2381,9 @@
   // card's own for a move inside its column); `before` is the id of the card it lands in front of, and missing means at the end of the
   // column. A drop reports where the pointer was; Alt+Up and Alt+Down and the card menu's Move up, Move down, Move to top and Move to
   // bottom move a card inside its column; Alt+Left and Alt+Right and "Move to <column>" put it at the end of the other column.
+  // set() draws again only the cards that changed (by id): a card is the same when its fields are the same, so a module whose card()
+  // reads more than the card holds puts a `rev` on the card (any string or number) that changes when what the card shows changes.
+  // The board stacks by its own width (640px and under), not the window's, and a mouse drags in either layout.
   // rows: [{ id, label }] draws the board in rows (a card's `row` names its row); without it the board is the columns alone.
   // deps: { icon(name) -> Promise<svg>, menu(args) } from the module's host.
   function createBoard(el, o, deps) {
@@ -2405,8 +2408,12 @@
     const folded = new Set(readList(foldKey) || (Array.isArray(options.collapsed) ? options.collapsed.filter((x) => typeof x === 'string') : []));
     const foldedRows = new Set(readList(foldKey && `${foldKey}:rows`) || []);
     const stackedFolds = new Map(); // column id (and row id) -> folded, for the stacked layout only
-    const mq = typeof win.matchMedia === 'function' ? win.matchMedia('(max-width: 640px), (pointer: coarse)') : null;
-    const stacked = () => Boolean(mq && mq.matches);
+    // Stacked is the board's own width (not the window's): a narrow frame in a wide window stacks. `.is-stacked` on the board is what the
+    // stylesheet reads. A board that is not shown (no width yet) keeps what it had.
+    const STACK_AT = 640;
+    let isNarrow = false;
+    const measure = () => { const w = el.clientWidth; return w > 0 ? w <= STACK_AT : isNarrow; };
+    const stacked = () => isNarrow;
     const hasRows = () => rowList.length > 0;
     const sfKey = (c, row) => (hasRows() ? `${row === undefined ? '' : row}\u0000${c.id}` : c.id);
     const isFolded = (c, row) => (stacked() ? (stackedFolds.has(sfKey(c, row)) ? stackedFolds.get(sfKey(c, row)) : c.done) : folded.has(c.id));
@@ -2432,6 +2439,8 @@
     const stopOf = (node) => { const s = node && node.closest ? node.closest('[data-stop]') : null; return s && el.contains(s) ? s : null; };
 
     el.classList.add('sdk-board');
+    isNarrow = measure();
+    el.classList.toggle('is-stacked', isNarrow);
     el.setAttribute('role', 'group');
     el.setAttribute('aria-label', typeof options.name === 'string' && options.name ? options.name : words.name);
     const live = make('div', 'sdk-board-live');
@@ -2454,7 +2463,27 @@
     const stopFor = (c, row, part) => (row === undefined ? `h:${c.id}:${part}` : `g:${JSON.stringify([row, c.id])}:${part}`);
 
     let cardN = 0;
+    // The cards drawn last time, by id: { sig, li, box, title }. A card whose signature is the same is kept as it is (its element is put
+    // back in place, its content not drawn again); only a card that is new or changed is drawn. `cardCache` is what the draw in
+    // hand fills, swapped in when it ends, so a card no longer shown is let go.
+    let cardCache = new Map();
+    let nextCache = new Map();
+    // What makes a card the same card: what the module gave (the card's own fields, and `rev` when the module's drawing reads more than
+    // the card holds) and whether it may move. A card that cannot be written out is always drawn again.
+    let sigN = 0;
+    const sigOf = (k, can) => { try { return `${can ? 1 : 0}|${JSON.stringify(k)}`; } catch (err) { return `x${++sigN}`; } };
     function card(k, c, i) {
+      const can = movable(k);
+      const sig = sigOf(k, can);
+      const had = cardCache.get(k.id);
+      if (had && had.sig === sig && !nextCache.has(k.id)) {
+        const key = `c:${k.id}`;
+        stops.set(key, had.box);
+        had.box.tabIndex = key === current ? 0 : -1;
+        had.li.classList.remove('dragging', 'is-drop-before', 'is-drop-after');
+        nextCache.set(k.id, had);
+        return had;
+      }
       const li = make('li', 'sdk-board-item');
       const box = make('div', 'sdk-board-card');
       const content = make('div', 'sdk-board-content');
@@ -2472,8 +2501,7 @@
       box.setAttribute('role', 'group');
       box.setAttribute('aria-labelledby', content.id);
       box.tabIndex = key === current ? 0 : -1;
-      const can = movable(k);
-      box.draggable = can && !stacked();
+      box.draggable = can;
       if (can) box.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown');
       const more = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-board-more');
       more.type = 'button';
@@ -2484,7 +2512,9 @@
       more.append(icon('', 'ellipsis-vertical'));
       box.append(content, more);
       li.append(box);
-      return { li, box, title };
+      const drawn = { sig, li, box, title };
+      nextCache.set(k.id, drawn);
+      return drawn;
     }
     const cardList = (list, index, info, label, cls) => {
       const ul = make('ul', cls || 'sdk-board-list');
@@ -2643,6 +2673,7 @@
       layout = [];
       rowLayout = [];
       headsEl = null;
+      nextCache = new Map();
       const rowsOn = hasRows();
       const shown = rowsOn ? boardGroupRows(columns, rowList, cards, words.noRow) : null;
       let first = null;
@@ -2652,11 +2683,13 @@
       if (!current || !valid) current = first ? `c:${first[0].id}` : columns.length ? `h:${columns[0].id}:fold` : '';
       if (rowsOn) drawRows(shown);
       else { body.classList.remove('has-rows'); body.replaceChildren(...columns.map((c, i) => column(c, i))); }
+      cardCache = nextCache;
       body.scrollLeft = left;
       body.scrollTop = rowsOn ? top : 0;
       body.style.scrollPaddingTop = headsEl ? `${headsEl.offsetHeight}px` : '';
       if (!stops.has(current)) { const k = stopKeys()[0]; current = k || ''; if (k) stops.get(k).tabIndex = 0; }
       let target = had && stops.has(had) ? stops.get(had) : null;
+      let still = Boolean(target); // focus returns to where it was: the page does not scroll for it
       if (said) { // told only once the board shows the move, and only for a few seconds
         const k = cardOf(said.id);
         const fresh = Date.now() - said.at < 5000;
@@ -2668,12 +2701,12 @@
             there = Boolean(at && at.card && at.at === said.index);
             text = there ? words.position(at.at + 1, listOf(at).length, colOf(k.column).label) : '';
           }
-          setCurrent(`c:${k.id}`); target = stops.get(`c:${k.id}`);
+          setCurrent(`c:${k.id}`); target = stops.get(`c:${k.id}`); still = false;
           if (text) say(text);
         }
         if (there || !fresh) said = null;
       }
-      if (target) target.focus({ preventScroll: false });
+      if (target) target.focus({ preventScroll: still });
     }
     function setCurrent(key) {
       current = key;
@@ -2987,8 +3020,16 @@
     };
     const on = [['click', onClick], ['keydown', onKey], ['focusin', onFocusIn], ['dragstart', dragStart], ['dragover', dragOver], ['dragleave', dragLeave], ['drop', drop], ['dragend', dragEnd]];
     for (const [t, f] of on) el.addEventListener(t, f);
-    const onMedia = () => draw();
-    if (mq && mq.addEventListener) mq.addEventListener('change', onMedia);
+    // The board's own width decides the stacked layout: a change of side draws it again.
+    const watch = typeof win.ResizeObserver === 'function' ? new win.ResizeObserver(() => {
+      if (dead) return;
+      const now = measure();
+      if (now === isNarrow) return;
+      isNarrow = now;
+      el.classList.toggle('is-stacked', isNarrow);
+      draw();
+    }) : null;
+    if (watch) watch.observe(el);
 
     const api = {
       set(next, nextColumns, nextRows) {
@@ -3002,8 +3043,8 @@
       destroy() {
         dead = true;
         for (const [t, f] of on) el.removeEventListener(t, f);
-        if (mq && mq.removeEventListener) mq.removeEventListener('change', onMedia);
-        el.replaceChildren(); el.classList.remove('sdk-board'); el.removeAttribute('role'); el.removeAttribute('aria-label');
+        if (watch) watch.disconnect();
+        el.replaceChildren(); el.classList.remove('sdk-board', 'is-stacked'); el.removeAttribute('role'); el.removeAttribute('aria-label');
       },
     };
     draw();
