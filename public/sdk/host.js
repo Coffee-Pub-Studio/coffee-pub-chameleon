@@ -3100,6 +3100,235 @@
     return api;
   }
 
+  // ---- host.ui.burndown: what is left over time (documentation/plans/plan-projects-sizing-burndown.md, "The shared piece") ----
+  // The pure parts (sliced out by tools/check-burndown.mjs between the markers): the options made safe and clipped to the range, and
+  // where each mark is drawn at a width. The piece knows nothing of money or work: it draws the numbers it is given.
+  // burndown:start
+  const BURN_DAY = /^\d{4}-\d{2}-\d{2}$/;
+  // A day ('YYYY-MM-DD') as a whole number of days, NaN when it is not a real day.
+  function burndownDayNum(d) {
+    if (typeof d !== 'string' || !BURN_DAY.test(d)) return NaN;
+    const [y, m, dd] = d.split('-').map(Number);
+    const t = Date.UTC(y, m - 1, dd);
+    const back = new Date(t);
+    return back.getUTCFullYear() === y && back.getUTCMonth() === m - 1 && back.getUTCDate() === dd ? Math.round(t / 86400000) : NaN;
+  }
+  // A day in words: "Oct 14", with the year only when it is not `thisYear`.
+  function burndownDayWords(d, thisYear) {
+    const [y, m, dd] = String(d).split('-').map(Number);
+    const x = new Date(y, m - 1, dd);
+    return x.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(y !== thisYear ? { year: 'numeric' } : {}) });
+  }
+  // The options made safe -> null when there is nothing to draw (no total above 0, no real from or to, no series with a point in the
+  // range), else { from, to, n0, n1, total, low, series: [{ id, label, kind, points: [{ day, n, left }] }], bands: [{ label, color, n0, n1 }] }.
+  // `from` after `to` is refused (a RangeError). A series' points are sorted by day; a `left` that is not a number is dropped and one above
+  // `total` is taken as `total`. Points before `from` are carried to `from` as the last of them (a point on `from` itself wins), points
+  // after `to` are not drawn, and a series with no point left is not drawn. A repeated or empty series id is dropped. `kind` is "solid"
+  // unless it is "dashed". A band is drawn when it is `dated` with a real `start`; it is clipped to the range (no real `end` runs to
+  // `to`), one wholly outside is not drawn, and `color` is its own '#rrggbb' or none (the accent then).
+  function burndownData(o) {
+    const opt = o || {};
+    const n0 = burndownDayNum(opt.from);
+    const n1 = burndownDayNum(opt.to);
+    if (n0 > n1) throw new RangeError('host.ui.burndown: from is after to');
+    const total = typeof opt.total === 'number' && Number.isFinite(opt.total) ? opt.total : 0;
+    if (!(total > 0) || !Number.isFinite(n0) || !Number.isFinite(n1)) return null;
+    const series = [];
+    const seen = new Set();
+    for (const s of Array.isArray(opt.series) ? opt.series : []) {
+      if (!s || typeof s.id !== 'string' || !s.id || seen.has(s.id)) continue;
+      const all = [];
+      for (const p of Array.isArray(s.points) ? s.points : []) {
+        const n = p ? burndownDayNum(p.day) : NaN;
+        if (Number.isFinite(n) && typeof p.left === 'number' && Number.isFinite(p.left)) all.push({ day: p.day, n, left: Math.min(total, p.left) });
+      }
+      all.sort((a, b) => a.n - b.n);
+      const before = all.filter((p) => p.n < n0);
+      const points = all.filter((p) => p.n >= n0 && p.n <= n1);
+      if (before.length && !(points.length && points[0].n === n0)) points.unshift({ day: opt.from, n: n0, left: before[before.length - 1].left });
+      if (!points.length) continue;
+      seen.add(s.id);
+      series.push({ id: s.id, label: typeof s.label === 'string' && s.label.trim() ? s.label.trim() : s.id, kind: s.kind === 'dashed' ? 'dashed' : 'solid', points });
+    }
+    if (!series.length) return null;
+    const bands = [];
+    for (const b of Array.isArray(opt.bands) ? opt.bands : []) {
+      if (!b || !b.dated) continue;
+      const s = burndownDayNum(b.start);
+      if (!Number.isFinite(s)) continue;
+      const e = burndownDayNum(b.end);
+      const a = Math.max(s, n0);
+      const z = Number.isFinite(e) ? Math.min(e, n1) : n1;
+      if (a > z) continue;
+      bands.push({ label: typeof b.label === 'string' ? b.label : '', color: typeof b.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(b.color) ? b.color : '', n0: a, n1: z });
+    }
+    const low = Math.min(0, ...series.flatMap((s) => s.points.map((p) => p.left)));
+    return { from: opt.from, to: opt.to, n0, n1, total, low, series, bands };
+  }
+  // Where everything is drawn for `data` (burndownData's) at `width` px, with `today` a day number (or NaN): -> { W, H, left, right, top,
+  // bottom, bands: [{ x, w, label, showLabel, color }], marks: [{ v, y, zero }], today: { x, labelX } | null, lines: [{ id, kind, d,
+  // dots: [{ cx, cy, day, left }] }] }. Under 400 px it is 190 tall, else 230; never narrower than 240. A line is a step: flat until its
+  // next point, then straight down (or up), and flat to the right edge after its last. Only a solid line has dots, one on each point
+  // after its first.
+  function burndownLayout(data, width, today) {
+    const W = Math.max(240, Math.floor(Number(width)) || 320);
+    const H = W < 400 ? 190 : 230;
+    const m = { l: 56, r: 12, t: 12, b: 26 };
+    const pw = W - m.l - m.r;
+    const ph = H - m.t - m.b;
+    const high = data.total;
+    const low = Math.min(data.low, 0);
+    const span = high - low || 1;
+    const y = (v) => m.t + ((high - v) / span) * ph;
+    const x = (n) => m.l + ((n - data.n0) / (data.n1 - data.n0 || 1)) * pw;
+    const bands = data.bands.map((b) => {
+      const x0 = x(b.n0);
+      const w = Math.max(x(b.n1), x0 + 2) - x0;
+      return { x: x0, w, label: b.label, showLabel: Boolean(b.label) && w > b.label.length * 6.5 + 8, color: b.color };
+    });
+    const marks = [high, high / 2, 0, ...(low < 0 ? [low] : [])].map((v) => ({ v, y: y(v), zero: v === 0 && low < 0 }));
+    const now = Number.isFinite(today) && today > data.n0 && today < data.n1 ? { x: x(today), labelX: Math.min(x(today), m.l + pw - 14) } : null;
+    const lines = data.series.map((s) => {
+      let d = `M ${x(s.points[0].n)} ${y(s.points[0].left)}`;
+      for (const p of s.points.slice(1)) d += ` H ${x(p.n)} V ${y(p.left)}`;
+      d += ` H ${m.l + pw}`;
+      const dots = s.kind === 'solid' ? s.points.slice(1).map((p) => ({ cx: x(p.n), cy: y(p.left), day: p.day, left: p.left })) : [];
+      return { id: s.id, kind: s.kind, d, dots };
+    });
+    return { W, H, left: m.l, right: m.l + pw, top: m.t, bottom: m.t + ph, bands, marks, today: now, lines };
+  }
+  // burndown:end
+
+  let burndownSeq = 0;
+  // host.ui.burndown(el, { total, series, from, to, bands?, format?(n), words?, empty? }) -> { set(options), destroy() }: what is left over
+  // time, drawn in `el` as an SVG chart, its legend and the words under it. It knows nothing of money or work and writes nothing.
+  //   total     the number it counts down from (above 0); the top of the chart
+  //   series    [{ id, label, points: [{ day, left }], kind: "solid" | "dashed" }]: each a step line, flat until its next point, then
+  //             straight down; a solid one has a dot (with its day and number as a tooltip) on each step. Dashed lines are drawn under
+  //             solid ones. A `left` above `total` is drawn at `total`; one below 0 drops the chart below 0 (a dashed 0 line then).
+  //   from, to  the days ('YYYY-MM-DD') the chart runs between; `from` after `to` is refused (a RangeError from create or set)
+  //   bands     the phases behind it, as host.util.phaseTimeline() answers ([{ label, color, start, end, dated }]): each dated one in its
+  //             own colour, clipped to the range, its label when it fits
+  //   format    the numbers in words, format(n) -> string (the guides, the tooltips); a plain number without it
+  //   words     the sentence under the chart; it is also the chart's accessible text (role="img")
+  //   empty     what it says, in place of the chart, with nothing to draw (no total, no from or to, no series with a point in the range)
+  // The guides are the total, its half and 0 (and the lowest point when it is under 0); the first and last day are written under the
+  // chart, and a Today line when today is between them. Every colour is a theme token (the `burndown` block of system.css) but a band's
+  // own. It is drawn at the width of `el` and again when that changes (a ResizeObserver); under 400 px it is shorter. destroy() stops
+  // watching and takes out everything it drew.
+  function createBurndown(el, o) {
+    if (!el || el.nodeType !== 1) throw new Error('host.ui.burndown needs an element');
+    const doc = el.ownerDocument;
+    const win = doc.defaultView || window;
+    const NS = 'http://www.w3.org/2000/svg';
+    const seq = ++burndownSeq;
+    const thisYear = new Date().getFullYear();
+    let options = o || {};
+    let data = burndownData(options);
+    let drawnWidth = -1;
+    let dead = false;
+    const make = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    const svgEl = (tag, attrs, text) => {
+      const e = doc.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, String(v));
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    const fmt = (n) => {
+      if (typeof options.format === 'function') {
+        try { const s = options.format(n); if (s !== undefined && s !== null && s !== '') return String(s); } catch (err) { console.error(err); }
+      }
+      return String(Math.round(n * 100) / 100);
+    };
+    const day = (d) => burndownDayWords(d, thisYear);
+    const todayNum = () => { const t = new Date(); return burndownDayNum(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`); };
+
+    el.classList.add('sdk-burndown');
+    const chart = make('div', 'sdk-burndown-chart');
+    const legend = make('ul', 'sdk-burndown-legend');
+    legend.setAttribute('aria-hidden', 'true');
+    const words = make('p', 'sdk-burndown-words');
+    words.id = `sdk-burndown-${seq}-words`;
+    el.replaceChildren(chart, legend, words);
+
+    const draw = () => {
+      if (dead) return;
+      const said = typeof options.words === 'string' ? options.words : '';
+      if (!data) {
+        chart.replaceChildren();
+        legend.replaceChildren();
+        words.removeAttribute('aria-hidden');
+        words.textContent = typeof options.empty === 'string' ? options.empty : '';
+        drawnWidth = -1;
+        return;
+      }
+      const width = Math.floor(el.clientWidth || 0);
+      drawnWidth = width;
+      const L = burndownLayout(data, width, todayNum());
+      const svg = svgEl('svg', { viewBox: `0 0 ${L.W} ${L.H}`, width: L.W, height: L.H, role: 'img' });
+      // the words under it are what a screen reader hears, once: here, as the chart's name
+      if (said) { svg.setAttribute('aria-labelledby', words.id); words.setAttribute('aria-hidden', 'true'); } else { svg.setAttribute('aria-label', data.series.map((s) => s.label).join(', ')); words.removeAttribute('aria-hidden'); }
+      for (const b of L.bands) {
+        const r = svgEl('rect', { class: 'sdk-burndown-band', x: b.x, y: L.top, width: b.w, height: L.bottom - L.top });
+        if (b.color) r.style.fill = b.color; // the phase's own colour; none is the accent (system.css)
+        svg.append(r);
+        if (b.showLabel) svg.append(svgEl('text', { x: b.x + 4, y: L.top + 11 }, b.label));
+      }
+      for (const mk of L.marks) {
+        svg.append(svgEl('line', { class: mk.zero ? 'sdk-burndown-zero' : 'sdk-burndown-grid', x1: L.left, x2: L.right, y1: mk.y, y2: mk.y }));
+        svg.append(svgEl('text', { x: L.left - 6, y: mk.y + 4, 'text-anchor': 'end' }, fmt(mk.v)));
+      }
+      svg.append(svgEl('line', { class: 'sdk-burndown-axis', x1: L.left, x2: L.left, y1: L.top, y2: L.bottom }));
+      svg.append(svgEl('text', { x: L.left, y: L.H - 6, 'text-anchor': 'start' }, day(data.from)));
+      svg.append(svgEl('text', { x: L.right, y: L.H - 6, 'text-anchor': 'end' }, day(data.to)));
+      if (L.today) {
+        svg.append(svgEl('line', { class: 'sdk-burndown-today', x1: L.today.x, x2: L.today.x, y1: L.top, y2: L.bottom }));
+        svg.append(svgEl('text', { x: L.today.labelX, y: L.H - 6, 'text-anchor': 'middle' }, 'Today'));
+      }
+      for (const kind of ['dashed', 'solid']) {
+        for (const line of L.lines.filter((l) => l.kind === kind)) {
+          svg.append(svgEl('path', { class: `sdk-burndown-line is-${kind}`, 'data-series': line.id, d: line.d }));
+          for (const p of line.dots) {
+            const dot = svgEl('circle', { class: 'sdk-burndown-dot', cx: p.cx, cy: p.cy, r: 3 });
+            dot.append(svgEl('title', {}, `${day(p.day)}: ${fmt(p.left)} left`));
+            svg.append(dot);
+          }
+        }
+      }
+      chart.replaceChildren(svg);
+      legend.replaceChildren(...data.series.map((s) => {
+        const li = make('li', `sdk-burndown-key is-${s.kind}`);
+        li.append(make('span', 'sdk-burndown-swatch'), make('span', '', s.label));
+        return li;
+      }));
+      words.textContent = said;
+    };
+
+    // Drawn again when its own width changes (a box that is not shown has none, and draws when it is).
+    const watch = typeof win.ResizeObserver === 'function' ? new win.ResizeObserver(() => {
+      if (dead || !data) return;
+      const w = Math.floor(el.clientWidth || 0);
+      if (w && w !== drawnWidth) draw();
+    }) : null;
+    if (watch) watch.observe(el);
+
+    draw();
+    return {
+      set(next) {
+        const d = burndownData(next); // refuses from after to before anything changes
+        options = next || {};
+        data = d;
+        draw();
+      },
+      destroy() {
+        dead = true;
+        if (watch) watch.disconnect();
+        el.replaceChildren();
+        el.classList.remove('sdk-burndown');
+      },
+    };
+  }
+
   // env: { call(method, params) -> Promise, root, rootElement, elementAt({x, y}), localPoint(clientX, clientY),
   // applyTheme(theme) }.
   // Returns { host, emit }: `emit` is how the host pushes an event to the module.
@@ -5192,6 +5421,11 @@
       // "..." (columnMenu(column)). At 640 px and narrower, or with a touch screen, the columns stack and the done ones start folded.
       // { set(cards, columns?), focus(id), destroy() }. See createBoard above for every option.
       board: (el, o) => createBoard(el, o, { root: env.root, icon: (name) => menuIcon(name), menu: (args) => showMenu(args) }),
+      // What is left over time (plan-projects-sizing-burndown.md): burndown(el, { total, series: [{ id, label, points: [{ day, left }],
+      // kind: "solid" | "dashed" }], from, to, bands?, format?(n), words?, empty? }) -> { set(options), destroy() }. Step lines, the
+      // guides, the phase bands (as host.util.phaseTimeline() answers), Today, the legend and the words, which are also its accessible
+      // text. It knows nothing of the module's data and writes nothing. See createBurndown above for every option.
+      burndown: (el, o) => createBurndown(el, o),
       // A small bar and the words "2 of 4": progress(el, { done, total, label?, words?(done, total) }) -> { set({ done, total }), destroy() }.
       progress: (el, o) => createProgress(el, o),
       // A day's weather in its header (plan-itinerary-weather.md): dayWeather(el, { day, units, credit }) -> { element, set({ day?, units?,

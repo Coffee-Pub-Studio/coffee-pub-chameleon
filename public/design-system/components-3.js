@@ -74,6 +74,18 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     notMounted: 'the stacked phone look and the drag itself; the live piece below draws the real thing.',
   });
 
+  // ---- Burndown (host.ui.burndown) ----
+  const bnKey = (label, kind) => '<li class="sdk-burndown-key is-' + kind + '"><span class="sdk-burndown-swatch"></span><span>' + label + '</span></li>';
+  F.push({
+    id: 'burndown', group: 'Content', name: 'Burndown',
+    desc: 'The shared burndown (<code>host.ui.burndown</code>): what is left over time, drawn as an SVG at the width of its box. A solid step line with a dot on each step, a dashed one under it, the phases behind in their own colours, the guides (the total, its half and 0), Today, the legend and the words under it, which are also the chart\'s accessible text. It knows nothing of money or work: the module gives the numbers and the words. With nothing to draw it says the module\'s <code>empty</code> line alone.',
+    variants: [
+      { wide: true, n: 'Chart .sdk-burndown', ctx: 'host', sel: '.sdk-burndown', html: '<div class="sdk-burndown" style="max-width:520px"><div class="sdk-burndown-chart"><svg viewBox="0 0 520 230" width="520" height="230" role="img" aria-label="Left, from Nov 1 to Nov 30."><rect class="sdk-burndown-band" x="56" y="12" width="150" height="192"></rect><line class="sdk-burndown-grid" x1="56" x2="508" y1="12" y2="12"></line><line class="sdk-burndown-grid" x1="56" x2="508" y1="108" y2="108"></line><line class="sdk-burndown-grid" x1="56" x2="508" y1="204" y2="204"></line><line class="sdk-burndown-axis" x1="56" x2="56" y1="12" y2="204"></line><text x="50" y="16" text-anchor="end">40</text><text x="50" y="112" text-anchor="end">20</text><text x="50" y="208" text-anchor="end">0</text><text x="56" y="224">Nov 1</text><text x="508" y="224" text-anchor="end">Nov 30</text><line class="sdk-burndown-today" x1="300" x2="300" y1="12" y2="204"></line><text x="300" y="224" text-anchor="middle">Today</text><path class="sdk-burndown-line is-dashed" d="M 56 12 H 150 V 60 H 360 V 156 H 508"></path><path class="sdk-burndown-line is-solid" d="M 56 12 H 200 V 84 H 280 V 132 H 508"></path><circle class="sdk-burndown-dot" cx="200" cy="84" r="3"></circle><circle class="sdk-burndown-dot" cx="280" cy="132" r="3"></circle></svg></div><ul class="sdk-burndown-legend" aria-hidden="true">' + bnKey('Done', 'solid') + bnKey('Planned', 'dashed') + '</ul><p class="sdk-burndown-words">Left, from Nov 1 to Nov 30. 40 to start; 15 left after what is done.</p></div>' },
+      { wide: true, n: 'Nothing to draw', ctx: 'host', sel: '.sdk-burndown-words', html: '<div class="sdk-burndown" style="max-width:520px"><div class="sdk-burndown-chart"></div><ul class="sdk-burndown-legend" aria-hidden="true"></ul><p class="sdk-burndown-words">Set a target to see it counted down over time.</p></div>' },
+    ],
+    notMounted: 'a drawing by hand; the live piece below is the real one, drawn by the SDK at its width.',
+  });
+
   // ---- Outline (host.ui.outline, host.ui.progress) ----
   const olItem = (title, o = {}) => '<li class="sdk-outline-item' + (o.cls || '') + '"><div class="sdk-outline-row' + (o.row || '') + '">' + (o.kids ? '<button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-outline-fold" aria-expanded="true" aria-label="Fold: ' + title + '"><span class="ic" aria-hidden="true">' + fa('chevron-right') + '</span></button>' : '<span class="sdk-outline-fold-gap"></span>') + '<div class="sdk-outline-content">' + title + '</div><button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-outline-handle" aria-haspopup="menu" aria-label="Move: ' + title + '"><span class="ic sdk-outline-grip" aria-hidden="true">' + fa('grip-vertical') + '</span><span class="ic sdk-outline-dots" aria-hidden="true">' + fa('ellipsis-vertical') + '</span></button></div>' + (o.kids || '') + '</li>';
   F.push({
@@ -307,6 +319,24 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           menu: function () { return [{ label: 'Edit', icon: 'pen' }]; },
           onAdd: function () {},
           onMove: function (m) { data = data.map(function (x) { return x.id === m.id ? Object.assign({}, x, { column: m.column }) : x; }); bdr.set(data); } });`,
+    },
+    {
+      id: 'live-burndown', block: 'burndown', name: 'Live: burndown', height: 340, title: 'Live burndown',
+      desc: 'host.ui.burndown mounted by the real SDK: two series (Done, solid with a dot on each step; Planned, dashed), three phases behind it in their own colours, Today and the words under it. It runs from three weeks ago to three weeks ahead, so Today is always in it. Narrow the box under 400 px and it draws again, shorter.',
+      body: '<div class="dsf-live"><div id="bn" style="max-width:720px"></div></div>',
+      script: `
+        var dayOf = function (k) { var d = new Date(); d.setDate(d.getDate() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+        host.ui.burndown(document.getElementById('bn'), {
+          total: 40, from: dayOf(-21), to: dayOf(21), format: function (n) { return n + ' pts'; },
+          series: [
+            { id: 'done', label: 'Done', kind: 'solid', points: [{ day: dayOf(-21), left: 40 }, { day: dayOf(-14), left: 34 }, { day: dayOf(-9), left: 27 }, { day: dayOf(-3), left: 22 }] },
+            { id: 'planned', label: 'Planned', kind: 'dashed', points: [{ day: dayOf(-21), left: 40 }, { day: dayOf(-12), left: 30 }, { day: dayOf(0), left: 21 }, { day: dayOf(10), left: 8 }, { day: dayOf(18), left: 0 }] }],
+          bands: [
+            { label: 'Planning', color: '#4f7cc4', start: dayOf(-30), end: dayOf(-8), dated: true },
+            { label: 'Building', color: '#3f9a6b', start: dayOf(-7), end: dayOf(12), dated: true },
+            { label: 'Launch', color: '#c4734f', start: dayOf(13), dated: true }],
+          words: 'Left, from three weeks ago to three weeks ahead. 40 pts to start; 22 pts left after what is done; 0 left if all planned work is done.',
+          empty: 'Nothing to count down yet.' });`,
     },
     {
       id: 'live-weather', block: 'days', name: 'Live: a day\'s weather (host.ui.dayWeather)', height: 470, title: 'Live day weather',
