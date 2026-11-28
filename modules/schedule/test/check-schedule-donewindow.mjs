@@ -68,7 +68,7 @@ await test('the menu item is on a done column only, and is a link', () => {
 });
 await test('the wiring: next to the pull\'s line, in the menu for anyone, redrawn when `keep` changes, never markup', () => {
   assert.match(page, /if \(pullOn\(\)\) status\.unshift\(\.\.\.\[pullStatus\(\), keepStatus\(\)\]\.filter\(Boolean\)\);/);
-  assert.match(page, /if \(!canColumns\(\)\) return keepItem\(c\);/, 'someone who may not change the columns still gets the link');
+  assert.match(page, /if \(!canColumns\(\)\) return \[\.\.\.keepItem\(c\), /, 'someone who may not change the columns still gets the link');
   assert.match(page, /keep: v\.on \? keepOf\(v\.keep\) : null \}/, 'the pull view\'s keep is read');
   assert.match(page, /hadKeep !== JSON\.stringify\(state\.pull\.keep\)/, 'a change of keep redraws');
   const mine = grab(/const keepOf = [^\n]*\n/) + grab(/function keepStatus\(\) \{[\s\S]*?\n  \}\n/) + grab(/const keepItem = [^\n]*\n/);
