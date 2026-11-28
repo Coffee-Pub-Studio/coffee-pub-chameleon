@@ -151,8 +151,13 @@ function wireFollows(box, space) {
     const writeWords = !app ? '' : v.canWrite
       ? `Moves, closes, titles and tags made here change the issues on ${name}. ${name} shows them as ${v.app && v.app.name ? `${v.app.name}, ${botName}` : 'the app'}.`
       : `You can read this repository on ${name} but not change it, so changes stay read only here.`;
-    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may ? `<div class="row">${(!app || v.appError) && !noAppLine ? '<button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button>' : ''}<button type="button" class="btn btn-danger" data-follows-stop>Stop following</button></div>` : ''}${app ? `<div data-follows-write><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(box.dataset.follows)}"><span class="sdk-choice-text">Changes here go to ${escapeHtml(name)}</span></label><p class="hint" id="follows-write-${escapeHtml(box.dataset.follows)}" data-follows-write-line role="status" aria-live="polite"></p></div>` : `<p class="hint">${may && !noAppLine ? 'Changes stay here. Connect to GitHub to send them to GitHub.' : ''}</p>`}${noAppLine ? `<p class="hint" data-follows-app-line role="status">${escapeHtml(noAppLine)}</p>` : ''}`;
+    body.innerHTML = `<p class="hint" data-follows-line role="status" aria-live="polite"></p>${may ? `<div class="row">${(!app || v.appError) && !noAppLine ? '<button type="button" class="btn btn-primary" data-follows-connect>Connect to GitHub</button>' : ''}<button type="button" class="btn btn-danger" data-follows-stop>Stop following</button></div>` : ''}${app ? `<div data-follows-write><label class="sdk-choice-row"><input type="checkbox" role="switch" data-follows-write-input aria-describedby="follows-write-${escapeHtml(box.dataset.follows)}"><span class="sdk-choice-text">Changes here go to ${escapeHtml(name)}</span></label><p class="hint" id="follows-write-${escapeHtml(box.dataset.follows)}" data-follows-write-line role="status" aria-live="polite"></p></div>` : `<p class="hint">${may && !noAppLine ? 'Changes stay here. Connect to GitHub to send them to GitHub.' : ''}</p>`}${noAppLine ? `<p class="hint" data-follows-app-line role="status">${escapeHtml(noAppLine)}</p>` : ''}${v.keep ? `<div data-follows-keep><label class="follows-keep-row">Keep closed issues for <input type="number" inputmode="numeric" min="7" max="365" step="1" data-follows-keep-input aria-describedby="follows-keep-${escapeHtml(box.dataset.follows)}"> days</label><p class="hint" id="follows-keep-${escapeHtml(box.dataset.follows)}" data-follows-keep-line role="status" aria-live="polite">Older closed issues stay on ${escapeHtml(name)}.</p></div>` : ''}`;
     say(stateLine, failing);
+    if (v.keep) {
+      const k = q('[data-follows-keep-input]');
+      k.value = String(v.keep.days);
+      k.disabled = !may;
+    }
     if (app) {
       const input = q('[data-follows-write-input]');
       input.checked = Boolean(v.write);
@@ -244,6 +249,22 @@ function wireFollows(box, space) {
     }
   });
   body.addEventListener('change', async (event) => {
+    const keep = event.target.closest('[data-follows-keep-input]');
+    if (keep) {
+      const line = q('[data-follows-keep-line]');
+      const was = last && last.keep ? String(last.keep.days) : '';
+      keep.disabled = true;
+      try {
+        draw(await api('PUT', route, { keepDays: Number(keep.value) }));
+        q('[data-follows-keep-input]')?.focus();
+      } catch (err) {
+        keep.value = was;
+        keep.disabled = false;
+        line.textContent = err.message;
+        line.classList.add('error');
+      }
+      return;
+    }
     const input = event.target.closest('[data-follows-write-input]');
     if (!input) return;
     const want = input.checked;
