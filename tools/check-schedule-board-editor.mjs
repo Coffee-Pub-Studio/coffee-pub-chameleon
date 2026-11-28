@@ -131,7 +131,7 @@ try {
   same((await boardNow()).status, 404, 'a template-default board has no stored record');
   ok(await ev(tab, `!__all(${JSON.stringify(F + '#board-bar')})[0].hidden`), 'an owner sees "Add a column"');
   await colMenu(tab, 'doing');
-  same(await items(tab), ['Fold', 'Rename', 'Move left', 'Move right', 'Counts as done', 'Delete'], 'the column menu for someone with columns');
+  same(await items(tab), ['Fold', 'Rename', 'Move left', 'Move right', 'Counts as done', 'Colour', 'Delete'], 'the column menu for someone with columns');
   await shot(tab, 'editor-1280-light-menu');
   await menuItem(tab, 'Rename');
   await promptDo(tab, '   ');

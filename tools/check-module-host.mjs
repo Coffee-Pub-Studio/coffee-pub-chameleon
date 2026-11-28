@@ -653,7 +653,7 @@ test('host.environment follows the picture map while the page is open', () => {
   const emitAt = sdk.indexOf('  function emit(event, data) {');
   const emitBody = sdk.slice(emitAt, sdk.indexOf('\n  }\n', emitAt));
   assert.match(emitBody, /if \(event === 'environment' && info && data && typeof data === 'object'\) info\.environment = /, 'the SDK updates host.environment');
-  assert.ok(emitBody.indexOf("event === 'environment'") < emitBody.indexOf('for (const fn of listeners'), 'before the listeners hear it');
+  assert.ok(emitBody.indexOf("event === 'environment'") < emitBody.indexOf('for (const fn of [...(listeners'), 'before the listeners hear it');
   assert.match(sdk, /get environment\(\) \{ return \{ pictureMap: \(info && info\.environment && info\.environment\.pictureMap\) \|\| null \}; \}/, 'read live, not copied once');
 });
 
