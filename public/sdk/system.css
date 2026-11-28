@@ -5883,6 +5883,20 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
   font-size: var(--text-14);
   font-weight: var(--weight-strong);
 }
+/* A column's own colour (its `color`, a #rrggbb): a dot before the name and a light wash on the heading, never a border. The piece lowers
+   --board-wash (host.js, tint) until the heading's words read at 4.5:1; a dot under 3:1 against the heading gets .is-faint's edge. */
+.sdk-board-head.has-color {
+  border-radius: var(--radius-small);
+  background: color-mix(in srgb, var(--board-color) var(--board-wash, 16%), transparent);
+}
+.sdk-board-dot {
+  flex: none;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  background: var(--board-color);
+}
+.sdk-board-dot.is-faint { box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-muted) 75%, var(--edge-hairline)); }
 .sdk-board-fold {
   display: flex;
   align-items: center;

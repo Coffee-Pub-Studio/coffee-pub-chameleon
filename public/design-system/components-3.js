@@ -268,7 +268,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
       desc: 'host.ui.board mounted by the real SDK. Drag a card to another column, open its "..." menu for Move to, or focus a card and press Alt with Left or Right; fold a column; press the + . This page writes the moves itself, as a module would. Narrow the board to 640 px to see the stacked sections.',
       body: '<div class="dsf-live"><div id="bd"></div></div>',
       script: `
-        var cols = [{ id: 'inbox', label: 'Inbox' }, { id: 'now', label: 'Now' }, { id: 'next', label: 'Next' }, { id: 'done', label: 'Done', done: true }];
+        var cols = [{ id: 'inbox', label: 'Inbox', color: '#2f6cbf' }, { id: 'now', label: 'Now', color: '#f2d675' }, { id: 'next', label: 'Next' }, { id: 'done', label: 'Done', done: true, color: '#1f3a2e' }];
         var data = [
           { id: 'a', column: 'inbox', title: 'Write the brief', day: 'Fri', late: true },
           { id: 'b', column: 'now', title: 'Plan the day', day: 'Sat' },

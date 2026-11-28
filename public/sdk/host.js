@@ -2280,9 +2280,21 @@
       if (!c || typeof c.id !== 'string' || !c.id || seen.has(c.id)) continue;
       seen.add(c.id);
       const count = Number(c.count);
-      out.push({ id: c.id, label: typeof c.label === 'string' && c.label.trim() ? c.label.trim() : c.id, done: c.done === true, count: Number.isFinite(count) && count >= 0 ? Math.floor(count) : null });
+      const col = { id: c.id, label: typeof c.label === 'string' && c.label.trim() ? c.label.trim() : c.id, done: c.done === true, count: Number.isFinite(count) && count >= 0 ? Math.floor(count) : null };
+      if (typeof c.color === 'string' && /^#[0-9a-f]{6}$/.test(c.color)) col.color = c.color; // strict '#rrggbb'; anything else is no colour
+      out.push(col);
     }
     return out;
+  }
+  // A column's wash (plan-board-colour.md): the colour mixed into the heading at `pct` percent over `surface` (all '#rrggbb'). The heading's
+  // `text` must reach 4.5:1 on the washed heading, so the wash is lowered from 16% a point at a time until it does (0 when it never does).
+  // `faint` is true when the dot has under 3:1 against the washed heading, so it gets the stronger edge. `contrast` is host.util.contrast.
+  function boardWash(color, surface, text, contrast) {
+    const part = (hex, i) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+    const mix = (p) => `#${[0, 1, 2].map((i) => Math.round(part(surface, i) * (1 - p) + part(color, i) * p).toString(16).padStart(2, '0')).join('')}`;
+    let pct = 16;
+    while (pct > 0 && contrast(text, mix(pct / 100)) < 4.5) pct -= 1;
+    return { pct, faint: contrast(color, mix(pct / 100)) < 3 };
   }
   // columns -> Map(column id -> its cards, in the order given). A card with no id, a repeated id or a column the board does not have is not drawn.
   function boardGroup(columns, cards) {
@@ -2377,6 +2389,8 @@
   let boardSeq = 0;
   // host.ui.board(el, { columns, cards, name?, labels?, card?(card, contentEl), menu?(card), columnMenu?(column), canMove?, canAdd?, foldKey?,
   //   collapsed?, rows?, onOpen?(card), onAdd?(columnId), onMove({ id, column, before? }), onFold?(id, folded) }) -> { set(cards, columns?, rows?), focus(id), destroy() }.
+  // A column may carry `color` ('#rrggbb', anything else is ignored): drawn as a dot before its name and a light wash on its heading, never
+  // a coloured border; the wash is lowered until the heading's words read at 4.5:1, and the module stores the colour (plan-board-colour.md).
   // The cards of a column are drawn in the order given; the module keeps that order. onMove: `column` is the column it lands in (the
   // card's own for a move inside its column); `before` is the id of the card it lands in front of, and missing means at the end of the
   // column. A drop reports where the pointer was; Alt+Up and Alt+Down and the card menu's Move up, Move down, Move to top and Move to
@@ -2531,7 +2545,9 @@
       const fold = make('button', 'sdk-board-fold');
       fold.type = 'button';
       fold.setAttribute('aria-expanded', String(!shut));
-      fold.append(icon('sdk-board-chevron', 'chevron-right'), make('span', 'sdk-board-label', c.label));
+      fold.append(icon('sdk-board-chevron', 'chevron-right'));
+      if (c.color) { const dot = make('span', 'sdk-board-dot'); dot.setAttribute('aria-hidden', 'true'); fold.append(dot); head.classList.add('has-color'); head.style.setProperty('--board-color', c.color); head.dataset.color = c.color; }
+      fold.append(make('span', 'sdk-board-label', c.label));
       if (c.done) { const d = make('span', 'sdk-board-done'); d.dataset.tip = words.countsDone; d.append(icon('', 'check'), make('span', 'sdk-board-sr', words.countsDone)); fold.append(d); }
       fold.append(make('span', 'sdk-board-count', String(count)));
       h.append(fold);
@@ -2663,6 +2679,37 @@
       body.replaceChildren(grid);
     }
 
+    // The wash on each coloured heading, lowered until the heading's words read at 4.5:1 in the mode now showing (boardWash); a dot it
+    // cannot tell apart from the heading (under 3:1) gets the faint edge. Read from the computed theme, so it runs again when the mode changes.
+    function rgbOf(css) { // any computed CSS colour as #rrggbb through a 1px canvas; null if it cannot
+      try {
+        const cv = doc.createElement('canvas');
+        cv.width = 1; cv.height = 1;
+        const g = cv.getContext('2d', { willReadFrequently: true });
+        if (!g || !css) return null;
+        g.fillStyle = css; g.fillRect(0, 0, 1, 1);
+        const d = g.getImageData(0, 0, 1, 1).data;
+        return `#${[d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+      } catch (err) { return null; }
+    }
+    function tint() {
+      const seen = new Map();
+      for (const head of body.querySelectorAll('.sdk-board-head[data-color]')) {
+        const col = head.closest('.sdk-board-col') || head;
+        const surface = rgbOf(win.getComputedStyle(col).backgroundColor);
+        const text = rgbOf(win.getComputedStyle(head).color);
+        const dot = head.querySelector('.sdk-board-dot');
+        if (!surface || !text) { head.style.removeProperty('--board-wash'); if (dot) dot.classList.remove('is-faint'); continue; }
+        const key = `${head.dataset.color}|${surface}|${text}`;
+        if (!seen.has(key)) seen.set(key, boardWash(head.dataset.color, surface, text, colourContrast));
+        const w = seen.get(key);
+        head.style.setProperty('--board-wash', `${w.pct}%`);
+        if (dot) dot.classList.toggle('is-faint', w.faint);
+      }
+    }
+    const modeWatch = typeof win.MutationObserver === 'function' ? new win.MutationObserver(() => { if (!dead) tint(); }) : null;
+    if (modeWatch) modeWatch.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme-mode', 'class', 'data-theme'] });
+
     function draw() {
       if (dead) return;
       const act = (deps.root && deps.root.activeElement) || doc.activeElement;
@@ -2684,6 +2731,7 @@
       if (rowsOn) drawRows(shown);
       else { body.classList.remove('has-rows'); body.replaceChildren(...columns.map((c, i) => column(c, i))); }
       cardCache = nextCache;
+      tint();
       body.scrollLeft = left;
       body.scrollTop = rowsOn ? top : 0;
       body.style.scrollPaddingTop = headsEl ? `${headsEl.offsetHeight}px` : '';
@@ -3044,6 +3092,7 @@
         dead = true;
         for (const [t, f] of on) el.removeEventListener(t, f);
         if (watch) watch.disconnect();
+        if (modeWatch) modeWatch.disconnect();
         el.replaceChildren(); el.classList.remove('sdk-board', 'is-stacked'); el.removeAttribute('role'); el.removeAttribute('aria-label');
       },
     };

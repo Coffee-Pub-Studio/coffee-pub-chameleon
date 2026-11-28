@@ -173,7 +173,8 @@ const OLD_COLOUR = ['--bg', '--bg-section', '--bg-card', '--bg-input', '--text',
   // The banded card's --card-fill and --card-head-base are set on one box that sits on another surface (a card on a tinted area); no module has to.
   // A shared tag's colour is data too (plan-colour-picker.md, decision 30): paintTag (public/sdk/host.js) sets --tag-fill and --tag-ink on one chip or dot.
   // The board with rows (host.ui.board): the grid's column tracks and their least width (--board-cols, --board-min) are set on its grid from the columns' fold state; --board-max-height is the module's own choice (80vh when unset).
-  const PER_ELEMENT = ['--board-cols', '--board-min', '--board-max-height', '--x', '--w', '--p', '--pin-x', '--arrow-x', '--at', '--sw', '--card-fill', '--card-head-base', '--tag-fill', '--tag-ink'];
+  // A coloured board column's heading (plan-board-colour.md): its own #rrggbb (--board-color) and the wash percent the piece lowers until the words read (--board-wash, host.js tint), set on that heading.
+  const PER_ELEMENT = ['--board-color', '--board-wash', '--board-cols', '--board-min', '--board-max-height', '--x', '--w', '--p', '--pin-x', '--arrow-x', '--at', '--sw', '--card-fill', '--card-head-base', '--tag-fill', '--tag-ink'];
   const known = new Set([...defs.keys(), ...others.keys(), ...PER_ELEMENT]);
   for (const m of css.matchAll(/var\((--[a-z0-9-]+)/g)) {
     if (!known.has(m[1])) fail(`system.css reads ${m[1]}, which is defined nowhere`);
