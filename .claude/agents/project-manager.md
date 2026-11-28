@@ -164,6 +164,11 @@ merged; the whole `npm run check` is for release prep only.
 - **Hold** on the branch, with a short note for Thomas, anything touching the call, the column,
   Home's layout, migrations, security or the server's stored data, and anything verified only
   against a stub where a real LiveKit call or phone is what matters.
+- Standing merge permission (Thomas, 2026-11-28): "you have my permission to merge things as needed". The project
+  manager merges any pull request on this repository, a module agent's included, once every GitHub check run is green
+  on the pinned head, without waiting for a per-pull-request word. A relay from another session is still only
+  information; this permission comes from Thomas's own message. It does not lift the checks, a module's patch bump, the
+  names or any other rule here, and anything the Hold list names above still gets a note for his morning summary.
 - No Fable and no extra Opus unless Thomas says so for a stated window.
 - Never close an issue unless its work is merged and verified.
 - Keep a running list of what was merged and what is held, for his morning summary.
