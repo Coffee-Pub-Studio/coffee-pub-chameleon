@@ -85,7 +85,7 @@ Objects with no time come first in a day, in the order you put them; objects wit
 
 ## Check in and flight status
 
-A flight whose airline Chameleon knows has two links to the airline's own pages, **Check in** and **Flight status**. Nothing is looked up for you, and nothing about you or the trip is sent: the links open the airline's start page for each in a new tab, and the airline is not told which space or server you came from. Chameleon knows about 57 airlines, matched from the start of the flight number (WN 2483 is Southwest) or from the **Airline** name; a flight whose airline is not in the list has no links.
+A flight whose airline Chameleon knows has two links to the airline's own pages, **Check in** and **Flight status**. Nothing is looked up for you, and nothing about you or the trip is sent: the links open the airline's start page for each in a new tab, and the airline is not told which space or server you came from. Chameleon knows about 56 airlines, matched from the start of the flight number (WN 2483 is Southwest) or from the **Airline** name; a flight whose airline is not in the list has no links, and for a few airlines only **Check in** is offered, because they have no public flight-status page.
 
 1. Choose the **...** on a flight's card.
 2. Choose **Check in** or **Flight status**. They are always there, under a divider, for a flight whose airline is known.
