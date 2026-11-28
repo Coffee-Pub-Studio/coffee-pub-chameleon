@@ -50,9 +50,11 @@ and never offer or recommend a production build: only Thomas calls one (Thomas, 
   version of any module it changes (`node tools/check-module-versions.mjs --update`), nothing else, and
   checks that `node tools/check-module-versions.mjs` prints OK. As soon as the builder reports, you
   push, open a pull request, and merge it (squash, with `expectedHeadSha`) when every GitHub check run
-  is green on that head; then confirm the image is published (an anonymous token, then a HEAD on
-  `/v2/coffee-pub-studio/coffee-pub-chameleon/manifests/sha-<7>`; 200 means published; check the `image.yml` run
-  if not) and tell Thomas what to pull and what to test, so he is testing within the hour. Name the
+  is green on that head; then confirm the image is published from the `image.yml` run for that commit
+  (the job succeeded and its log names the pushed `sha-<7>` tag and digest), and say in the report that
+  this is read from the workflow log, not from a pull. The package stays private (Thomas, 2026-11-28), so
+  never ask to make it public; when his pull is refused as unauthorized, tell him to log in to ghcr.io with
+  a `read:packages` token. Then tell Thomas what to pull and what to test, so he is testing within the hour. Name the
   build every time you ask him to pull: the exact tag `sha-<7>` of the commit that holds the change,
   confirmed published, in a code block he can copy. He tests by tag and never by `latest` (Thomas,
   2026-11-22), so never say "pull the newest image" or give `latest`. Rough edges
