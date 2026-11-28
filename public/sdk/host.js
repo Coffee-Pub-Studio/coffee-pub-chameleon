@@ -4513,6 +4513,17 @@
       // true }) "Meetings", label('event', { a: true }) "a meeting". A key the manifest does not declare (or before
       // ready) answers `fallback` when given, else the key itself. Plain text: set it with textContent, never as HTML.
       label: (key, o) => utilLabel(locale().labels, key, o),
+      // The line to show where something is missing because this module's update waits for an approval (a box or a row a new
+      // permission would give): "Ask your admin to approve the update to Planner in Manage > Modules." for most people, and
+      // "Approve the update to Planner in Manage > Modules." for an owner or the admin, who can. Empty text when nothing waits
+      // (or before ready), so show it only when it is not empty. Plain text: set it with textContent.
+      approvalLine: () => {
+        if (!info || !info.module || info.module.needsApproval !== true) return '';
+        const can = Boolean(info.user && (info.user.role === 'owner' || info.user.role === 'admin'));
+        const w = (key, o) => utilWord(locale().words, key, o);
+        const where = `in Manage > ${w('module', { many: true, cap: true })}.`;
+        return can ? `Approve the update to ${info.module.name} ${where}` : `Ask your ${w('admin')} to approve the update to ${info.module.name} ${where}`;
+      },
       // Fill every element marked data-word="<code name>" in `root` (an element, a fragment or the module's root) with
       // its word, as the host's own pages do: data-word-form takes any of many, cap and a, space-separated.
       // <span data-word="owner" data-word-form="a cap"></span> reads "An owner". Answers `root`.

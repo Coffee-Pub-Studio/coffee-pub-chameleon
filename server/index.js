@@ -15205,6 +15205,12 @@ app.put('/api/modules/:id/settings/:scope', (req, res) => {
   }
 });
 
+// Whether a module is on with an update that waits for an approval (Manage > Modules shows "Needs approval" and Approve).
+const waitingApproval = (id) => {
+  const v = modules.view(id);
+  return Boolean(v.enabled && v.needsApproval);
+};
+
 // Who is looking and what they may do in this module, for the frame's hello.
 app.get('/api/modules/:id/context', (req, res) => {
   const ctx = moduleAccess(req, res, 'read');
@@ -15219,7 +15225,9 @@ app.get('/api/modules/:id/context', (req, res) => {
     // `nav`: the admin allowed this module into the primary nav (surfaces.page.nav), which is what lets a system-wide
     // tool of its own into that bar (host.nav.set; see api-module-sdk.md, "Registering into the nav bars").
     // `name` and `icon`: what this environment calls the module and shows it as (its display name and icon, else its own).
-    module: { id: manifest.id, ...shownModule(manifest, here ? here.id : null), version: manifest.version, nav: Boolean(manifest.surfaces.page && manifest.surfaces.page.nav) },
+    // `needsApproval`: this module is on and its update asks for something new that no one has approved yet, so it runs without
+    // it (the page says why a thing is missing; see host.util.approvalLine).
+    module: { id: manifest.id, ...shownModule(manifest, here ? here.id : null), version: manifest.version, nav: Boolean(manifest.surfaces.page && manifest.surfaces.page.nav), needsApproval: waitingApproval(manifest.id) },
     // How the server shows language, time and money (Manage > Settings), for every module to follow.
     // `currencies`: the codes the server takes (as GET /api/currencies), for a module's currency picker.
     // `words`: every level's and role's words in this environment, as branding()'s (server/words.js), for host.locale().words.

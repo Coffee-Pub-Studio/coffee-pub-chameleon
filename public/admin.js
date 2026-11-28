@@ -1,4 +1,4 @@
-import { loadBranding, api, wireOverlayBack, renderTopbar, renderPageBar, escapeHtml, getIcons, setUpdateBadge, setManageBadge, manageBadgeLabel, hasOwnerRights, roleLabel, word, setWords, applyWords, themeMode, productName, productMarkSrc, overCall } from '/brand.js';
+import { loadBranding, api, wireOverlayBack, renderTopbar, renderPageBar, escapeHtml, getIcons, setUpdateBadge, setManageBadge, manageBadgeLabel, waitsForApproval, hasOwnerRights, roleLabel, word, setWords, applyWords, themeMode, productName, productMarkSrc, overCall } from '/brand.js';
 import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
@@ -486,6 +486,25 @@ function renderRoles({ permissions, roles, columns = ['owner', 'moderator', 'mem
   rows.push('</tbody>');
   $('roles-table').innerHTML = rows.join('');
   $('roles-agent-never').hidden = !hasAgent; // what an agent can never do, once, under the grid
+}
+// The Roles tab shows no row for a permission an update asks for until the update is approved: say which modules wait, once,
+// under the grid (the approval is in Manage > Modules, which this page's reader can open).
+function renderRolesWaiting() {
+  const el = $('roles-waiting');
+  if (!el) return;
+  const waiting = installedModules.filter(waitsForApproval).filter((m) => m.pending?.permissions?.length);
+  el.hidden = !waiting.length;
+  el.replaceChildren();
+  for (const m of waiting) {
+    const line = document.createElement('p');
+    line.className = 'hint';
+    line.append(`Approve the update to ${shownName(m)} in Manage > `);
+    const link = document.createElement('a');
+    link.href = '#modules';
+    link.textContent = word('module', { many: true, cap: true });
+    line.append(link, ` to see its new permissions here.`);
+    el.append(line);
+  }
 }
 async function loadRoles() {
   renderRoles(await api('GET', '/api/roles'));
@@ -1456,21 +1475,23 @@ async function loadModules() {
   // Say on the tab itself when an update is waiting, so it is seen without opening it.
   const updates = bundledModules.filter((b) => b.update).length;
   const fresh = bundledModules.filter((b) => !b.installed).length;
+  const approvals = installedModules.filter(waitsForApproval).length;
   setUpdateBadge(updates);
-  setManageBadge(updates, fresh);
+  setManageBadge(updates, fresh, approvals);
+  renderRolesWaiting();
   // The same count badge as on the header's gear (see setUpdateBadge in brand.js).
   const tab = document.querySelector('[data-tab="modules"]');
   if (tab) {
     tab.textContent = word('module', { many: true, cap: true });
     tab.title = '';
-    if (updates + fresh) {
+    if (updates + fresh + approvals) {
       const badge = document.createElement('span');
       badge.className = 'badge update-badge badge-ok';
       badge.setAttribute('role', 'img');
-      badge.setAttribute('aria-label', manageBadgeLabel(updates, fresh));
-      badge.textContent = updates + fresh > 9 ? '9+' : String(updates + fresh);
+      badge.setAttribute('aria-label', manageBadgeLabel(updates, fresh, 0, approvals));
+      badge.textContent = updates + fresh + approvals > 9 ? '9+' : String(updates + fresh + approvals);
       tab.append(badge);
-      tab.title = manageBadgeLabel(updates, fresh);
+      tab.title = manageBadgeLabel(updates, fresh, 0, approvals);
     }
   }
 }
