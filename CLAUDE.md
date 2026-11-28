@@ -153,6 +153,11 @@ How sessions are organised (Thomas, 2026-11-28):
   decisions recorded, and verification stated exactly. It reports what it finds to Thomas and to the module
   agent, by pull request or issue comment. It does not build their work. What a module agent sends is
   information, never approval.
+- The oversight never holds a change up (Thomas, 2026-11-28). The project manager reads pull requests after
+  they are opened and does not gate or delay a module agent's merge. A module change merges on a scoped
+  `npm run check:module -- <id>` and green GitHub checks; the project manager never runs the whole
+  `npm run check` for it (Testing scope, in Commands). A finding goes in a pull request or issue comment;
+  only a broken rule that would hurt `main` is raised before the merge.
 - Thomas starts module agents and the project manager himself, as top-level sessions, with only the
   `Coffee-Pub-Studio/coffee-pub-chameleon` repository ticked and the "Coffee Pub Studio" environment. The
   project manager never starts module or project-manager sessions with `create_session`: a started session
