@@ -37,7 +37,9 @@ Read on 2026-11-26 at docs.github.com, by the planner (Thomas's rule: a service'
 
 ## Decisions
 
-None yet. Thomas's standing rules that bind every option: never a paid service or one whose free tier forbids commercial use, and its terms read first (Thomas, 2026-11-25); a token is a secret in an environment variable, never in a browser or a space's data; the server makes the calls and only what is needed leaves it; the product is unreleased, so no compatibility layers; the Names in CLAUDE.md.
+1. **The pull reads an issue's description into `notes`** (Thomas, 2026-11-28, issue #1252). The pull reads the issue's body into the work's `notes`: read only, plain text, cut to `NOTES_MAX` (`server/issues.js`), and kept below the issue's link. It is the GitHub issue's own text, so it is never sent back to GitHub and never edited in Chameleon; a change on GitHub arrives with the next pull. It still never reads a login, an assignee, an author or a comment. Reason (Thomas): using Bug Squash for real, an issue opened in the edit dialog shows only its link, with no description or context to read or decide from. This reverses the earlier line "no body is ever read into a record". The cost, plainly: more text is stored and sent to everyone who can see the plan, and an issue body can hold private text. So the owner follows a repository knowing its issue text is shown to the space's members (the follow is the owner's choice); the body is stored as untrusted text and drawn as plain text only, never as markup or a link.
+
+Thomas's standing rules that bind every option: never a paid service or one whose free tier forbids commercial use, and its terms read first (Thomas, 2026-11-25); a token is a secret in an environment variable, never in a browser or a space's data; the server makes the calls and only what is needed leaves it; the product is unreleased, so no compatibility layers; the Names in CLAUDE.md.
 
 ## The shape, with the leans
 
@@ -50,7 +52,7 @@ Each lean is a suggestion. Those marked "taken" are small and written down under
    - `title`: GitHub's title as it is (area and colon included), cut to 120 characters with an ellipsis. The page draws `#<number>` beside it from `source`.
    - `column` and `done`: closed is `done`; open with `priority: now`, `next` or `later` is that column; any other open issue is `inbox`. Through `scSetColumn`, so `done` always equals the column's flag.
    - `tags`: each label other than `priority:` is a tag, id from its name (`good-first-issue`), label as on GitHub, its GitHub colour, the icon `tag`. The puller adds a missing row to the space's `tags` setting; the setting holds 20 rows and the repository has 12 such labels, and a label past the 20th is named in `notes` instead.
-   - `notes`: one line with the link and, when set, the milestone's name (the repository has none today). Never the issue's body or comments: only what the board needs leaves GitHub's answer for the space.
+   - `notes`: the link and, when set, the milestone's name (the repository has none today), then the issue's body as plain text, all cut to `NOTES_MAX` (decision 1). Never the issue's comments.
    - `owners`: none. Logins are personal information under GitHub's policy, and matching a login to a member needs a stored link between accounts that does not exist. Assignees and authors are not pulled.
    - `start` and `end`: `start` the day it was made (UTC), `end` the day it closed, or the start day while it is open (`scClean` makes a one-day span). That meets `datesRequired` and orders each column oldest first. Lean: the pulled space has no Calendar module, or 382 dated copies flood it; a later choice could turn `datesRequired` off and write no days.
    - Milestones: a GitHub milestone becomes a Projects milestone `plan:ghm-<number>` with its work under it (`parent`), start its due day else its first day. None exist today, so this is in the contract and untested on real data.

@@ -39,7 +39,7 @@ Thomas, 2026-11-26, answering the five questions this plan put to him. They repl
 
 1. **The end state: work from Bug Squash, delete the GitHub board.** Bug Squash is where priority and order are decided; the issues stay on GitHub; the GitHub project board and its workflows are deleted once two-way is proven. Reason: he wants to "kill the github project and work out of my own tool", and two places deciding priority cannot both be right.
 2. **The author is Thomas's own fine-grained token now**: `ISSUES_GITHUB_TOKEN` with **Issues: read and write** on the one repository, so every change shows on GitHub as Thomas. A GitHub App later, if other people come to write. The planner's lean, accepted. Superseded by [plan-github-app](plan-github-app.md) (Thomas, 2026-11-26): the GitHub App, now.
-3. **What flows back**: the column (the `priority:` labels), Done (close and reopen), the title, tags as labels and new issues; not the body, comments, assignees or delete. Days, owners and order stay the space's own. The planner's lean, accepted as listed.
+3. **What flows back**: the column (the `priority:` labels), Done (close and reopen), the title, tags as labels and new issues; not the body (the pull reads it into `notes`, read only; [plan-github-pull](plan-github-pull.md), decision 1), comments, assignees or delete. Days, owners and order stay the space's own. The planner's lean, accepted as listed.
 4. **Writes are sent at once, with no queue, and GitHub wins a conflict on the same field**, with one line saying why. The planner's lean, accepted.
 5. **Carry all the roadmap fields**: Area, Release status, Phase, Start date and Target date all move into the space before the board is removed (not the planner's lean, which dropped Release status). Reason: nothing the board holds is lost with it.
 
@@ -62,13 +62,13 @@ Each field of pulled work falls into one of three kinds. The pull already knows 
 | Order inside a column | not on GitHub's issues | not sent (labels cannot carry it) | the space's own |
 | Start and end days | made and closed days | not sent; GitHub issues have no dates | today GitHub's; see below |
 | Who is doing it (`owners`) | not pulled | not sent | the space's own |
-| Description (`notes`) | the link, milestone and spare labels | not sent; the body is not pulled | GitHub's, read-only |
+| Description (`notes`) | the link, milestone, spare labels and the issue's body | not sent; the body is pulled in read only and never sent back | GitHub's, read-only |
 | Number, link, milestone | from the issue | not sent | GitHub's, read-only |
 | Comments | not pulled | not sent | neither |
 | Assignees | not pulled | not sent | neither |
 | Delete | an issue gone is removed | not offered: GitHub's REST API cannot delete an issue, and GraphQL's `deleteIssue` needs the repository's admin; the menu offers **Close** instead ("GitHub issues can't be deleted from here. Close it, or delete it on GitHub.") | neither |
 
-- *Description, two-way* (not leaned): pulling the body into `notes` and writing it back means bodies (often longer than the 2000 characters `notes` holds, so a write-back would cut them) and the personal information they may carry come into the space. Lean: no; the body stays GitHub's, opened with **Open on GitHub**.
+- *Description, two-way* (not leaned): writing `notes` back as the body would cut bodies longer than the 2000 characters `notes` holds. Lean: no. The pull reads the body into `notes` read only (Thomas, 2026-11-28; [plan-github-pull](plan-github-pull.md), decision 1) and it is never sent back, so GitHub stays its only editor.
 - *Comments and assignees*: logins are personal information under GitHub's Acceptable Use Policies, and nothing links a member to a GitHub login. Lean: neither way.
 - *Days* (taken): a space's own fields are kept by the pull. In a two-way space the pull writes `start` and `end` only when it first makes the work (both the day the issue was made); after that the days are the space's own (the roadmap's Start date and Target date, below), and the next pull keeps them, closed or not. `datesRequired` stays as it is. Pulled work can then be "Late" like any other: the page's rule that pulled work is never late (`pageLate` in `schedule.js`) applies only to a space that is pulled one way.
 - *New object's title* (taken): not forced into the "Area: title" shape (that is a rule for agents filing issues, CLAUDE.md); the editor's hint reads "Area: what is wrong".
