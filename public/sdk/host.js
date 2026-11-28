@@ -5770,6 +5770,16 @@
       status: () => call('issues.status', {}),
       pullNow: () => call('issues.pullNow', {}),
       create: (o) => call('issues.create', { title: o && o.title, column: o && o.column }),
+      // open(number) -> { description, base, comments, older, url } read from the service now (a comment: { id, who, at, edited, text,
+      // mine, canDelete }). describe(number, { text, base }) saves the whole text -> { item, description, base }; on a 409 (the service's
+      // text changed) it throws with status 409 and the service's `description` and `base` on the error (also err.current).
+      // comment(number, text) -> the comment; editComment(number, commentId, text) -> the comment; deleteComment(number, commentId)
+      // -> { deleted }. All throw with the server's status and sentence; a 429 has err.retryAfter in seconds.
+      open: (number) => call('issues.open', { number }),
+      describe: (number, o) => call('issues.describe', { number, text: o && o.text, base: o && o.base }),
+      comment: (number, text) => call('issues.comment', { number, text }),
+      editComment: (number, commentId, text) => call('issues.editComment', { number, commentId, text }),
+      deleteComment: (number, commentId) => call('issues.deleteComment', { number, commentId }),
     },
 
     // Set up for the space. can() -> whether this person is an owner (or the admin) here, who may follow a repository and so on;
@@ -7691,6 +7701,7 @@
           err.status = m.error.status;
           err.current = m.error.current;
           if (m.error.retryAfter) err.retryAfter = m.error.retryAfter; // a 429's Retry-After, in seconds
+          if (typeof m.error.description === 'string') { err.description = m.error.description; err.base = m.error.base; } // host.issues.describe's 409: the service's text and its base
           if (Array.isArray(m.error.unread)) err.unread = m.error.unread; // host.ai.extract's 422: the sentences it could not read
           p.reject(err);
         } else {

@@ -1618,6 +1618,13 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
   // Only for the claim's own minute (the server's window): a slower handler then writes as the person, not refused.
   const CARRY_MS = 55 * 1000;
   const carriedFor = () => (carrying && Date.now() - carrying.at < CARRY_MS ? { for: carrying.byKey, request: carrying.id } : {});
+  // The path of one issue in this space (host.issues.*); refuses outside a space and for a bad number.
+  const issuePath = (number) => {
+    if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
+    const n = Number(number);
+    if (!Number.isSafeInteger(n) || n < 1) throw Object.assign(new Error('That is not an issue number.'), { status: 400 });
+    return `/api/spaces/${encodeURIComponent(spaceId)}/issues/${n}`;
+  };
   const handlers = {
     async hello() {
       // Every new page in the frame says hello first, and its SDK makes no live call before the answer: a hello after the
@@ -2275,6 +2282,32 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       if (scope !== 'space' || !spaceId || keyed) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
       return (await api('POST', `/api/spaces/${encodeURIComponent(spaceId)}/issues`, { title: String(title ?? ''), column: String(column ?? '') })).item;
     },
+    // One issue's text and thread (GET /api/spaces/:id/issues/:number[/description|/comments[/:commentId]]): only inside a space;
+    // the server decides who may. A 429 keeps its Retry-After as err.retryAfter (brand.js api()).
+    async 'issues.open'({ number }) {
+      return api('GET', `${issuePath(number)}${guestToken ? `?guest=${encodeURIComponent(guestToken)}` : ''}`);
+    },
+    // Saves the whole text. Read here without api(), because a 409 carries the service's { description, base } that api() drops.
+    async 'issues.describe'({ number, text, base }) {
+      const path = `${issuePath(number)}/description`;
+      const res = await fetch(path, { method: 'PUT', headers: { ...accessKeyHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ text: String(text ?? ''), base: String(base ?? '') }) });
+      let data = {};
+      try { data = await res.json(); } catch { data = {}; }
+      if (res.ok) return { item: data.item, description: data.description, base: data.base };
+      const err = Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
+      if (res.status === 429) err.retryAfter = Number(res.headers.get('Retry-After')) || 0;
+      if (res.status === 409 && typeof data.description === 'string') { err.description = data.description; err.base = data.base; err.current = { description: data.description, base: data.base }; }
+      throw err;
+    },
+    async 'issues.comment'({ number, text }) {
+      return (await api('POST', `${issuePath(number)}/comments`, { text: String(text ?? '') })).comment;
+    },
+    async 'issues.editComment'({ number, commentId, text }) {
+      return (await api('PATCH', `${issuePath(number)}/comments/${encodeURIComponent(String(commentId))}`, { text: String(text ?? '') })).comment;
+    },
+    async 'issues.deleteComment'({ number, commentId }) {
+      return api('DELETE', `${issuePath(number)}/comments/${encodeURIComponent(String(commentId))}`);
+    },
     // Set up for this space (space-setup.js): whether this person may set it up as an owner (the owner, the admin), and a way to
     // open its panel on a tab. The page does what the space switcher's Set up does (app:enter-space, action `setup`); the
     // panel's own rules decide the rest. Only inside a space, never for a guest.
@@ -2632,7 +2665,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     try {
       reply(m.id, { result: await handler(m.params || {}) });
     } catch (err) {
-      reply(m.id, { error: { message: err.message, status: err.status, current: err.current, retryAfter: err.retryAfter, unread: err.unread } });
+      reply(m.id, { error: { message: err.message, status: err.status, current: err.current, retryAfter: err.retryAfter, unread: err.unread, description: err.description, base: err.base } });
     }
   }
   // A frame's messages arrive in the window it lives in, which is not this one
