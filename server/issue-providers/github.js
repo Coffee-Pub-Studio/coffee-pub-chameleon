@@ -16,7 +16,9 @@
 //     Using the API means agreeing to the Terms and section H. No sharing of tokens to get past the limits; nothing collected
 //     for spam or sold. The API costs nothing and nothing forbids commercial use within its limits.
 //   - Acceptable Use Policies, sections 7 and 8: personal information collected through the API is used only for what the user
-//     authorized. So no login, assignee, author, body or comment is ever read into a record: only what the board needs.
+//     authorized. So no login, assignee, author or comment is ever read into a record: only what the board needs. The issue's
+//     description (its body) is read as plain text, read only, capped (plan-github-pull.md, decision 1); it is the issue's own text,
+//     never sent back.
 //   - Rate limits: 60 requests an hour without a token, 5,000 with one; a 403 or 429 when over, with retry-after or
 //     x-ratelimit-reset to obey; x-poll-interval to honour; conditional requests (an etag sent back as if-none-match: a 304
 //     on an authorized request does not count); one request at a time; a User-Agent naming the application.
@@ -28,7 +30,8 @@
 // that this adapter could meet is the removal of the singular `assignee` from an issue, which no record reads; nothing there is
 // needed, so the header is left as it was.
 // What a write may carry is fixed here: a title, a state and its reason, a label's name, and for a new issue its title and
-// labels. Never a body, an assignee, a milestone or anything of the space or the person.
+// labels. Never a body (a read issue's description is read, never written back), an assignee, a milestone or anything of the
+// space or the person.
 'use strict';
 
 const { userAgent } = require('../product-name');
@@ -37,6 +40,7 @@ const ORIGIN = 'https://api.github.com';
 const WEB_ORIGIN = 'https://github.com';
 const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const PER_PAGE = 100;
+const STATES = Object.freeze(['all', 'open', 'closed']); // which issues a list asks for
 
 // "owner/name" from what a person typed or pasted: owner/name itself, a github.com address (https, or none; with or without www.,
 // a trailing slash, .git, or a deeper path, query or hash such as /issues/12 or /tree/main: the first two segments count), or
@@ -63,6 +67,17 @@ const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]
 const stamp = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : '');
 const day = (v) => stamp(v).slice(0, 10);
 
+// An issue's description as plain text (plan-github-pull.md, decision 1): only a string; line endings as \n; control characters
+// other than newline and tab removed; trimmed; cut on a character (never inside a surrogate pair) at BODY_MAX, marked with an
+// ellipsis. Never markup: it is stored and drawn as text. BODY_MAX is NOTES_MAX in server/issues.js (2000).
+const BODY_MAX = 2000;
+function bodyText(v) {
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
+  const chars = Array.from(t);
+  return chars.length > BODY_MAX ? `${chars.slice(0, BODY_MAX - 1).join('').trimEnd()}…` : t;
+}
+
 // One issue as the neutral record (server/issue-providers/index.js), or null for a pull request or anything that is not an issue.
 function record(raw) {
   if (!raw || typeof raw !== 'object' || raw.pull_request) return null;
@@ -88,6 +103,8 @@ function record(raw) {
   };
   if (!out.open) out.closed = stamp(raw.closed_at) || out.updated;
   if (m) out.milestone = { number: m.number, title: text(m.title, 120), due: day(m.due_on), open: m.state !== 'closed' };
+  const body = bodyText(raw.body);
+  if (body) out.body = body;
   return out;
 }
 
@@ -153,13 +170,13 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
     repoFrom,
     validRepo: (repo) => typeof repo === 'string' && REPO.test(repo) && !/\/\.{1,2}$/.test(repo),
     // One page of the list. `page`: the address `more` gave, or null for the first. `etag` is sent only on the first page.
-    // `get(url, headers)` is the core's (server/issues.js): it asks only this adapter's origin, caps the answer and the time,
-    // and answers { status, header(name), json }.
-    async list({ repo, since = '', etag = '', token = '', page = null }, get) {
+    // `state`: 'all' (the default), 'open' or 'closed'; anything else is 'all'. `get(url, headers)` is the core's
+    // (server/issues.js): it asks only this adapter's origin, caps the answer and the time, and answers { status, header(name), json }.
+    async list({ repo, since = '', etag = '', token = '', page = null, state = 'all' }, get) {
       let url = page;
       if (!url) {
         const u = new URL(`${origin}/repos/${repo}/issues`);
-        u.searchParams.set('state', 'all');
+        u.searchParams.set('state', STATES.includes(state) ? state : 'all');
         u.searchParams.set('per_page', String(PER_PAGE));
         u.searchParams.set('sort', 'updated');
         u.searchParams.set('direction', 'asc');
@@ -177,6 +194,21 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
       if (!Array.isArray(got.json)) return { status: 0, etag: '', records: [], more: null, wait, bad: true };
       const records = got.json.map((r) => record(r)).filter(Boolean);
       return { status: 200, etag: tag, records, more: nextPage(got.header('link'), origin), wait };
+    },
+
+    // The service's own list of the issues closed before `from` (a YYYY-MM-DD day), as an address a person can open
+    // (plan-done-window.md, "The link"): {webOrigin}/<owner>/<name>/issues?q=is:issue is:closed closed:<<from>. Only on the web
+    // origin, never the API's; '' for a repository or a day that is not one. Asks nothing.
+    closedBefore(repo, from) {
+      if (typeof repo !== 'string' || !REPO.test(repo) || /\/\.{1,2}$/.test(repo)) return '';
+      if (typeof from !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return '';
+      const at = Date.parse(`${from}T00:00:00Z`);
+      if (!Number.isFinite(at) || new Date(at).toISOString().slice(0, 10) !== from) return '';
+      let u;
+      try { u = new URL(`/${repo}/issues`, webOrigin); } catch { return ''; }
+      if (u.origin !== new URL(webOrigin).origin || u.pathname !== `/${repo}/issues`) return '';
+      u.searchParams.set('q', `is:issue is:closed closed:<${from}`);
+      return u.href;
     },
 
     // The writes (plan-github-two-way.md, section 13). `ask(method, url, headers, body)` is the core's: this origin only, 6 seconds,

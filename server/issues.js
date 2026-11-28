@@ -3,7 +3,7 @@
 // the service is the source of truth, and the next pull overwrites anything changed some other way. The core maps the records
 // into the plan (the plan's option a), so this file names the `schedule` module; nothing here knows which service it is.
 //
-// What goes out: GET requests to the adapter's origin naming the repository, a `since` time, a page and the last etag, with the
+// What goes out: GET requests to the adapter's origin naming the repository, which issues (all, open or closed), a `since` time, a page and the last etag, with the
 // repository's installation token when the space is linked through the GitHub app (server/issue-app.js, plan-github-app.md) and
 // no token otherwise. Nothing of the space, the environment or its people.
 //
@@ -18,10 +18,13 @@
 // own key) and `appError` (the last trouble with the app as one sentence, or '').
 // With two-way on (documentation/plans/plan-github-two-way.md, step 1) also `write` (changes made here go to the service) and
 // `writeBy`, `writeAt`, who turned writing on and when.
+// The done window (documentation/plans/plan-done-window.md, step 1): `keepDays`, how many days closed issues stay in the plan
+// (a whole number from 7 to 365, 30 when absent). Closed work older than the cutoff (cutoffOf) is not stored and is removed.
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const phaseRule = require('../public/phases.js');
 
 const FILE_NAME = 'issues.json';
 const MODULE_ID = 'schedule'; // Planner - Projects
@@ -37,6 +40,7 @@ const NOTES_MAX = 2000;
 const REST_MS = 30 * 60 * 1000; // after a 403 or 429 that names no time
 const MAX_REST_MS = 24 * 3600 * 1000;
 const NOW_GAP_MS = 60 * 1000; // the least time between two pulls a person asks for
+const KEEP_DAYS = Object.freeze({ min: 7, max: 365, start: 30 }); // the done window's days (plan-done-window.md, decision 2)
 const COLUMNS = Object.freeze([['inbox', 'Inbox'], ['now', 'Now'], ['next', 'Next'], ['later', 'Later'], ['done', 'Done', true]]);
 const PRIORITY = /^priority:\s*(now|next|later)$/i;
 const WORK_KEY = /^plan:gh-(\d{1,9})$/;
@@ -52,6 +56,7 @@ const SAY = Object.freeze({
   silent: (name) => `${name} did not answer.`,
   bad: (name) => `${name}'s answer could not be read.`,
   full: `This plan holds at most ${MAX_ENTRIES} entries; the rest are not pulled.`,
+  keepDays: `Keep closed issues for ${KEEP_DAYS.min} to ${KEEP_DAYS.max} days.`,
   // Writing (plan-github-two-way.md, section 5): nothing is changed in the space unless the service accepted the change.
   noWrite: 'The GitHub app may not change this repository.',
   noApp: 'Connect this repository through the GitHub app to change it from here.',
@@ -93,6 +98,8 @@ class IssuesError extends Error {
 
 const iso = (v) => (typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : '');
 const count = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+// Whether `v` is a number of days the done window may keep.
+const validKeepDays = (v) => Number.isInteger(v) && v >= KEEP_DAYS.min && v <= KEEP_DAYS.max;
 
 function cleanRecord(r) {
   if (!r || typeof r !== 'object') return null;
@@ -114,6 +121,7 @@ function cleanRecord(r) {
     via: app ? 'app' : 'public', installation: app ? r.installation : 0, repositoryId: app ? r.repositoryId : 0, writeOk: app && writeOk,
     linkBy: app && typeof r.linkBy === 'string' ? r.linkBy.slice(0, 80) : '', linkAt: app ? iso(r.linkAt) : '',
     appError: app && typeof r.appError === 'string' ? r.appError.slice(0, 300) : '',
+    keepDays: validKeepDays(r.keepDays) ? r.keepDays : KEEP_DAYS.start,
   };
 }
 
@@ -270,36 +278,67 @@ function restUntil(wait, now) {
   return Math.min(until, now + MAX_REST_MS);
 }
 
-// Every page of one pull, one request at a time. `full`: from the start (no since, no etag). Answers
-//   { ok: true, notModified, records, etag, complete, pollMs } or { ok: false, status, error, restUntil? }.
-async function askIssues(adapter, { repo, since = '', etag = '', token = '', full = false }, { fetchImpl, now = Date.now() } = {}) {
-  const get = getter(adapter, { fetchImpl });
-  const records = [];
-  let page = null;
-  let firstEtag = '';
-  let pollMs = 0;
-  for (let n = 0; n < MAX_PAGES; n += 1) {
-    let got;
-    try {
-      got = await adapter.list({ repo, since: full ? '' : since, etag: full ? '' : etag, token, page }, get);
-    } catch (err) {
-      return { ok: false, status: 0, error: err instanceof IssuesError && err.kind === 'big' ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
-    }
-    if (got.wait && Number.isFinite(got.wait.pollMs)) pollMs = Math.max(pollMs, got.wait.pollMs);
-    if (got.status === 304 && n === 0) return { ok: true, notModified: true, records: [], etag: got.etag || etag, complete: false, pollMs };
-    if (got.status === 403 || got.status === 429) {
-      // A 403 is a refusal of the token too when the limit is not what is spent; GitHub then names no wait. Either way: rest.
-      return { ok: false, status: got.status, error: SAY.wait(adapter.name), restUntil: restUntil(got.wait, now) };
-    }
-    if (got.status === 401) return { ok: false, status: 401, error: SAY.token(adapter.name) };
-    if (got.status === 404 || got.status === 410) return { ok: false, status: got.status, error: SAY.missing };
-    if (got.status !== 200 || got.bad) return { ok: false, status: got.status, error: got.bad ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
-    if (n === 0) firstEtag = got.etag || '';
-    records.push(...got.records);
-    if (!got.more) return { ok: true, notModified: false, records, etag: full ? '' : firstEtag, complete: true, pollMs };
-    page = got.more;
+// Two lists of records as one, by issue number: an issue closed between the two asks is in both, and the newer record of it
+// (by `updated`; the later list on a tie) wins. Oldest change first, as one list comes.
+function mergeByNumber(first, second) {
+  const byNumber = new Map();
+  for (const r of [...first, ...second]) {
+    const had = byNumber.get(r.number);
+    if (!had || !(r.updated < had.updated)) byNumber.set(r.number, r);
   }
-  return { ok: true, notModified: false, records, etag: full ? '' : firstEtag, complete: false, pollMs };
+  return [...byNumber.values()].sort((a, b) => (a.updated < b.updated ? -1 : a.updated > b.updated ? 1 : 0));
+}
+
+// Every page of one pull, one request at a time, at most MAX_PAGES in all. `full`: from the start (no since, no etag). A full pull
+// with `closedSince` (the done window's cutoff day, cutoffOf; plan-done-window.md step 3) asks twice: every open issue, then the
+// closed issues updated since the start of that day, so closed issues older than the window are never read; with no cutoff day it
+// asks for every issue as one list. A failure of either list fails the whole pull (nothing is written or removed); when the open
+// list stops at the page cap the closed list is not asked and the pull is not complete (so nothing is removed as gone). Answers
+//   { ok: true, notModified, records, etag, complete, pollMs } or { ok: false, status, error, restUntil? }.
+async function askIssues(adapter, { repo, since = '', etag = '', token = '', full = false, closedSince = '' }, { fetchImpl, now = Date.now() } = {}) {
+  const get = getter(adapter, { fetchImpl });
+  let pollMs = 0;
+  let pages = 0;
+  // One list, every page while the page cap allows.
+  async function askList({ state, from, tag }) {
+    const records = [];
+    let page = null;
+    let firstEtag = '';
+    for (let n = 0; pages < MAX_PAGES; n += 1) {
+      pages += 1;
+      let got;
+      try {
+        got = await adapter.list({ repo, since: from, etag: tag, token, page, state }, get);
+      } catch (err) {
+        return { ok: false, status: 0, error: err instanceof IssuesError && err.kind === 'big' ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
+      }
+      if (got.wait && Number.isFinite(got.wait.pollMs)) pollMs = Math.max(pollMs, got.wait.pollMs);
+      if (got.status === 304 && n === 0) return { ok: true, notModified: true, records: [], etag: got.etag || tag, complete: false };
+      if (got.status === 403 || got.status === 429) {
+        // A 403 is a refusal of the token too when the limit is not what is spent; GitHub then names no wait. Either way: rest.
+        return { ok: false, status: got.status, error: SAY.wait(adapter.name), restUntil: restUntil(got.wait, now) };
+      }
+      if (got.status === 401) return { ok: false, status: 401, error: SAY.token(adapter.name) };
+      if (got.status === 404 || got.status === 410) return { ok: false, status: got.status, error: SAY.missing };
+      if (got.status !== 200 || got.bad) return { ok: false, status: got.status, error: got.bad ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
+      if (n === 0) firstEtag = got.etag || '';
+      records.push(...got.records);
+      if (!got.more) return { ok: true, notModified: false, records, etag: firstEtag, complete: true };
+      page = got.more;
+    }
+    return { ok: true, notModified: false, records, etag: firstEtag, complete: false };
+  }
+  const cutoff = full && phaseRule.isDay(closedSince) ? closedSince : '';
+  if (!cutoff) {
+    const got = await askList({ state: 'all', from: full ? '' : since, tag: full ? '' : etag });
+    return got.ok ? { ...got, etag: full ? '' : got.etag, pollMs } : got;
+  }
+  const open = await askList({ state: 'open', from: '', tag: '' });
+  if (!open.ok) return open;
+  if (!open.complete) return { ok: true, notModified: false, records: open.records, etag: '', complete: false, pollMs };
+  const closed = await askList({ state: 'closed', from: `${cutoff}T00:00:00Z`, tag: '' });
+  if (!closed.ok) return closed;
+  return { ok: true, notModified: false, records: mergeByNumber(open.records, closed.records), etag: '', complete: closed.complete, pollMs };
 }
 
 // --- the mapping into the plan -----------------------------------------------------------------------------------------------
@@ -349,14 +388,24 @@ function workOf(rec, { repo, provider, tagIds }) {
   const lines = [rec.url];
   if (rec.milestone) lines.push(`Milestone: ${oneLine(rec.milestone.title, 120)}`);
   if (spare.length) lines.push(`Labels: ${spare.join(', ')}`);
+  // The issue's description goes below those lines as text, cut (never the link) to what is left of NOTES_MAX, marked with an ellipsis.
+  const head = lines.filter(Boolean).join('\n');
+  let notes = head;
+  if (typeof rec.body === 'string' && rec.body) {
+    const left = NOTES_MAX - (head ? head.length + 1 : 0);
+    const chars = Array.from(rec.body);
+    if (left > 1) notes = [head, chars.length > left ? `${chars.slice(0, left - 1).join('').trimEnd()}…` : rec.body].filter(Boolean).join('\n');
+  }
   const value = {
     kind: 'work',
     title: cut(rec.title, TITLE_MAX) || `#${rec.number}`,
     start,
     end: end < start ? start : end,
     done: column === 'done',
+    // The day it became done is the day it was closed (plan-projects-sizing-burndown.md, decision 2); open work has none.
+    ...(column === 'done' && phaseRule.isDay(dayOf(rec.closed)) ? { doneOn: dayOf(rec.closed) } : {}),
     ...(tags.length ? { tags } : {}),
-    notes: lines.filter(Boolean).join('\n').slice(0, NOTES_MAX),
+    notes: Array.from(notes).slice(0, NOTES_MAX).join(''),
     ...(rec.milestone ? { parent: `ghm-${rec.milestone.number}` } : {}),
     by: SYSTEM_BY,
     column,
@@ -435,6 +484,34 @@ function sameValue(a, b) {
 // Whether a key of the plan is the pull's own (a piece of work or a milestone it wrote).
 const isPulledKey = (key) => WORK_KEY.test(key) || MILESTONE_KEY.test(key);
 
+// --- the done window (documentation/plans/plan-done-window.md, step 1) --------------------------------------------------------
+
+// The first day the window keeps, YYYY-MM-DD: the earlier of `today` less the record's `keepDays` and the start of the space's
+// phase that holds today (decision 2: never shorter than the current phase). `space` is the space record (its `phases` dates and
+// `createdAt`), `phases` the template's phases it reads; the phase counts only when the space has phase dates of its own, so a
+// space with none keeps `keepDays` days (public/phases.js would otherwise start its first phase on the day the space was made).
+// '' when `today` is not a day: then nothing is cut.
+function cutoffOf(rec, space, today, phases) {
+  if (!phaseRule.isDay(today)) return '';
+  const days = rec && validKeepDays(rec.keepDays) ? rec.keepDays : KEEP_DAYS.start;
+  let cutoff = phaseRule.addDays(today, -days);
+  const dates = space && space.phases ? phaseRule.cleanDates(space.phases) : {};
+  if (Array.isArray(phases) && phases.length && Object.keys(dates).length) {
+    let bands = [];
+    try { bands = phaseRule.timelineOf(phases, dates, { today, created: space.createdAt }) || []; } catch { bands = []; }
+    for (const b of bands) if (b.current && phaseRule.isDay(b.start) && b.start < cutoff) cutoff = b.start;
+  }
+  return cutoff;
+}
+
+// Whether a pull's record is closed work the window does not keep: closed on a day before `cutoff`. Never open work.
+const closedOutside = (rec, cutoff) => Boolean(cutoff) && Boolean(rec) && rec.open === false && phaseRule.isDay(dayOf(rec.closed)) && dayOf(rec.closed) < cutoff;
+
+// Whether the stored entry at `key` is pulled work that has aged out of the window: a pulled piece of work (`plan:gh-<n>`, never
+// a milestone, the board, a field or anything the space made), done, with a `doneOn` day before `cutoff`. Never open work.
+const agedOut = (key, value, cutoff) => Boolean(cutoff) && WORK_KEY.test(String(key)) && Boolean(value) && typeof value === 'object'
+  && value.done === true && phaseRule.isDay(value.doneOn) && value.doneOn < cutoff;
+
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) --------------------------------------------------------
 
@@ -447,13 +524,15 @@ const sortedTags = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => typeof
 
 // What a person's new value changes of the stored work: { column, title, tags: { add, remove }, own, foreign }. `column` is the
 // column asked for (only when column or done changed), `title` the new title (only when changed), `tags` the ids added and
-// removed, `own` whether a space's own field changed, `foreign` the names of GitHub-only fields that changed.
+// removed, `own` whether a space's own field changed, `foreign` the names of GitHub-only fields that changed. `doneOn` is not
+// read: it follows `done` and is the service's closed day, never sent and never taken from a person's value (keepOwn,
+// issueStore; pulledRefusal holds it as stored).
 function diffWork(stored, given) {
   const s = stored && typeof stored === 'object' ? stored : {};
   const g = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
   const out = { column: null, title: null, tags: { add: [], remove: [] }, own: false, foreign: [] };
   for (const k of new Set([...Object.keys(s), ...Object.keys(g)])) {
-    if (k === 'by' || sameValue(s[k], g[k])) continue;
+    if (k === 'by' || k === 'doneOn' || sameValue(s[k], g[k])) continue;
     if (OWN_FIELDS.includes(k)) out.own = true;
     else if (!SENT_FIELDS.includes(k)) out.foreign.push(k);
   }
@@ -507,7 +586,7 @@ function areaOf(title, field) {
 
 // The work the pull writes over the stored one in a space that writes back: GitHub's fields from the new record, the space's own
 // (owners, waits, rank, fields, and the days once they exist) and who made the change kept from what is stored; work not stored
-// yet starts and ends on the day the issue was made.
+// yet starts and ends on the day the issue was made. `doneOn` is always the fresh record's (GitHub's closed day), never stored.
 function keepOwn(stored, fresh, { area = null } = {}) {
   if (!stored || typeof stored !== 'object') { // the days start as the day it was made, then are the space's; so does the Area, from the title's "Area:"
     const choice = areaOf(fresh.title, area);
@@ -557,7 +636,7 @@ function cleanRepo(adapter, raw) {
 }
 
 module.exports = {
-  IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  IssuePulls, IssuesError, askIssues, mergeByNumber, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
+  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };

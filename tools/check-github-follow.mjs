@@ -136,7 +136,7 @@ try {
   const waitFor = async (t, sel, msg, ms = 12000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await exists(t, sel).catch(() => false)) return true; await sleep(150); } ok(false, `${msg} (nothing matches ${sel}; the control says ${JSON.stringify(await body(t).catch(() => null))})`); return false; };
   const press = (t, sel, text) => t.eval(`(() => { const e = __all(${JSON.stringify(sel)}).find((x) => !${JSON.stringify(text || '')} || x.textContent.trim() === ${JSON.stringify(text || '')}); if (!e) return false; e.click(); return true; })()`);
   const fit = async (t, label) => {
-    const r = await t.eval(`(() => { const w = innerWidth; const box = __all('.follows-pull')[0]; if (!box) return { missing: true }; const small = __all('.follows-pull button, .follows-pull summary, .follows-pull a.btn, .follows-pull input[type=text]').filter((e) => e.getClientRects().length && e.getBoundingClientRect().height < 43.5).map((e) => (e.textContent || e.placeholder || e.tagName).trim().slice(0, 30)); const wide = __all('.follows-pull, .follows-pull *').filter((e) => e.getBoundingClientRect().right > w + 1).length; const page = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w; return { small, wide, page }; })()`);
+    const r = await t.eval(`(() => { const w = innerWidth; const box = __all('.follows-pull')[0]; if (!box) return { missing: true }; const small = __all('.follows-pull button, .follows-pull summary, .follows-pull a.btn, .follows-pull input[type=text], .follows-pull input[type=number]').filter((e) => e.getClientRects().length && e.getBoundingClientRect().height < 43.5).map((e) => (e.textContent || e.placeholder || e.tagName).trim().slice(0, 30)); const wide = __all('.follows-pull, .follows-pull *').filter((e) => e.getBoundingClientRect().right > w + 1).length; const page = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - w; return { small, wide, page }; })()`);
     ok(!r.missing, `${label}: the control is drawn`);
     if (r.missing) return;
     same(r.small, [], `${label}: every control is 44 px high`);
@@ -219,6 +219,23 @@ try {
   ok(!await exists(tab, '[data-follows-write-input]'), 'read only: no switch');
   same((await pullA()).via, 'public', 'the record reads public');
   await shot(tab, 'follow-1280-light-public');
+
+  // The done window's number: shown to the owner while following, sent at once, the server's refusal shown as given.
+  ok(await exists(tab, '[data-follows-keep-input]'), 'following: the number is there');
+  text = await body(tab);
+  ok(/Keep closed issues for\s*days/.test(text) && /Older closed issues stay on/.test(text), `the number's words: ${text}`);
+  same(await tab.eval(`[__all('[data-follows-keep-input]')[0].value, __all('[data-follows-keep-input]')[0].disabled]`), [String((await pullA()).keep.days), false], 'the number shows keep.days and the owner can change it');
+  await tab.eval(`(() => { const i = __all('[data-follows-keep-input]')[0]; i.value = '45'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  { const end2 = Date.now() + 8000; while (Date.now() < end2 && (await pullA()).keep.days !== 45) await sleep(200); }
+  same((await pullA()).keep.days, 45, 'the number is sent at once');
+  await waitFor(tab, '[data-follows-keep-input]:not([disabled])', 'the number is usable again');
+  same(await tab.eval(`__all('[data-follows-keep-input]')[0].value`), '45', 'and shows 45');
+  await tab.eval(`(() => { const i = __all('[data-follows-keep-input]')[0]; i.value = '3'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await waitFor(tab, '[data-follows-keep-line].error', 'a refused number says why');
+  same(await tab.eval(`__all('[data-follows-keep-line]')[0].textContent`), 'Keep closed issues for 7 to 365 days.', 'the server\'s sentence, as given');
+  same(await tab.eval(`__all('[data-follows-keep-input]')[0].value`), '45', 'the number goes back to what the server holds');
+  same((await pullA()).keep.days, 45, 'the record is unchanged');
+  await shot(tab, 'follow-1280-light-keep');
   await A.call('PUT', `/api/spaces/${SA}/issues-pull`, { on: false });
 
   // A spent link.

@@ -13909,7 +13909,8 @@ function pulledRefusal(ctx, key, given) {
     const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
     if (had && given && typeof given === 'object' && !Array.isArray(given)) {
       const d = issuesLib.diffWork(had.value, given);
-      if (d.own && !d.foreign.length && d.column === null && d.title === null && !d.tags.add.length && !d.tags.remove.length) return null;
+      // `doneOn` is the service's closed day (diffWork does not read it): an own-fields write keeps it exactly as stored.
+      if (d.own && !d.foreign.length && d.column === null && d.title === null && !d.tags.add.length && !d.tags.remove.length && issuesLib.sameValue(had.value.doneOn, given.doneOn)) return null;
     }
   }
   // A change to the stored board that touches only its columns' colours, by someone with the board's `columns` right, is the space's
@@ -13978,25 +13979,54 @@ function issueAreaField(ctx) {
   try { const row = moduleData.get(ctx.manifest.id, ctx.scopeKey, 'field:area'); return row && row.value && typeof row.value === 'object' ? row.value : null; } catch (err) { return null; }
 }
 
+// The first day the done window keeps in a followed space (issuesLib.cutoffOf, plan-done-window.md): `keepDays` before today
+// where the server is, or the start of the space's phase that holds today when that is earlier. '' when it can't be told.
+function issueCutoff(rec, spaceId) {
+  try {
+    return issuesLib.cutoffOf(rec, store.spaceById(spaceId), todayIn(ACTION_TZ), phaseStatesOf(spaceId).phases);
+  } catch (err) {
+    console.warn(`The issue pull could not tell its window: ${err.message}`);
+    return '';
+  }
+}
+
 // The records of one pull written into the plan: the tags the labels need, one piece of work per issue (in place, under its
 // number), the milestones, and with `full` (every page read) whatever is no longer there removed. A record older than what is
 // stored (a pull begun before a write of ours) is not written over it. In a space that writes back, the space's own fields and
-// the days are kept (keepOwn). Answers { counts, error }.
+// the days are kept (keepOwn). The done window (plan-done-window.md, step 1): a record closed before the cutoff is not written,
+// and removed when it is stored; then stored pulled work that is done with a `doneOn` before the cutoff is removed (the local
+// trim, no request); only then is the plan counted for its limit. Answers { counts, error }.
 function writeIssues(ctx, rec, adapter, { list, full }) {
   const scope = ctx.scopeKey;
   const stored = new Map(moduleData.list(ctx.manifest.id, scope, 'plan:').map((e) => [e.key, e.value]));
-  const tagIds = ensureIssueTags(ctx, list);
   const byNumber = new Map();
   for (const r of list) byNumber.set(r.number, r); // oldest change first, so the newest of a number wins
+  const cutoff = issueCutoff(rec, ctx.spaceId);
+  let removed = 0;
+  const outside = new Set();
+  for (const r of byNumber.values()) {
+    if (!issuesLib.closedOutside(r, cutoff)) continue;
+    outside.add(r.number);
+    const key = `plan:gh-${r.number}`;
+    // Not over a newer write of ours (a reopen made here after this pull began): that stays, as the write left it.
+    if (stored.has(key) && !issuesLib.olderThanStored(stored.get(key), r) && issueRemove(ctx, key, stored)) removed += 1;
+  }
+  for (const n of outside) byNumber.delete(n);
+  // Work this pull names is settled by its record above or below; the rest ages out by its own done day.
+  for (const [key, value] of [...stored]) {
+    const m = issuesLib.WORK_KEY.exec(key);
+    if (m && !byNumber.has(Number(m[1])) && !outside.has(Number(m[1])) && issuesLib.agedOut(key, value, cutoff) && issueRemove(ctx, key, stored)) removed += 1;
+  }
+  const kept = [...byNumber.values()];
+  const tagIds = ensureIssueTags(ctx, kept);
   const known = new Map();
-  for (const r of byNumber.values()) if (r.milestone) known.set(r.milestone.number, r.milestone);
+  for (const r of kept) if (r.milestone) known.set(r.milestone.number, r.milestone);
   const at = { repo: rec.repo, provider: adapter.id, tagIds };
   const area = rec.write ? issueAreaField(ctx) : null;
   let written = 0;
-  let removed = 0;
   let error = '';
   let size = [...stored.keys()].filter(issuesLib.isPulledKey).length;
-  for (const r of [...byNumber.values()].sort((a, b) => a.number - b.number)) {
+  for (const r of kept.sort((a, b) => a.number - b.number)) {
     const key = `plan:gh-${r.number}`;
     if (!stored.has(key) && size >= issuesLib.MAX_ENTRIES) { error = issuesLib.SAY.full; continue; }
     if (!stored.has(key)) size += 1;
@@ -14007,7 +14037,7 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
   if (full) {
     for (const key of [...stored.keys()]) {
       const m = issuesLib.WORK_KEY.exec(key);
-      if (m && !byNumber.has(Number(m[1])) && issueRemove(ctx, key, stored)) removed += 1;
+      if (m && !byNumber.has(Number(m[1])) && !outside.has(Number(m[1])) && issueRemove(ctx, key, stored)) removed += 1;
     }
   }
   const works = new Map([...stored].filter(([k]) => issuesLib.WORK_KEY.test(k)));
@@ -14036,7 +14066,9 @@ async function pullIssues(spaceId) {
   if (auth.renamed) rec = issuePulls.get(spaceId) || rec;
   const full = !rec.fullAt || now - Date.parse(rec.fullAt) >= adapter.fullEveryMs;
   issuePulls.set(spaceId, { tried: isoAt(now) });
-  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: auth.token || '', full }, { now });
+  // A full pull asks for the open issues, then the closed ones since the done window's cutoff (plan-done-window.md, step 3).
+  const askedFrom = full ? issueCutoff(rec, spaceId) : '';
+  const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: auth.token || '', full, closedSince: askedFrom }, { now });
   // Turned off, or turned to another repository, while the service was asked: what it answered is not written.
   const cur = issuePulls.get(spaceId);
   if (!cur || !cur.on || cur.repo !== rec.repo || cur.provider !== rec.provider) return cur;
@@ -14049,10 +14081,18 @@ async function pullIssues(spaceId) {
     }
     return issuePulls.set(spaceId, { error: got.error, next: next(wait) });
   }
-  if (got.notModified) return issuePulls.set(spaceId, { error: '', restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag });
+  if (got.notModified) {
+    // Nothing changed on the service; the done window's local trim runs all the same (no request), so work ages out on time.
+    const here = issuePullAt(store.spaceById(spaceId));
+    const trimmed = here.error ? null : writeIssues(here.ctx, cur, adapter, { list: [], full: false });
+    return issuePulls.set(spaceId, { error: '', restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag, ...(trimmed ? { counts: trimmed.counts } : {}) });
+  }
   const at = issuePullAt(store.spaceById(spaceId));
   if (at.error) return issuePulls.set(spaceId, { error: at.error, next: next(wait) });
-  const out = writeIssues(at.ctx, cur, adapter, { list: got.records, full: full && got.complete });
+  // The sweep (whatever stored the lists do not name is gone) only after every page of both lists, and only when the window has not
+  // grown earlier while the service was asked: closed work between the two cutoffs was never asked for, so it is not gone.
+  const sweep = full && got.complete && (!askedFrom || issueCutoff(cur, spaceId) >= askedFrom);
+  const out = writeIssues(at.ctx, cur, adapter, { list: got.records, full: sweep });
   const newest = got.records.map((r) => r.updated).filter(Boolean).sort().pop() || '';
   return issuePulls.set(spaceId, {
     error: out.error, restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag,
@@ -14076,19 +14116,26 @@ function pullIssuesQueued(env, spaceId) {
   return run;
 }
 
-// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling, write, canWrite, via, writeOk, appError, appState, app }
+// What the routes answer: { on, provider, name, repo, last, next, error, counts, pulling, write, canWrite, via, writeOk, appError, appState, app, keep }
 // (`write`: changes made here go to the service; `canWrite`: the space is linked through the app by someone who may write there;
 // `appState`: this server's GitHub app, as the Service terms say it ('off' | 'broken' | 'working' | 'unchecked'), worked out with no
-// request to GitHub; `app`: { name, slug } once the app has answered, else null). Never the etag, a token or an installation or repository id.
+// request to GitHub; `app`: { name, slug } once the app has answered, else null; `keep`: the done window while the pull is on,
+// { days, from, url } (`days` the record's keepDays, `from` the cutoff day, closed issues before it are on the service; `url` the
+// service's own list of them from the adapter's `closedBefore`, plan-done-window.md step 3; '' when it can't make one), else null). Never the etag, a token
+// or an installation or repository id.
 function issuePullView(spaceId) {
   const st = issueApp.status(issueAppAdapter());
   const appState = st.state;
   const app = st.state === 'working' ? { name: st.name, slug: st.slug } : null;
   const rec = issuePulls.get(spaceId);
   const pulling = issuesInFlight.has(issueFlightKey(currentEnvironment(), spaceId));
-  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', appState, app };
+  if (!rec) return { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', appState, app, keep: null };
   const adapter = issueAdapterOf(rec.provider);
-  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling, write: rec.on && rec.write, canWrite: issueCanWrite(adapter) && rec.via === 'app' && rec.writeOk, via: rec.via, writeOk: rec.writeOk, appError: rec.via === 'app' ? rec.appError : '', appState, app };
+  const from = rec.on ? issueCutoff(rec, spaceId) : '';
+  let url = '';
+  if (from && adapter && typeof adapter.closedBefore === 'function') { try { url = String(adapter.closedBefore(rec.repo, from) || ''); } catch { url = ''; } }
+  const keep = rec.on ? { days: rec.keepDays, from, url } : null;
+  return { on: rec.on, provider: rec.provider, name: adapter ? adapter.name : rec.provider, repo: rec.repo, last: rec.last, next: rec.on ? rec.next : '', error: rec.on ? rec.error : '', counts: rec.counts, pulling, write: rec.on && rec.write, canWrite: issueCanWrite(adapter) && rec.via === 'app' && rec.writeOk, via: rec.via, writeOk: rec.writeOk, appError: rec.via === 'app' ? rec.appError : '', appState, app, keep };
 }
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) -----------------------------------------------------
@@ -14348,7 +14395,8 @@ app.get('/api/spaces/:id/issues-pull', (req, res) => {
 // The environment's owner turns a pull on for the space ({ on: true, repo: "owner/name", provider? }, GitHub when no provider
 // is named) or off ({ on: false }). On: only into a plan that holds nothing but this repository's own pulled work (409 says to
 // clear it); the board becomes the five columns and the `boardColumns` setting `priority`; a first pull starts. Off: the work
-// stays as ordinary entries, editable again.
+// stays as ordinary entries, editable again. `keepDays` (a whole number from 7 to 365, plan-done-window.md) sets how long closed
+// issues stay, with `on: true` or alone (or beside `write`) on a pull that is on; a shorter window takes effect at the next pull.
 app.put('/api/spaces/:id/issues-pull', (req, res) => {
   const place = issuePullPlace(req, res, 'read');
   if (!place) return;
@@ -14361,7 +14409,8 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   const name = adapter ? adapter.name : 'GitHub';
   if (!who.user || who.user.agent || !hasOwnerRights(who.user)) return res.status(403).json({ error: `Only ${word('owner', { a: true })} can turn the pull from ${name} on or off.` });
   if (body.write !== undefined && typeof body.write !== 'boolean') return res.status(400).json({ error: 'Send write as true or false.' });
-  if (typeof body.on !== 'boolean' && typeof body.write !== 'boolean') return res.status(400).json({ error: 'Send on as true or false.' });
+  if (body.keepDays !== undefined && !issuesLib.validKeepDays(body.keepDays)) return res.status(400).json({ error: issuesLib.SAY.keepDays });
+  if (typeof body.on !== 'boolean' && typeof body.write !== 'boolean' && body.keepDays === undefined) return res.status(400).json({ error: 'Send on as true or false.' });
   if (!adapter) return res.status(400).json({ error: 'This server has no such service.' });
   const had = issuePulls.get(space.id);
   // Writing alone: a pull that is on starts or stops sending changes (documentation/plans/plan-github-two-way.md).
@@ -14373,7 +14422,8 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
     if (!had || !had.on || had.provider !== adapter.id) return res.status(409).json({ error: `No pull is on in this ${word('space')}.` });
     const refused = writeCheck(had);
     if (refused) return res.status(refused.status).json({ error: refused.error });
-    if (body.write !== had.write) issuePulls.set(space.id, body.write ? { write: true, writeBy: who.user.key, writeAt: isoAt(Date.now()) } : { write: false, writeBy: '', writeAt: '' });
+    if (body.write !== undefined && body.write !== had.write) issuePulls.set(space.id, body.write ? { write: true, writeBy: who.user.key, writeAt: isoAt(Date.now()) } : { write: false, writeBy: '', writeAt: '' });
+    if (body.keepDays !== undefined && body.keepDays !== had.keepDays) issuePulls.set(space.id, { keepDays: body.keepDays });
     return res.json(issuePullView(space.id));
   }
   if (!body.on) {
@@ -14420,6 +14470,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
     // The first pull after turning on is a full one, so anything changed while it was off is put back as the service has it.
     provider: adapter.id, repo, on: true, next: isoAt(now), error: '', by: who.user.key, at: isoAt(now), fullAt: '', etag: '',
     ...(moved ? { since: '', last: '', tried: '', counts: {} } : {}),
+    ...(body.keepDays !== undefined ? { keepDays: body.keepDays } : {}),
   });
   // The board: exactly the five columns, in the module's words for this space; the setting to match.
   const labels = effectiveLabels(found.manifest, store.lookOf(space.id).labels[found.manifest.id]);

@@ -3,9 +3,13 @@
 //   { id, name, terms, origin, needsToken: false, allowHttp?, pollMs, fullEveryMs, nowGapMs?,
 //     validRepo(repo) -> whether "owner/name" is a repository's name there,
 //     repoFrom(raw) -> the clean "owner/name" from what a person typed or pasted (their address for it too), or "",
-//     list({ repo, since, etag, token, page }, get) -> { status, etag, records, more, wait, bad? } }
+//     list({ repo, since, etag, token, page, state }, get) -> { status, etag, records, more, wait, bad? },
+//     closedBefore?(repo, day) -> the service's own list of the issues closed before `day`, as an address a person opens, or "" }
 // `list` asks for one page: `page` is the address the last page's `more` gave (null for the first), `since` an ISO time (only
-// what changed after it), `etag` the first page's last etag (sent back so an unchanged answer is a 304). `get(url, headers)` is
+// what changed after it), `etag` the first page's last etag (sent back so an unchanged answer is a 304), `state` which issues:
+// 'all' (the default), 'open' or 'closed' (the daily full pull asks 'open', then 'closed' since the done window's cutoff,
+// plan-done-window.md step 3). `closedBefore` asks nothing: `day` is YYYY-MM-DD, the address is on the service's web origin
+// (never its API origin), and anything invalid answers "". `get(url, headers)` is
 // the core's (server/issues.js): it asks only `origin` (https unless `allowHttp`; only the stand-in), caps the answer at 2 MB
 // and 6 seconds and follows a redirect only on `origin`. `status` is the service's (200, 304, 403, 404, 429...; 0 with `bad`
 // for an answer that is not the list), `more` the next page's address or null, `wait` what it said about waiting
@@ -24,9 +28,10 @@
 //     never followed for a write. Only a title, a state, label names and a new issue's title and labels may be sent.
 //
 // A record, the same for every service (nothing else in the core knows which service it came from):
-//   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open } }
-// `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''. Pull requests, people
-// (authors, assignees), bodies and comments are never in a record.
+//   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open }, body? }
+// `created`, `updated` and `closed` are ISO times; `color` six hex digits or ''; `due` YYYY-MM-DD or ''; `body` the issue's
+// description as plain text (newlines and tabs only, cut at 2000 characters with an ellipsis), absent when empty. Pull requests,
+// people (authors, assignees) and comments are never in a record.
 //
 // THE RULE (Thomas, 2026-11-25): a registered adapter is for a service that costs nothing and whose free use allows commercial
 // use, its terms read before the adapter is written and named in its header. Registered: GitHub (github.js, terms read
@@ -43,7 +48,8 @@ function valid(p) {
     && (p.allowHttp ? /^https?:\/\//.test(p.origin) : /^https:\/\//.test(p.origin))
     && typeof p.terms === 'string' && /^https:\/\//.test(p.terms)
     && Number.isFinite(p.pollMs) && p.pollMs >= 0 && Number.isFinite(p.fullEveryMs) && p.fullEveryMs >= 0
-    && (p.nowGapMs === undefined || (Number.isFinite(p.nowGapMs) && p.nowGapMs >= 0));
+    && (p.nowGapMs === undefined || (Number.isFinite(p.nowGapMs) && p.nowGapMs >= 0))
+    && (p.closedBefore === undefined || typeof p.closedBefore === 'function');
 }
 
 const registered = [require('./github')];
