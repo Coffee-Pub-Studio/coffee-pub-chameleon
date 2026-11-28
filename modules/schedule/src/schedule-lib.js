@@ -34,6 +34,7 @@ const SC_BOARD_PREFIX = 'board:';
 const SC_FIELD_PREFIX = 'field:';
 const SC_FIELDS_MAX = 8;
 const SC_SIZE_MAX = 999; // the most a size choice is worth
+const SC_ONE_SIZE_SAY = 'A plan has one size field.';
 const SC_FIELD_OPTIONS_MAX = 30;
 const SC_FIELD_LABEL_MAX = 40;
 const SC_ROWS_FIELD = /^field:[a-z][a-z0-9-]{0,40}$/;
@@ -798,6 +799,25 @@ function scRenameField(fields, id, label) {
   if (n.problem) return n;
   return { fields: fields.map((f) => (f.id === id ? { ...f, label: n.text } : f)) };
 }
+// Makes a field the plan's size field, or not. A plan has one: another field's flag is not taken off here, it is refused.
+function scSetFieldSize(fields, id, on) {
+  const f = fields.find((x) => x.id === id);
+  if (!f) return { problem: 'That field is not there.' };
+  if (on && fields.some((x) => x.size && x.id !== id)) return { problem: SC_ONE_SIZE_SAY };
+  return { fields: fields.map((x) => { if (x.id !== id) return x; const { size: gone, ...rest } = x; return on ? { ...rest, size: true } : rest; }) };
+}
+// What a choice of the size field is worth: a whole number from 0 to 999 (text or a number), or '' for nothing.
+function scSetOptionValue(fields, id, optionId, value) {
+  const f = fields.find((x) => x.id === id);
+  if (!f || !f.options.some((o) => o.id === optionId)) return { problem: 'That choice is not there.' };
+  const text = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
+  let n = null;
+  if (text !== '') {
+    if (!/^[0-9]{1,3}$/.test(text)) return { problem: `A size is a whole number from 0 to ${SC_SIZE_MAX}.` };
+    n = Number(text);
+  }
+  return { fields: fields.map((x) => (x.id === id ? { ...x, options: x.options.map((o) => { if (o.id !== optionId) return o; const { value: gone, ...rest } = o; return n === null ? rest : { ...rest, value: n }; }) } : x)) };
+}
 function scDeleteField(fields, id) {
   if (!fields.some((f) => f.id === id)) return { problem: 'That field is not there.' };
   return { fields: fields.filter((f) => f.id !== id).map((f, i) => ({ ...f, order: i })) };
@@ -846,7 +866,9 @@ function scMoveOption(fields, id, optionId, by) {
 // field is written with its place (`order`), so the order is whatever `now` lists.
 function scFieldsDiff(was, now) {
   const placed = now.map((f, i) => ({ ...f, order: i }));
-  const old = new Map(was.map((f) => [f.id, scFieldValue(f)]));
+  // A field the Sizing setting stands for (`virtual`) is not stored until its words, choices or numbers change, or its place does: it is
+  // compared at the place it was listed at, so an edit that leaves it alone writes nothing for it.
+  const old = new Map(was.map((f, i) => [f.id, f.virtual ? { ...scFieldValue(f), order: i } : scFieldValue(f)]));
   const write = placed.filter((f) => JSON.stringify(old.get(f.id) || null) !== JSON.stringify(scFieldValue(f)));
   const remove = was.filter((f) => !now.some((x) => x.id === f.id)).map((f) => f.id);
   return { write, remove };
