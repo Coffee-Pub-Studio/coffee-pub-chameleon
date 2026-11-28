@@ -92,7 +92,7 @@ await test('the page: Import stores the file\'s board first and gives it to scIm
   assert.match(page, /board: newBoard \|\| currentBoard\(\)/);
   assert.match(page, /scExportFile\(list\(\), \{ module: info\.module\.id, boards: \[currentBoard\(\)\], fields: state\.fields \}\)/);
   const apply = page.slice(page.indexOf('async function applyImport'), page.indexOf('function offerUndo'));
-  assert.ok(apply.indexOf('writeBoard(scBoardValue(newBoard))') < apply.indexOf('await write(e,'), 'the board is written before any entry');
+  assert.ok(apply.indexOf('writeBoard(scBoardValue(newBoard))') < apply.indexOf('() => write(e,'), 'the board is written before any entry');
   assert.match(page, /plan\.board\.was/, 'Undo puts the board back too');
 });
 await test('setColumn gives the same answer on the page and on the server with a template\'s column words', async () => {
