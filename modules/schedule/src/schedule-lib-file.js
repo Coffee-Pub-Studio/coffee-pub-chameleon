@@ -127,7 +127,7 @@ function scFileFieldsProblem(v, defs, w) {
 // What Update by id may carry on an entry: the space's own. Anything else the entry names is refused, so a file made to fill in
 // fields can't change a title, a column or anything a followed service owns.
 const SC_UPDATE_OWN = ['id', 'fields', 'start', 'end', 'owners', 'rank'];
-const SC_UPDATE_REFUSED = ['kind', 'title', 'notes', 'column', 'done', 'ticked', 'parent', 'waitsOn', 'phase', 'tags', 'order', 'by', 'ref', 'source', 'progress'];
+const SC_UPDATE_REFUSED = ['kind', 'title', 'notes', 'description', 'assignees', 'column', 'done', 'ticked', 'parent', 'waitsOn', 'phase', 'tags', 'order', 'by', 'ref', 'source', 'progress'];
 // Whether a file is written for Update by id: every entry has an id and neither a kind nor a title.
 const scLooksUpdate = (entries) => Array.isArray(entries) && entries.length > 0 && entries.every((v) => v && typeof v === 'object' && !Array.isArray(v) && v.kind === undefined && v.title === undefined && typeof v.id === 'string');
 
@@ -282,6 +282,14 @@ function scParseFile(text, o) {
       if (v.notes !== undefined && v.notes !== null) {
         if (typeof v.notes !== 'string') return `${w}: "notes" must be text.`;
         if (v.notes.trim().length > SC_NOTES_MAX) return `${w}: "notes" is over ${SC_NOTES_MAX} characters.`;
+      }
+      if (v.description !== undefined && v.description !== null) {
+        if (typeof v.description !== 'string') return `${w}: "description" must be text.`;
+        if (Array.from(v.description.trim()).length > SC_DESCRIPTION_MAX) return `${w}: "description" is over ${SC_DESCRIPTION_MAX} characters.`;
+      }
+      if (v.assignees !== undefined && v.assignees !== null) {
+        if (!Array.isArray(v.assignees) || v.assignees.some((x) => typeof x !== 'string')) return `${w}: "assignees" must be a list of text.`;
+        if (v.assignees.length > SC_ASSIGNEES_MAX) return `${w}: "assignees" has more than ${SC_ASSIGNEES_MAX}.`;
       }
       for (const f of ['start', 'end']) {
         const d = v[f];

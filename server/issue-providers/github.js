@@ -16,9 +16,10 @@
 //     Using the API means agreeing to the Terms and section H. No sharing of tokens to get past the limits; nothing collected
 //     for spam or sold. The API costs nothing and nothing forbids commercial use within its limits.
 //   - Acceptable Use Policies, sections 7 and 8: personal information collected through the API is used only for what the user
-//     authorized. So no login, assignee, author or comment is ever read into a record: only what the board needs. The issue's
-//     description (its body) is read as plain text, read only, capped (plan-github-pull.md, decision 1); it is the issue's own text,
-//     never sent back.
+//     authorized. What is read into a record (plan-github-full-sync.md, decisions 1, 2 and 5): the issue's text (its body) as plain
+//     text, its assignees as GitHub's account id and login (at most 10, GitHub's own limit; shown to everyone who sees the plan, for
+//     the purpose of showing who is assigned), and how many comments it has. Never an author, an e-mail address, a picture, a
+//     reaction or a comment's text in a record.
 //   - Rate limits: 60 requests an hour without a token, 5,000 with one; a 403 or 429 when over, with retry-after or
 //     x-ratelimit-reset to obey; x-poll-interval to honour; conditional requests (an etag sent back as if-none-match: a 304
 //     on an authorized request does not count); one request at a time; a User-Agent naming the application.
@@ -30,8 +31,9 @@
 // that this adapter could meet is the removal of the singular `assignee` from an issue, which no record reads; nothing there is
 // needed, so the header is left as it was.
 // What a write may carry is fixed here: a title, a state and its reason, a label's name, and for a new issue its title and
-// labels. Never a body (a read issue's description is read, never written back), an assignee, a milestone or anything of the
-// space or the person.
+// labels. Never (until plan-github-full-sync.md step 3 adds them) a body, a comment, an assignee or a milestone, and never
+// anything of the space or the person. Read, besides the issues: the repository's open milestones (GET .../milestones?state=open,
+// one page of 100, conditional), to keep a milestone with no issue in the plan.
 'use strict';
 
 const { userAgent } = require('../product-name');
@@ -67,15 +69,37 @@ const text = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]
 const stamp = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : '');
 const day = (v) => stamp(v).slice(0, 10);
 
-// An issue's description as plain text (plan-github-pull.md, decision 1): only a string; line endings as \n; control characters
-// other than newline and tab removed; trimmed; cut on a character (never inside a surrogate pair) at BODY_MAX, marked with an
-// ellipsis. Never markup: it is stored and drawn as text. BODY_MAX is NOTES_MAX in server/issues.js (2000).
-const BODY_MAX = 2000;
+// An issue's description as plain text (plan-github-pull.md, decision 1; plan-github-full-sync.md, section 1): only a string; line
+// endings as \n; control characters other than newline and tab removed; trimmed. The whole text, at most BODY_MAX characters
+// (GitHub's own limit, counted in characters, never inside a surrogate pair). Never markup: it is stored and drawn as text. The
+// plan's shorter cut is server/issues.js's (workOf, DESCRIPTION_MAX).
+const BODY_MAX = 65536;
 function bodyText(v) {
   if (typeof v !== 'string') return '';
   const t = v.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
-  const chars = Array.from(t);
-  return chars.length > BODY_MAX ? `${chars.slice(0, BODY_MAX - 1).join('').trimEnd()}…` : t;
+  if (t.length <= BODY_MAX) return t;
+  return Array.from(t).slice(0, BODY_MAX).join('').trimEnd();
+}
+
+// A GitHub login as GitHub makes them (letters, digits and single dashes, at most 39), or a bot's (`name[bot]`); '' for anything else.
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/;
+const ASSIGNEES_MAX = 10;
+// An issue's assignees: [{ id, login }], each with GitHub's account id (matching is by id, plan-github-full-sync.md section 4), at
+// most ASSIGNEES_MAX, each id once.
+function assigneesOf(raw) {
+  const out = [];
+  for (const a of Array.isArray(raw) ? raw : []) {
+    if (out.length >= ASSIGNEES_MAX) break;
+    if (!a || typeof a !== 'object' || !Number.isSafeInteger(a.id) || a.id < 1 || typeof a.login !== 'string' || !LOGIN.test(a.login)) continue;
+    if (!out.some((x) => x.id === a.id)) out.push({ id: a.id, login: a.login });
+  }
+  return out;
+}
+
+// One milestone as the record's `milestone` and the milestones list name it: { number, title, due, open }, or null.
+function milestoneOf(m) {
+  if (!m || typeof m !== 'object' || !Number.isInteger(m.number) || m.number < 1) return null;
+  return { number: m.number, title: text(m.title, 120), due: day(m.due_on), open: m.state !== 'closed' };
 }
 
 // One issue as the neutral record (server/issue-providers/index.js), or null for a pull request or anything that is not an issue.
@@ -91,7 +115,7 @@ function record(raw) {
     const color = l && typeof l.color === 'string' && /^[0-9a-fA-F]{6}$/.test(l.color) ? l.color.toLowerCase() : '';
     return name ? { name, color } : null;
   }).filter(Boolean);
-  const m = raw.milestone && typeof raw.milestone === 'object' && Number.isInteger(raw.milestone.number) ? raw.milestone : null;
+  const m = milestoneOf(raw.milestone);
   const out = {
     number,
     title: text(raw.title, 400),
@@ -102,9 +126,11 @@ function record(raw) {
     updated: stamp(raw.updated_at) || created,
   };
   if (!out.open) out.closed = stamp(raw.closed_at) || out.updated;
-  if (m) out.milestone = { number: m.number, title: text(m.title, 120), due: day(m.due_on), open: m.state !== 'closed' };
+  if (m) out.milestone = m;
   const body = bodyText(raw.body);
   if (body) out.body = body;
+  out.assignees = assigneesOf(raw.assignees);
+  out.comments = Number.isSafeInteger(raw.comments) && raw.comments >= 0 ? raw.comments : 0;
   return out;
 }
 
@@ -209,6 +235,24 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
       if (u.origin !== new URL(webOrigin).origin || u.pathname !== `/${repo}/issues`) return '';
       u.searchParams.set('q', `is:issue is:closed closed:<${from}`);
       return u.href;
+    },
+
+    // The repository's open milestones (plan-github-full-sync.md, section 5), one page of 100, in the order GitHub gives them;
+    // `get` is the list's (a GET on this origin). `etag` makes it conditional: a 304 costs nothing with a token. Answers { status,
+    // etag, milestones: [{ number, title, due, open }], wait, bad? }.
+    async milestones({ repo, etag = '', token = '' }, get) {
+      const u = new URL(`${origin}/repos/${repo}/milestones`);
+      u.searchParams.set('state', 'open');
+      u.searchParams.set('per_page', String(PER_PAGE));
+      const headers = writeHeaders(token);
+      if (etag) headers['If-None-Match'] = etag;
+      const got = await get(u.href, headers);
+      const wait = waitOf(got.header);
+      const tag = text(got.header('etag'), 200);
+      if (got.status === 304) return { status: 304, etag: tag || etag, milestones: [], wait };
+      if (got.status !== 200) return { status: got.status, etag: '', milestones: [], wait };
+      if (!Array.isArray(got.json)) return { status: 0, etag: '', milestones: [], wait, bad: true };
+      return { status: 200, etag: tag, milestones: got.json.map(milestoneOf).filter((x) => x && x.open), wait };
     },
 
     // The writes (plan-github-two-way.md, section 13). `ask(method, url, headers, body)` is the core's: this origin only, 6 seconds,
@@ -361,3 +405,5 @@ module.exports.record = record;
 module.exports.repoFrom = repoFrom;
 module.exports.nextPage = nextPage;
 module.exports.waitOf = waitOf;
+module.exports.BODY_MAX = BODY_MAX;
+module.exports.ASSIGNEES_MAX = ASSIGNEES_MAX;

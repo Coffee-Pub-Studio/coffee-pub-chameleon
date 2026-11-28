@@ -5,7 +5,9 @@
 // ISSUES_TEST_GAP_MS (the least time between two pulls asked by a person) and ISSUES_TEST_WRITE_GAP_MS (between two writes; 0 here);
 // each defaults to GitHub's but the last. Its writes are GitHub's adapter's, sent to the check's fake service, which records every
 // request it receives (tools/check-issues.mjs); the stand-in itself is only an origin. Its list takes GitHub's `state` ('all',
-// 'open', 'closed') and its `closedBefore` makes GitHub's closed-issues address on the fake's origin (its web origin here).
+// 'open', 'closed'), its `milestones` reads the fake's open milestones, and its records carry the fake's assignees (id and login),
+// comment count and whole body, as GitHub's do; its `closedBefore` makes GitHub's closed-issues address on the fake's origin (its web
+// origin here).
 'use strict';
 
 const { makeAdapter } = require('./github');

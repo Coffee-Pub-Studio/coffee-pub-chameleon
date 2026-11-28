@@ -13955,8 +13955,8 @@ function issueRemove(ctx, key, stored) {
   return true;
 }
 
-// The ids of the tags the space's `tags` setting holds, after adding a row for each label of `list` that has none while there is
-// room (past MAX_TAGS a label is named in the notes instead).
+// The ids of the tags the space's `tags` setting holds, after adding a row for each label of `list` that has none while the setting
+// holds fewer than MAX_TAGS rows (a label past them is kept in the work's `source.labels` instead).
 function ensureIssueTags(ctx, list) {
   const tagIds = new Set();
   try {
@@ -14041,11 +14041,31 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
     }
   }
   const works = new Map([...stored].filter(([k]) => issuesLib.WORK_KEY.test(k)));
-  const milestones = issuesLib.milestonesOf(works, known, stored, at);
+  // The open milestones the service last listed (issueMilestoneList), each kept with or without work while the plan holds fewer than its 1,000 entries; when
+  // they have not been read since the server started, a stored milestone with no work is kept as it is.
+  const listed = issueMilestoneReads.get(issueMilestoneKey(rec));
+  const free = issuesLib.MAX_ENTRIES - [...stored.keys()].filter(issuesLib.isPulledKey).length;
+  const milestones = issuesLib.milestonesOf(works, known, stored, at, { open: listed ? listed.open : null, free });
   for (const [key, value] of milestones) if (issueWrite(ctx, key, value, stored)) written += 1;
   for (const key of [...stored.keys()]) if (issuesLib.MILESTONE_KEY.test(key) && !milestones.has(key) && issueRemove(ctx, key, stored)) removed += 1;
   const done = [...works.values()].filter((v) => v.done).length;
   return { counts: { total: works.size, open: works.size - done, done, written, removed }, error };
+}
+
+// The repository's open milestones as last listed (plan-github-full-sync.md, section 5), in memory only:
+// "<provider>|<repo>" -> { etag, open: Map(number -> { number, title, due, open }) }.
+const issueMilestoneReads = new Map();
+const issueMilestoneKey = (rec) => `${rec.provider}|${rec.repo}`;
+// Asks for them once, conditional on the last etag, after a list the pull read; trouble keeps what was listed before.
+async function issueMilestoneList(rec, adapter, token) {
+  const key = issueMilestoneKey(rec);
+  const seen = issueMilestoneReads.get(key);
+  const got = await issuesLib.askMilestones(adapter, { repo: rec.repo, etag: seen ? seen.etag : '', token });
+  if (!got.ok || (got.notModified && !seen)) return;
+  if (got.notModified) { seen.etag = got.etag || seen.etag; return; }
+  issueMilestoneReads.delete(key);
+  issueMilestoneReads.set(key, { etag: got.etag || '', open: new Map(got.milestones.map((m) => [m.number, m])) });
+  if (issueMilestoneReads.size > 500) issueMilestoneReads.delete(issueMilestoneReads.keys().next().value);
 }
 
 // One pull of one space, in the current environment. Answers the record after it.
@@ -14069,6 +14089,8 @@ async function pullIssues(spaceId) {
   // A full pull asks for the open issues, then the closed ones since the done window's cutoff (plan-done-window.md, step 3).
   const askedFrom = full ? issueCutoff(rec, spaceId) : '';
   const got = await issuesLib.askIssues(adapter, { repo: rec.repo, since: rec.since, etag: rec.etag, token: auth.token || '', full, closedSince: askedFrom }, { now });
+  // Then its open milestones, so one with no issue is in the plan too (one more conditional request; its trouble fails nothing).
+  if (got.ok) await issueMilestoneList(rec, adapter, auth.token || '');
   // Turned off, or turned to another repository, while the service was asked: what it answered is not written.
   const cur = issuePulls.get(spaceId);
   if (!cur || !cur.on || cur.repo !== rec.repo || cur.provider !== rec.provider) return cur;
@@ -14082,7 +14104,8 @@ async function pullIssues(spaceId) {
     return issuePulls.set(spaceId, { error: got.error, next: next(wait) });
   }
   if (got.notModified) {
-    // Nothing changed on the service; the done window's local trim runs all the same (no request), so work ages out on time.
+    // Nothing changed in the issues; the done window's local trim runs all the same (no request), so work ages out on time, and
+    // the milestones are settled from the list just read.
     const here = issuePullAt(store.spaceById(spaceId));
     const trimmed = here.error ? null : writeIssues(here.ctx, cur, adapter, { list: [], full: false });
     return issuePulls.set(spaceId, { error: '', restUntil: '', last: isoAt(Date.now()), next: next(wait), etag: got.etag, ...(trimmed ? { counts: trimmed.counts } : {}) });
@@ -14140,7 +14163,8 @@ function issuePullView(spaceId) {
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) -----------------------------------------------------
 // A space whose pull has `write` on sends some changes to the service: the column (the priority labels), Done (close and
-// reopen), the title, tags (labels) and new issues; never the body, comments, assignees or a delete. Only when the service accepts
+// reopen), the title, tags (labels) and new issues; not yet the description, comments, assignees or the milestone
+// (plan-github-full-sync.md, step 3), and never a delete. Only when the service accepts
 // a change is the work written here, mapped from the service's own answer. Writes go one at a time in their own lane (ahead of
 // the timer's pulls, never behind a full pull), at least `writeGapMs` apart. A space may write only when it is linked through the GitHub
 // app (`via: 'app'`) by someone who could write there on GitHub (`writeOk`); the installation token only ever goes to the service.

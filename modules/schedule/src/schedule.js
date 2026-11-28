@@ -1235,7 +1235,7 @@
     $('f-waits').dataset.count = String(others.length);
     drawFound();
   }
-  // The pulled issue's view (see openEditor): the link, the description as plain text (never markup), and only what an issue has.
+  // The pulled issue's view (see openEditor): the link, the description (`description`) as plain text (never markup), and only what an issue has.
   const targetOf = (e) => (e.end && e.start && e.end > e.start ? e.end : '');
   function showIssueView(shown, on) {
     for (const el of [$('f-kind').closest('label'), $('f-notes-field')]) hide(el, on);
@@ -1245,8 +1245,9 @@
     const link = on ? sourceLink(shown) : null;
     if (link) { link.classList.add('src-open'); link.append(document.createTextNode(` Open on ${shown.source.from === 'github' ? 'GitHub' : state.pull.name}`)); src.append(link); }
     hide(src, !link);
-    $('f-desc').textContent = on ? shown.notes : '';
-    hide($('f-desc-field'), !on || !shown.notes);
+    // The issue's text, stored cut at 2000 characters (plan-github-full-sync.md, section 1): drawn as text, read only for now.
+    $('f-desc').textContent = on ? shown.description : '';
+    hide($('f-desc-field'), !on || !shown.description);
     // The one day an issue has here: a target. It is the work's `end` (its `start` stays the day the issue was opened and is not shown), the
     // plan's own and never sent to GitHub; empty, or the day it was opened, means none.
     $('f-target').value = on && targetOf(shown);

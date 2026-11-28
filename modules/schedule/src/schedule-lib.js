@@ -16,7 +16,10 @@
 //   progress a milestone with entries under it: how many are done, 0 to 100
 //   phase    the id of one of the template's phases, or absent
 //   tags     ids from the `tags` setting
-//   notes    up to 2000 characters
+//   notes    up to 2000 characters: the plan's own notes (pulled work has none)
+//   description  work pulled from an issue service only: the issue's text as plain text, at most 2000 characters (cut with an
+//            ellipsis, then `source.cut`), read only here (documentation/plans/plan-github-full-sync.md, section 1)
+//   assignees    work pulled from an issue service only: the logins assigned there that no member has linked, at most 10, read only
 //   parent   the id of the entry it sits under (the outline), or absent
 //   order    the outline's order key (host.util.order)
 //   by       who added it
@@ -54,6 +57,10 @@ const SC_KINDS = ['milestone', 'work', 'note'];
 const SC_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SC_TITLE_MAX = 120;
 const SC_NOTES_MAX = 2000;
+const SC_DESCRIPTION_MAX = 2000; // characters, as the server cuts it (server/issues.js, DESCRIPTION_MAX)
+const SC_ASSIGNEES_MAX = 10;
+const SC_SOURCE_LABELS_MAX = 30;
+const SC_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/; // a login as GitHub makes them, or a bot's
 const SC_LIST_MAX = 50;
 // The days the plan holds: from 1900 to 2200. A day outside is no day (the entry reads as undated).
 const SC_YEAR_MIN = 1900;
@@ -72,6 +79,15 @@ function scIsDay(s) {
 function scText(s, n) {
   return typeof s === 'string' ? s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, n) : '';
 }
+// Text as scText makes it, cut at `n` characters (never inside a surrogate pair), as the server cuts an issue's text.
+function scChars(s, n) {
+  const t = scText(s, 4 * n);
+  return t.length <= n ? t : Array.from(t).slice(0, n).join('');
+}
+// Logins assigned on an issue service: each once, at most SC_ASSIGNEES_MAX.
+function scLogins(list) {
+  return [...new Set((Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && SC_LOGIN.test(x)))].slice(0, SC_ASSIGNEES_MAX);
+}
 function scLine(s, n) {
   return typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n) : '';
 }
@@ -89,8 +105,10 @@ function scCleanRef(r) {
   return out;
 }
 
-// Where pulled work came from (plan-github-pull.md): { from, repo, number, url, updated } for an issue, { from, repo, milestone, due? } for a
-// milestone. Kept as the pull wrote it so a save from a page does not drop it; a link is kept only when it is an https address.
+// Where pulled work came from (plan-github-pull.md): { from, repo, number, url, updated, cut?, labels? } for an issue, { from, repo,
+// milestone, due? } for a milestone. `cut`: true when the stored description is shorter than the issue's text; `labels`: the issue's
+// labels past the `tags` setting's rows, at most 30 names (plan-github-full-sync.md, section 1). Kept as the pull wrote it so a save
+// from a page does not drop it; a link is kept only when it is an https address.
 function scCleanSource(r) {
   if (!r || typeof r !== 'object' || typeof r.from !== 'string' || typeof r.repo !== 'string' || !r.from || !r.repo) return null;
   const out = { from: r.from.slice(0, 32), repo: r.repo.slice(0, 200) };
@@ -99,6 +117,11 @@ function scCleanSource(r) {
   if (typeof r.url === 'string' && /^https:\/\/[^\s]{1,500}$/.test(r.url)) out.url = r.url;
   if (typeof r.due === 'string' && scIsDay(r.due)) out.due = r.due;
   if (typeof r.updated === 'string' && /^\d{4}-\d\d-\d\dT[\d:.]{8,12}Z$/.test(r.updated)) out.updated = r.updated; // when the service last changed it: a pull never writes older data over newer
+  if (r.cut === true) out.cut = true;
+  if (Array.isArray(r.labels)) {
+    const labels = [...new Set(r.labels.filter((x) => typeof x === 'string' && x.length >= 1 && x.length <= 50))].slice(0, SC_SOURCE_LABELS_MAX);
+    if (labels.length) out.labels = labels;
+  }
   return out;
 }
 // What a person is told on a pulled entry while the pull is on.
@@ -143,6 +166,8 @@ function scClean(id, raw) {
     phase: typeof v.phase === 'string' && /^[a-z][a-z0-9-]{0,40}$/.test(v.phase) ? v.phase : '',
     tags: scIds(v.tags),
     notes: scText(v.notes, SC_NOTES_MAX),
+    description: kind === 'work' ? scChars(v.description, SC_DESCRIPTION_MAX) : '',
+    assignees: kind === 'work' ? scLogins(v.assignees) : [],
     parent: typeof v.parent === 'string' && SC_ID.test(v.parent) && v.parent !== String(id) ? v.parent : null,
     order: typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order) ? v.order : '',
     by: typeof v.by === 'string' ? v.by.slice(0, 200) : '',
@@ -171,6 +196,8 @@ function scValue(e) {
   if (e.phase) out.phase = e.phase;
   if (e.tags.length) out.tags = e.tags.slice();
   if (e.notes) out.notes = e.notes;
+  if (e.kind === 'work' && e.description) out.description = e.description;
+  if (e.kind === 'work' && e.assignees && e.assignees.length) out.assignees = e.assignees.slice();
   if (e.parent) out.parent = e.parent;
   if (e.order) out.order = e.order;
   if (e.by) out.by = e.by;
