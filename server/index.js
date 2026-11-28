@@ -2183,7 +2183,11 @@ const SETTINGS_ROUTE = /^\/api\/settings\/?$/i;
 // Bookings read out of pasted text (POST /api/spaces/:id/ai/extract) take up to 30,000 characters, more than 64 KB once written
 // as JSON in some scripts: that route reads its own body with extractJson, after the sign-in check.
 const EXTRACT_ROUTE = /^\/api\/spaces\/[^/]+\/ai\/extract\/?$/i;
-const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && !(req.method === 'PATCH' && SETTINGS_ROUTE.test(req.path)) && !(req.method === 'POST' && EXTRACT_ROUTE.test(req.path)) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
+// An issue's text and its comments (plan-github-full-sync.md, step 3) may each be 65,536 characters, up to about 400 KB as JSON:
+// the + (POST /api/spaces/:id/issues), the description and the comment routes read their own bodies with issueTextJson, after
+// the check that someone is signed in or holds a guest link.
+const ISSUE_TEXT_ROUTE = /^\/api\/spaces\/[^/]+\/issues(?:\/\d+\/(?:description|comments(?:\/\d+)?))?\/?$/i;
+const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && !(req.method === 'PATCH' && SETTINGS_ROUTE.test(req.path)) && !(req.method === 'POST' && EXTRACT_ROUTE.test(req.path)) && !(['POST', 'PUT', 'PATCH'].includes(req.method) && ISSUE_TEXT_ROUTE.test(req.path)) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
 // A body that can't be read (not JSON, too big) sent with an agent's token is held (req.bodyError) and answered only once
 // the agent gate has counted and logged the call, so an agent can't call past its limits or its log with bad bodies
 // (plan-agent-access.md). Every other request is answered here, as before. Nothing reads a held body: the gate, the host
@@ -2221,6 +2225,8 @@ const templateJson = express.json({ limit: templates.MAX_TEMPLATE_BYTES, verify:
 const settingsJson = express.json({ limit: '256kb', verify: (req, _res, buf) => { req.rawBody = buf; } });
 // Pasted text for bookings (POST /api/spaces/:id/ai/extract only; see EXTRACT_ROUTE): 30,000 characters at most, as JSON.
 const extractJson = express.json({ limit: '256kb' });
+// An issue's text or a comment (the routes ISSUE_TEXT_ROUTE names): 65,536 characters at most, as JSON.
+const issueTextJson = express.json({ limit: '400kb' });
 // A theme file's text (POST /api/themes/import). Its own 16 KB limit: a JSON body is parsed
 // by the app's own parser (64 KB) and measured by the route by the bytes received; any other type is read as text up
 // to the limit (a bigger one, and one the app's parser can't read, get the same sentence -- see the error handler).
@@ -6364,7 +6370,7 @@ async function undoThrough(who, c) {
   const d = issuesLib.diffWork(now.value, before);
   if (d.tags.add.length || d.tags.remove.length || (d.column !== null && d.title !== null)) return { status: 409, error: issuesLib.SAY.undoMixed };
   const back = { ...now.value };
-  const fields = [...issuesLib.OWN_FIELDS, ...(d.column !== null ? ['column', 'done'] : []), ...(d.title !== null ? ['title'] : [])];
+  const fields = [...issuesLib.OWN_FIELDS, issuesLib.OWNERS, ...(d.column !== null ? ['column', 'done'] : []), ...(d.title !== null ? ['title'] : [])];
   for (const k of fields) { if (before[k] !== undefined) back[k] = before[k]; else delete back[k]; }
   const out = await issueWriteThrough(at.ctx, c.object.key, back, { expected: c.versionAfter });
   if (out.error) return { status: out.status, error: out.error === SOMEONE_CHANGED ? UNDO_WHY.changed : out.error };
@@ -13900,8 +13906,8 @@ const issueFlightKey = (env, spaceId) => `${env.slug || ''}|${spaceId}`;
 // Why a person may not write `key` of the module where ctx works (null for a whole Clear or its Undo), or null: the space's plan
 // is filled by an issue pull that is on, and only the pull writes its plan and its board.
 // `given` is the value a write would store (a write's own check only): a change to stored pulled work (`plan:gh-<n>`) that touches
-// only the space's own fields (issuesLib.OWN_FIELDS) is let through, writing back on or off, since it sends nothing to the service;
-// so is a change to the board that touches only its columns' colours (issuesLib.colourOnly).
+// only the space's own fields (issuesLib.OWN_FIELDS, and Owners with no linked GitHub account) is let through, writing back on or
+// off, since it sends nothing to the service; so is a change to the board that touches only its columns' colours (issuesLib.colourOnly).
 function pulledRefusal(ctx, key, given) {
   if (ctx.who.system === 'issues' || ctx.manifest.id !== issuesLib.MODULE_ID || ctx.scope !== 'space' || !ctx.spaceId) return null;
   const rec = issuePulls.get(ctx.spaceId);
@@ -13910,9 +13916,9 @@ function pulledRefusal(ctx, key, given) {
   if (key !== null && given !== undefined && issuesLib.WORK_KEY.test(String(key))) {
     const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
     if (had && given && typeof given === 'object' && !Array.isArray(given)) {
-      const d = issuesLib.diffWork(had.value, given);
+      const d = issuesLib.diffWork(had.value, given, { linked: issueLinkedKeys() });
       // `doneOn` is the service's closed day (diffWork does not read it): an own-fields write keeps it exactly as stored.
-      if (d.own && !d.foreign.length && d.column === null && d.title === null && !d.tags.add.length && !d.tags.remove.length && issuesLib.sameValue(had.value.doneOn, given.doneOn)) return null;
+      if (d.own && !d.foreign.length && !issuesLib.diffSends(d) && issuesLib.sameValue(had.value.doneOn, given.doneOn)) return null;
     }
   }
   // A change to the stored board that touches only its columns' colours, by someone with the board's `columns` right, is the space's
@@ -14057,6 +14063,10 @@ function writeIssues(ctx, rec, adapter, { list, full }) {
   return { counts: { total: works.size, open: works.size - done, done, written, removed }, error };
 }
 
+// The keys of the people here who linked a GitHub account: their Owners on pulled work are GitHub's assignees (sent), anyone
+// else's the space's own.
+const issueLinkedKeys = () => new Set(store.githubLinks().values());
+
 // Map(GitHub account id -> person key) of the people in this environment who linked their GitHub account, after refreshing the
 // login of any whose account `records` name with another one (renamed on GitHub; matching is by id). Nothing of it is written to
 // the space: only the person's key goes into `owners`.
@@ -14182,13 +14192,19 @@ function issuePullView(spaceId) {
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) -----------------------------------------------------
 // A space whose pull has `write` on sends some changes to the service: the column (the priority labels), Done (close and
-// reopen), the title, tags (labels) and new issues; not yet the description, comments, assignees or the milestone
-// (plan-github-full-sync.md, step 3), and never a delete. Only when the service accepts
+// reopen), the title, tags (labels), new issues, and (plan-github-full-sync.md, step 3) the description, comments, Owners with a
+// linked GitHub account (assigned and unassigned) and the milestone; never a delete. Only when the service accepts
 // a change is the work written here, mapped from the service's own answer. Writes go one at a time in their own lane (ahead of
 // the timer's pulls, never behind a full pull), at least `writeGapMs` apart. A space may write only when it is linked through the GitHub
 // app (`via: 'app'`) by someone who could write there on GitHub (`writeOk`); the installation token only ever goes to the service.
 const issueCanWrite = (adapter) => Boolean(adapter && typeof adapter.update === 'function' && typeof adapter.get === 'function' && typeof adapter.create === 'function' && typeof adapter.addLabels === 'function' && typeof adapter.removeLabel === 'function' && typeof adapter.hasLabel === 'function');
-const issueReads = new Map(); // "<provider>|<repo>#<number>" -> { etag, record }: the last read of an issue, in memory only
+// The last read of an issue, "<provider>|<repo>#<number>" -> { etag, record, at }, and of its comments, the same key ->
+// { etag, comments, total, at }: in memory only, at most 500 issues and 200 comment lists, and at most ISSUE_CACHE_CHARS characters
+// each, the oldest dropped first (an issue's text and a comment may each be 65,536 characters long).
+const ISSUE_CACHE_CHARS = 4 * 1024 * 1024;
+const issueReads = new issuesLib.SizedCache({ maxEntries: 500, maxChars: ISSUE_CACHE_CHARS });
+const issueCommentReads = new issuesLib.SizedCache({ maxEntries: 200, maxChars: ISSUE_CACHE_CHARS });
+const ISSUE_VIEW_MS = 60 * 1000; // the issue view's read is answered from memory when asked again within a minute (section 9)
 let issueWriteLane = Promise.resolve();
 let issueLastWrite = 0;
 function inIssueWriteLane(fn) {
@@ -14244,10 +14260,10 @@ const issueRetry = (adapter, ms) => ({ status: 429, error: issuesLib.SAY.writeWa
 // One call that reads, as writeCall answers; a rest is set on a limit.
 // `call(ask, { repo, token })` makes the one request with the credentials for it. A 401 drops the token (the next call makes a new
 // one); a 301 (the repository moved) is tried once more after a fresh token, which names the repository as GitHub has it now.
-async function issueAsk(rec, adapter, call) {
+async function issueAsk(rec, adapter, call, { write = true } = {}) {
   let out;
   for (let tries = 0; tries < 2; tries += 1) {
-    const auth = await issueAuth(rec, adapter, { write: true });
+    const auth = await issueAuth(rec, adapter, { write });
     if (!auth.ok) return { ...auth, ok: false };
     out = await issuesLib.writeCall(adapter, (ask) => call(ask, { repo: auth.repo, token: auth.token }));
     if (out.ok) return out;
@@ -14270,18 +14286,35 @@ async function issueMutate(rec, adapter, call) {
   issueLastWrite = Date.now();
   return out;
 }
-// The issue as the service has it now (a conditional read when one was read before), or a refusal.
-async function issueRead(rec, adapter, number, { conditional = true } = {}) {
-  const cacheKey = `${rec.provider}|${rec.repo}#${number}`;
+// The issue as the service has it now (a conditional read when one was read before), or a refusal. `maxAgeMs`: a read made that
+// recently is answered from memory with no request (the issue view's; a write always asks). `write`: the token may change issues.
+const issueCacheKey = (rec, number) => `${rec.provider}|${rec.repo}#${number}`;
+async function issueRead(rec, adapter, number, { conditional = true, maxAgeMs = 0, write = true } = {}) {
+  const cacheKey = issueCacheKey(rec, number);
   const seen = conditional ? issueReads.get(cacheKey) : null;
-  const out = await issueAsk(rec, adapter, (ask, a) => adapter.get({ repo: a.repo, number, etag: seen ? seen.etag : '', token: a.token }, ask));
+  if (seen && maxAgeMs > 0 && Date.now() - seen.at < maxAgeMs) return { ok: true, record: seen.record };
+  const out = await issueAsk(rec, adapter, (ask, a) => adapter.get({ repo: a.repo, number, etag: seen ? seen.etag : '', token: a.token }, ask), { write });
   if (!out.ok) return out;
   const a = out.answer;
-  if (a.status === 304 && seen) return { ok: true, record: seen.record };
+  if (a.status === 304 && seen) { issueReads.set(cacheKey, { ...seen, at: Date.now() }); return { ok: true, record: seen.record }; }
   if (!a.record) return { ok: false, status: 502, error: issuesLib.SAY.bad(adapter.name) };
-  issueReads.set(cacheKey, { etag: a.etag || '', record: a.record });
-  if (issueReads.size > 500) issueReads.delete(issueReads.keys().next().value);
+  issueReads.set(cacheKey, { etag: a.etag || '', record: a.record, at: Date.now() });
   return { ok: true, record: a.record };
+}
+// The issue's newest comments as the service has them (conditional on the last etag; from memory within `maxAgeMs`), or a refusal.
+// `total` is the issue's own count (its record's `comments`), which says which page holds the newest.
+async function issueCommentsRead(rec, adapter, number, total, { maxAgeMs = 0, write = true } = {}) {
+  const cacheKey = issueCacheKey(rec, number);
+  const seen = issueCommentReads.get(cacheKey);
+  if (seen && maxAgeMs > 0 && Date.now() - seen.at < maxAgeMs && seen.asked === total) return { ok: true, comments: seen.comments, total: seen.total };
+  const etag = seen && seen.asked === total ? seen.etag : '';
+  const out = await issueAsk(rec, adapter, (ask, a) => adapter.comments({ repo: a.repo, number, total, etag, token: a.token }, ask), { write });
+  if (!out.ok) return out;
+  const a = out.answer;
+  if (a.status === 304 && seen) { issueCommentReads.set(cacheKey, { ...seen, at: Date.now() }); return { ok: true, comments: seen.comments, total: seen.total }; }
+  if (a.status !== 200 || !Array.isArray(a.comments)) return { ok: false, status: 502, error: issuesLib.SAY.bad(adapter.name) };
+  issueCommentReads.set(cacheKey, { etag: a.etag || '', comments: a.comments, total: a.total, asked: total, at: Date.now() });
+  return { ok: true, comments: a.comments, total: a.total };
 }
 // The rows of the space's `tags` setting by id: { id -> label }.
 function issueTagLabels(ctx) {
@@ -14289,7 +14322,8 @@ function issueTagLabels(ctx) {
   return new Map((Array.isArray(now) ? now : []).filter((r) => r && typeof r.id === 'string').map((r) => [r.id, String(r.label || '')]));
 }
 // Stores work in the space as the pull's writer: from the issue `record` as the service has it now (when there is one; the
-// space's own fields and the days stay), then `given`'s own fields over them, and `by` as who made the change. Refreshes the
+// space's own fields and the days stay), then `given`'s own fields over them (its Owners with no linked account among them; the
+// linked ones are the record's, or as stored when there is no record), and `by` as who made the change. Refreshes the
 // milestones. Answers { item } or { status, error }.
 function issueStore(ctx, key, record, { by = '', given = null, rec, adapter, expected = null }) {
   const at = issuePullAt(store.spaceById(ctx.spaceId));
@@ -14302,7 +14336,15 @@ function issueStore(ctx, key, record, { by = '', given = null, rec, adapter, exp
     const linked = issueLinked([record]);
     value = issuesLib.keepOwn(had ? had.value : null, issuesLib.workOf(record, { repo: rec.repo, provider: adapter.id, tagIds, linked }), { area: issueAreaField(ctx), linked: [...linked.values()] });
   } else value = { ...(had ? had.value : {}) };
-  if (given) for (const k of issuesLib.OWN_FIELDS) { if (given[k] !== undefined) value[k] = given[k]; else delete value[k]; }
+  if (given) {
+    for (const k of issuesLib.OWN_FIELDS) { if (given[k] !== undefined) value[k] = given[k]; else delete value[k]; }
+    // Owners: the person's order, their unlinked choices, and the linked ones only as GitHub (or what is stored) has them.
+    const linkedKeys = issueLinkedKeys();
+    const truth = (Array.isArray(value.owners) ? value.owners : []).filter((k) => linkedKeys.has(k));
+    const asked = Array.isArray(given.owners) ? given.owners.filter((k) => typeof k === 'string') : [];
+    const owners = [...new Set([...asked.filter((k) => !linkedKeys.has(k) || truth.includes(k)), ...truth])];
+    if (owners.length) value.owners = owners; else delete value.owners;
+  }
   if (by) value.by = by;
   try {
     const r = putModuleValue(sys, key, value, { expected });
@@ -14316,8 +14358,10 @@ function issueStore(ctx, key, record, { by = '', given = null, rec, adapter, exp
 }
 
 // A person's write of `given` over the pulled work at `key`, in a space that writes back: GitHub-only fields refused, the space's
-// own stored here, the rest sent to the service first. ctx is the person's (moduleAccess's). Answers { item } or
-// { status, error, retryAfter?, current? }; changes nothing here unless the service accepted what was sent.
+// own stored here (Owners with no linked GitHub account among them), the rest sent to the service first (plan-github-full-sync.md,
+// "The stored work": the column, Done, the title, tags, the description, the milestone, and Owners with a linked account). ctx is the
+// person's (moduleAccess's). Answers { item } or { status, error, retryAfter?, current? }; changes nothing here unless the service
+// accepted what was sent.
 async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
   const number = Number(issuesLib.WORK_KEY.exec(key)[1]);
   const rec = issuePulls.get(ctx.spaceId);
@@ -14330,13 +14374,16 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
   const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
   if (!had || !given || typeof given !== 'object' || Array.isArray(given)) return mayWriteOut ? fromService : noRight;
   if (expected !== null && expected !== had.version) return mayWriteOut ? { status: 409, error: SOMEONE_CHANGED, current: had } : noRight;
-  const d = issuesLib.diffWork(had.value, given);
-  const sends = d.column !== null || d.title !== null || d.tags.add.length > 0 || d.tags.remove.length > 0;
-  // Only the space's own fields (the days, owners, order, the fields) change nothing on the service, so the right to change the
-  // service is not asked for them (plan-github-two-way.md: setting a field needs `edit` only).
+  const linkedKeys = issueLinkedKeys();
+  const d = issuesLib.diffWork(had.value, given, { linked: linkedKeys });
+  const sends = issuesLib.diffSends(d);
+  // Only the space's own fields (the days, Owners with no link, order, the fields) change nothing on the service, so the right to
+  // change the service is not asked for them (plan-github-two-way.md: setting a field needs `edit` only).
   if (!mayWriteOut && !(d.own && !sends && !d.foreign.length)) return noRight;
   if (d.foreign.length) return fromService;
   if (!sends && !d.own) return { item: had };
+  // The milestone asked for: one of the plan's own (a pulled milestone, `ghm-<n>`), or none.
+  if (d.parent !== null && (!d.parent.ok || (d.parent.milestone !== null && !moduleData.get(ctx.manifest.id, ctx.scopeKey, `plan:ghm-${d.parent.milestone}`)))) return { status: 400, error: issuesLib.SAY.notMilestone };
   if (sends) {
     const refused = issueWriteRefusal(rec, adapter);
     if (refused) return refused;
@@ -14345,6 +14392,13 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
       d.title = issuesLib.oneLine(d.title, 1000);
       if (!d.title || d.title.length > issuesLib.TITLE_MAX) return { status: 400, error: issuesLib.SAY.badTitle };
     }
+    if (d.description !== null) {
+      if (typeof d.description !== 'string') return { status: 400, error: issuesLib.SAY.badText };
+      if (Array.from(d.description).length > issuesLib.TEXT_MAX) return { status: 400, error: issuesLib.SAY.tooLong };
+      // The stored copy is cut: replacing the whole text from it would lose what was never stored here.
+      if (had.value.source && had.value.source.cut === true) return { status: 403, error: issuesLib.SAY.cutDescription };
+    }
+    if ((d.owners.add.length || d.owners.remove.length) && typeof adapter.assign !== 'function') return { status: 403, error: issuesLib.SAY.noWrite };
     const rest = issueRestFor(rec);
     if (rest > 0) return issueRetry(adapter, rest);
   }
@@ -14360,12 +14414,16 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
     // space last saw. The work is then drawn as the service has it.
     const stored = had.value;
     const tagIds = new Set(issueTagLabels(ctx).keys());
-    const theirs = issuesLib.workOf(fresh, { repo: rec.repo, provider: adapter.id, tagIds });
+    const theirs = issuesLib.workOf(fresh, { repo: rec.repo, provider: adapter.id, tagIds, linked: store.githubLinks() });
     const newer = !stored.source || !stored.source.updated || fresh.updated > stored.source.updated;
     const sorted = (v) => JSON.stringify([...new Set(Array.isArray(v) ? v : [])].sort());
+    const linkedOf = (v) => (Array.isArray(v) ? v : []).filter((k) => linkedKeys.has(k));
     const conflict = newer && ((d.column !== null && (theirs.column !== stored.column || theirs.done !== stored.done))
       || (d.title !== null && theirs.title !== stored.title)
-      || ((d.tags.add.length > 0 || d.tags.remove.length > 0) && sorted(theirs.tags) !== sorted(stored.tags)));
+      || ((d.tags.add.length > 0 || d.tags.remove.length > 0) && sorted(theirs.tags) !== sorted(stored.tags))
+      || (d.description !== null && (theirs.description || '') !== (stored.description || ''))
+      || (d.parent !== null && (theirs.parent || '') !== (stored.parent || ''))
+      || ((d.owners.add.length > 0 || d.owners.remove.length > 0) && (sorted(linkedOf(theirs.owners)) !== sorted(linkedOf(stored.owners)) || sorted(theirs.assignees) !== sorted(stored.assignees))));
     if (conflict) {
       const kept = issueStore(ctx, key, fresh, { rec, adapter });
       return { status: 409, error: issuesLib.SAY.conflict, current: kept.item || now };
@@ -14379,11 +14437,27 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
       if (!label) return { status: 422, error: issuesLib.SAY.noLabel(id) };
       addNames.push(label);
     }
-    const plan = issuesLib.changePlan(fresh, { column: d.column, title: d.title, addNames, removeIds: d.tags.remove });
+    // Which logins: each linked Owner's own, as they linked it (never a login no member linked).
+    const loginOf = (k) => { const u = store.userByKey(k); return u && !u.agent && u.github ? u.github.login : ''; };
+    const assign = d.owners.add.map(loginOf).filter(Boolean);
+    const unassign = d.owners.remove.map(loginOf).filter(Boolean);
+    const plan = issuesLib.changePlan(fresh, {
+      column: d.column, title: d.title, addNames, removeIds: d.tags.remove,
+      body: d.description, ...(d.parent !== null ? { milestone: d.parent.milestone } : {}), assign, unassign,
+    });
     for (const label of plan.add) {
       const has = await issueAsk(rec, adapter, (ask, a) => adapter.hasLabel({ repo: a.repo, label, token: a.token }, ask));
       if (!has.ok && has.notFound) return { status: 422, error: issuesLib.SAY.noLabel(label) };
       if (!has.ok) return has;
+    }
+    // GitHub drops a login it cannot assign without saying so: each is asked first, and one it will not take sends nothing at all.
+    for (const login of plan.assign) {
+      const can = await issueAsk(rec, adapter, (ask, a) => adapter.canAssign({ repo: a.repo, login, token: a.token }, ask));
+      if (!can.ok && can.notFound) {
+        const k = d.owners.add.find((x) => loginOf(x) === login);
+        return { status: 422, error: issuesLib.SAY.noAssign((k && store.userByKey(k)?.displayName) || login) };
+      }
+      if (!can.ok) return can;
     }
     // Then the changes, one at a time. A failure part way leaves the service with what it accepted: the work is then drawn from
     // the service so the space shows what is there.
@@ -14407,6 +14481,16 @@ async function issueWriteThrough(ctx, key, given, { expected = null } = {}) {
     }
     if (plan.add.length) {
       const out = await issueMutate(rec, adapter, (ask, a) => adapter.addLabels({ repo: a.repo, number, labels: plan.add, token: a.token }, ask));
+      if (!out.ok) return failed(out);
+      changed = true;
+    }
+    if (plan.unassign.length) {
+      const out = await issueMutate(rec, adapter, (ask, a) => adapter.unassign({ repo: a.repo, number, logins: plan.unassign, token: a.token }, ask));
+      if (!out.ok) return failed(out);
+      changed = true;
+    }
+    if (plan.assign.length) {
+      const out = await issueMutate(rec, adapter, (ask, a) => adapter.assign({ repo: a.repo, number, logins: plan.assign, token: a.token }, ask));
       if (!out.ok) return failed(out);
       changed = true;
     }
@@ -14508,7 +14592,7 @@ app.put('/api/spaces/:id/issues-pull', (req, res) => {
   }
   issuePulls.set(space.id, {
     // A repository followed here with no link is read as a public one; the app's link (step 2) is made by its own route.
-    ...(moved ? { via: 'public', installation: 0, repositoryId: 0, writeOk: false, linkBy: '', linkAt: '', appError: '' } : {}),
+    ...(moved ? { via: 'public', installation: 0, repositoryId: 0, writeOk: false, linkBy: '', linkAt: '', appError: '', posted: [] } : {}),
     ...(link ? { ...link, appError: '' } : {}),
     write: writing, writeBy: writing ? (had && had.write && !moved ? had.writeBy : who.user.key) : '', writeAt: writing ? (had && had.write && !moved ? had.writeAt : isoAt(now)) : '',
     // The first pull after turning on is a full one, so anything changed while it was off is put back as the service has it.
@@ -14675,12 +14759,15 @@ app.delete('/api/me/github', githubLinkPerson, requireUser, (req, res) => {
   res.set('Cache-Control', 'no-store').json({ github: null });
 });
 
-// Someone with Projects' `edit` and `writeOut` opens a new issue from a column ({ title, column }): the service makes it (an empty
-// body, the column's priority label), then the work is written under its number as the service answered. 201 with the item.
+// Someone with Projects' `edit` and `writeOut` opens a new issue from a column ({ title, column, description? }): the service makes
+// it (the description as its body, else an empty one, and the column's priority label), then the work is written under its number
+// as the service answered. 201 with the item.
 // 403 when writing is off or the person may not change the service, 409 with no token or a full plan, 400 for a bad title or
 // column, 422 when the label the column needs does not exist there, 429 and 502 as a change's. Nothing is made here unless the
 // service made the issue.
-app.post('/api/spaces/:id/issues', async (req, res) => {
+// Someone signed in, or holding a guest link, before an issue route's body (up to issueTextJson's limit) is read; 401 otherwise.
+const issueTextReader = [(req, res, next) => (moduleViewer(req) && !moduleViewer(req).keyed ? next() : res.status(401).json({ error: 'Sign in first.' })), issueTextJson];
+app.post('/api/spaces/:id/issues', issueTextReader, async (req, res) => {
   const place = issuePullPlace(req, res, 'own');
   if (!place) return;
   const { space, ctx, found } = place;
@@ -14695,6 +14782,9 @@ app.post('/api/spaces/:id/issues', async (req, res) => {
   if (!title || title.length > issuesLib.TITLE_MAX) return res.status(400).json({ error: issuesLib.SAY.badTitle });
   const column = typeof body.column === 'string' ? body.column : '';
   if (!['inbox', 'now', 'next', 'later'].includes(column)) return res.status(400).json({ error: issuesLib.SAY.badColumn });
+  if (body.description !== undefined && typeof body.description !== 'string') return res.status(400).json({ error: issuesLib.SAY.badText });
+  const description = typeof body.description === 'string' ? body.description : '';
+  if (Array.from(description).length > issuesLib.TEXT_MAX) return res.status(400).json({ error: issuesLib.SAY.tooLong });
   const refusedWrite = issueWriteRefusal(rec, adapter);
   if (refusedWrite) return res.status(refusedWrite.status).json({ error: refusedWrite.error });
   const slow = overLimit(found.manifest.id, ctx.by, 'write');
@@ -14709,7 +14799,7 @@ app.post('/api/spaces/:id/issues', async (req, res) => {
       if (!has.ok && has.notFound) return { status: 422, error: issuesLib.SAY.noLabel(label) };
       if (!has.ok) return has;
     }
-    const made = await issueMutate(rec, adapter, (ask, a) => adapter.create({ repo: a.repo, title, labels, token: a.token }, ask));
+    const made = await issueMutate(rec, adapter, (ask, a) => adapter.create({ repo: a.repo, title, labels, ...(description.trim() ? { body: description } : {}), token: a.token }, ask));
     if (!made.ok) return made;
     const record = made.answer.record;
     return issueStore(ctx, `plan:gh-${record.number}`, record, { by: ctx.by, rec, adapter });
@@ -14719,6 +14809,222 @@ app.post('/api/spaces/:id/issues', async (req, res) => {
     return res.status(out.status).json({ error: out.error });
   }
   res.status(201).json({ item: hideItem(out.item, ctx.hide) });
+});
+
+// --- the issue view and its writes (documentation/plans/plan-github-full-sync.md, step 3) ----------------------------------------
+// The issue view reads one issue live when it opens (its whole text and its newest 100 comments; nothing of the comments is stored)
+// and writes the text and comments back. Every request goes through the write lane, one at a time across the server; a write needs
+// writing on in the space and Projects' `write_out`, as every write to the service does. A comment made here is posted by the app
+// with its text as written (decision 7) and remembered on the space's record (`posted`), so its author may edit or delete it and an
+// owner may delete it (decision 8); a comment written on the service is changed only there.
+
+// The issue a route names in a space that follows a repository, for someone with Projects' `need` there: { ...issuePullPlace's, rec,
+// adapter, number, key, had } or null after the refusal (404 for an issue that is not pulled work of this plan).
+function issueViewPlace(req, res, need) {
+  const place = issuePullPlace(req, res, need);
+  if (!place) return null;
+  const rec = issuePulls.get(place.space.id);
+  if (!rec || !rec.on) return void res.status(409).json({ error: `No pull is on in this ${word('space')}.` });
+  const adapter = issueAdapterOf(rec.provider);
+  if (!adapter || typeof adapter.get !== 'function' || typeof adapter.comments !== 'function') return void res.status(409).json({ error: 'This server has no such service.' });
+  if (!/^[1-9]\d{0,8}$/.test(String(req.params.number))) return void res.status(404).json({ error: issuesLib.SAY.notInPlan });
+  const number = Number(req.params.number);
+  const key = `plan:gh-${number}`;
+  const had = moduleData.get(place.found.manifest.id, place.ctx.scopeKey, key);
+  if (!had) return void res.status(404).json({ error: issuesLib.SAY.notInPlan });
+  return { ...place, rec, adapter, number, key, had };
+}
+// Why this person may not change the service from this space now, as { status, error, retryAfter? }, or null: writing off (403),
+// no `write_out` (403), an adapter without the call (403), the app (409), their write limit (429) or the service's rest (429).
+function issueWriteGate(at, needs = []) {
+  const { rec, adapter, ctx, found } = at;
+  if (!rec.write) return { status: 403, error: issuesLib.SAY.fromGitHub(adapter.name) };
+  if (!ctx.perms[`module.${found.manifest.id}.write_out`]) return { status: 403, error: issuesLib.SAY.noWriteOut(adapter.name) };
+  if (needs.some((m) => typeof adapter[m] !== 'function')) return { status: 403, error: issuesLib.SAY.noWrite };
+  const refused = issueWriteRefusal(rec, adapter);
+  if (refused) return refused;
+  const slow = overLimit(found.manifest.id, ctx.by, 'write');
+  if (slow) return { status: 429, error: limitMessage(), retryAfter: slow.retrySeconds };
+  const rest = issueRestFor(rec);
+  return rest > 0 ? issueRetry(adapter, rest) : null;
+}
+const issueFail = (res, out) => {
+  if (out.retryAfter) res.set('Retry-After', String(out.retryAfter));
+  return res.status(out.status).json({ error: out.error });
+};
+// After a comment is made, edited or deleted: the next view asks the service again (conditional on the issue; the comments afresh).
+function issueForget(rec, number) {
+  const k = issueCacheKey(rec, number);
+  issueCommentReads.delete(k);
+  const seen = issueReads.get(k);
+  if (seen) issueReads.set(k, { ...seen, at: 0 });
+}
+// A text a person sends as an issue's text or a comment: line endings as \n, control characters other than newline and tab out;
+// otherwise exactly as written (nothing of the person is added).
+const issueText = (v) => String(v).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
+// One comment as the view shows it: { id, who: { member } | { login }, at, edited, text, mine, canDelete }. `who` is the member who
+// made it here (`posted`), else the member whose linked account wrote it, else its login (shown to everyone who sees the plan,
+// decision 5). `mine`: made here by this person, who may edit and delete it now; `canDelete`: they may delete it (theirs, or any
+// made here when they are an owner).
+function issueCommentView(c, at) {
+  const made = at.rec.posted.find((p) => p.id === c.id) || null;
+  const links = store.githubLinks();
+  const who = made ? { member: made.by } : c.author && links.has(c.author.id) ? { member: links.get(c.author.id) } : { login: c.author ? c.author.login : '' };
+  const user = at.who.user && !at.who.user.agent ? at.who.user : null;
+  const may = Boolean(user && at.rec.write && at.ctx.perms[`module.${at.found.manifest.id}.write_out`]);
+  const mine = Boolean(made && may && made.by === user.key);
+  return { id: c.id, who, at: c.at, edited: c.edited, text: c.text, mine, canDelete: Boolean(made && may && (mine || hasOwnerRights(user))) };
+}
+
+// Anyone who may read the plan opens an issue: { description, base, comments, older, url } read from the service now (within a
+// minute, from memory): the whole text and its `base` (sent back with a save), the newest 100 comments oldest first, how many older
+// ones are only on the service, and its address there. 404 for an issue that is not in the plan; 429 or 502 with the service's
+// sentence when it asks to wait or does not answer (the page keeps the stored copy).
+app.get('/api/spaces/:id/issues/:number', async (req, res) => {
+  const at = issueViewPlace(req, res, 'read');
+  if (!at) return;
+  const { rec, adapter, number } = at;
+  const rest = issueRestFor(rec);
+  if (rest > 0) return issueFail(res, issueRetry(adapter, rest));
+  const out = await inIssueWriteLane(async () => {
+    const issue = await issueRead(rec, adapter, number, { maxAgeMs: ISSUE_VIEW_MS, write: rec.write });
+    if (!issue.ok) return issue;
+    const thread = await issueCommentsRead(rec, adapter, number, issue.record.comments || 0, { maxAgeMs: ISSUE_VIEW_MS, write: rec.write });
+    return thread.ok ? { record: issue.record, thread } : thread;
+  });
+  if (out.error) return issueFail(res, out);
+  const text = out.record.body || '';
+  res.set('Cache-Control', 'no-store').json({
+    description: text, base: issuesLib.baseOf(text),
+    comments: out.thread.comments.map((c) => issueCommentView(c, { ...at, rec: issuePulls.get(at.space.id) || rec })),
+    older: Math.max(0, out.thread.total - out.thread.comments.length), url: out.record.url,
+  });
+});
+
+// Someone with `write_out`, in a space that writes back, saves an issue's whole text ({ text, base }, `base` as the view gave it).
+// The service is read first: when its text is no longer the one `base` names, nothing is sent and the answer is 409 with the
+// service's text and its new base (the plan shows the service's version; the page keeps what was typed). Else the text is sent
+// as written and the work stored from the service's answer: 200 { item, description, base }. 400 for no text, more than 65,536
+// characters or no base; the write-through's refusals otherwise.
+app.put('/api/spaces/:id/issues/:number/description', issueTextReader, async (req, res) => {
+  const at = issueViewPlace(req, res, 'own');
+  if (!at) return;
+  const { rec, adapter, number, key, ctx } = at;
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  if (typeof body.text !== 'string') return res.status(400).json({ error: issuesLib.SAY.badText });
+  const text = issueText(body.text);
+  if (Array.from(text).length > issuesLib.TEXT_MAX) return res.status(400).json({ error: issuesLib.SAY.tooLong });
+  if (typeof body.base !== 'string' || !/^[0-9a-f]{32}$/.test(body.base)) return res.status(400).json({ error: issuesLib.SAY.noBase });
+  const gate = issueWriteGate(at);
+  if (gate) return issueFail(res, gate);
+  const out = await inIssueWriteLane(async () => {
+    const read = await issueRead(rec, adapter, number);
+    if (!read.ok) return read;
+    const theirs = read.record.body || '';
+    if (issuesLib.baseOf(theirs) !== body.base) {
+      issueStore(ctx, key, read.record, { rec, adapter });
+      return { status: 409, error: issuesLib.SAY.textConflict, description: theirs, base: issuesLib.baseOf(theirs) };
+    }
+    if (text === theirs) return { ...issueStore(ctx, key, read.record, { rec, adapter }), record: read.record };
+    const sent = await issueMutate(rec, adapter, (ask, a) => adapter.update({ repo: a.repo, number, body: text, token: a.token }, ask));
+    if (!sent.ok) return sent;
+    const last = await issueRead(rec, adapter, number, { conditional: false });
+    if (!last.ok) return last;
+    return { ...issueStore(ctx, key, last.record, { by: ctx.by, rec, adapter }), record: last.record };
+  });
+  if (out.error) {
+    if (out.description !== undefined) return res.status(409).json({ error: out.error, description: out.description, base: out.base });
+    return issueFail(res, out);
+  }
+  const now = out.record.body || '';
+  res.json({ item: hideItem(out.item, ctx.hide), description: now, base: issuesLib.baseOf(now) });
+});
+
+// Someone with `write_out`, in a space that writes back, adds a comment ({ text }): posted by the app with the text as written, and
+// remembered as theirs. 201 { comment } as the view shows it. 400 for no text or more than 65,536 characters.
+app.post('/api/spaces/:id/issues/:number/comments', issueTextReader, async (req, res) => {
+  const at = issueViewPlace(req, res, 'own');
+  if (!at) return;
+  const { rec, adapter, number, space, ctx } = at;
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  if (typeof body.text !== 'string') return res.status(400).json({ error: issuesLib.SAY.badText });
+  const text = issueText(body.text);
+  if (!text.trim()) return res.status(400).json({ error: issuesLib.SAY.emptyComment });
+  if (Array.from(text).length > issuesLib.TEXT_MAX) return res.status(400).json({ error: issuesLib.SAY.tooLong });
+  const gate = issueWriteGate(at, ['addComment']);
+  if (gate) return issueFail(res, gate);
+  const out = await inIssueWriteLane(async () => {
+    const made = await issueMutate(rec, adapter, (ask, a) => adapter.addComment({ repo: a.repo, number, text, token: a.token }, ask));
+    if (!made.ok) return made;
+    const c = made.answer.comment;
+    if (!c) return { status: 502, error: issuesLib.SAY.bad(adapter.name) };
+    issuePulls.addPosted(space.id, { id: c.id, number, by: ctx.by, at: isoAt(Date.now()) });
+    issueForget(rec, number);
+    return { comment: c };
+  });
+  if (out.error) return issueFail(res, out);
+  res.status(201).json({ comment: issueCommentView(out.comment, { ...at, rec: issuePulls.get(space.id) }) });
+});
+
+// The comment a route names, made from this space for this issue: the `posted` entry, or null after the 403 (decision 8: a comment
+// written on the service, or made from another space, is changed only there).
+function issuePostedOf(at, req, res) {
+  const id = /^[1-9]\d{0,15}$/.test(String(req.params.commentId)) ? Number(req.params.commentId) : 0;
+  const made = id && Number.isSafeInteger(id) ? issuePulls.postedOf(at.space.id, id) : null;
+  if (!made || made.number !== at.number) return void res.status(403).json({ error: issuesLib.SAY.onlyHere });
+  return made;
+}
+// The service has no such comment any more: it is forgotten here too.
+const issueCommentGone = (at, made) => { issuePulls.dropPosted(at.space.id, made.id); issueForget(at.rec, at.number); return { status: 404, error: issuesLib.SAY.commentGone(at.adapter.name) }; };
+
+// The person who made a comment here changes its text ({ text }): 200 { comment }. 403 for a comment not made here, or made by
+// someone else; 404 when it is gone from the service (and it is forgotten here).
+app.patch('/api/spaces/:id/issues/:number/comments/:commentId', issueTextReader, async (req, res) => {
+  const at = issueViewPlace(req, res, 'own');
+  if (!at) return;
+  const made = issuePostedOf(at, req, res);
+  if (!made) return;
+  const { rec, adapter, number, space } = at;
+  if (!at.who.user || made.by !== at.who.user.key) return res.status(403).json({ error: issuesLib.SAY.notAuthor });
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  if (typeof body.text !== 'string') return res.status(400).json({ error: issuesLib.SAY.badText });
+  const text = issueText(body.text);
+  if (!text.trim()) return res.status(400).json({ error: issuesLib.SAY.emptyComment });
+  if (Array.from(text).length > issuesLib.TEXT_MAX) return res.status(400).json({ error: issuesLib.SAY.tooLong });
+  const gate = issueWriteGate(at, ['editComment']);
+  if (gate) return issueFail(res, gate);
+  const out = await inIssueWriteLane(async () => {
+    const sent = await issueMutate(rec, adapter, (ask, a) => adapter.editComment({ repo: a.repo, id: made.id, text, token: a.token }, ask));
+    if (!sent.ok) return sent.notFound ? issueCommentGone(at, made) : sent;
+    if (!sent.answer.comment) return { status: 502, error: issuesLib.SAY.bad(adapter.name) };
+    issueForget(rec, number);
+    return { comment: sent.answer.comment };
+  });
+  if (out.error) return issueFail(res, out);
+  res.json({ comment: issueCommentView(out.comment, { ...at, rec: issuePulls.get(space.id) }) });
+});
+
+// The person who made a comment here, or an owner, deletes it from the service: 200 { deleted: <id> }. 403 for a comment not made
+// here, or for anyone else; 404 when it is already gone from the service (and it is forgotten here).
+app.delete('/api/spaces/:id/issues/:number/comments/:commentId', async (req, res) => {
+  const at = issueViewPlace(req, res, 'own');
+  if (!at) return;
+  const made = issuePostedOf(at, req, res);
+  if (!made) return;
+  const { rec, adapter, number, space } = at;
+  const user = at.who.user && !at.who.user.agent ? at.who.user : null;
+  if (!user || (made.by !== user.key && !hasOwnerRights(user))) return res.status(403).json({ error: issuesLib.SAY.notAuthorDelete(word('owner', { a: true })) });
+  const gate = issueWriteGate(at, ['deleteComment']);
+  if (gate) return issueFail(res, gate);
+  const out = await inIssueWriteLane(async () => {
+    const sent = await issueMutate(rec, adapter, (ask, a) => adapter.deleteComment({ repo: a.repo, id: made.id, token: a.token }, ask));
+    if (!sent.ok) return sent.notFound ? issueCommentGone(at, made) : sent;
+    issuePulls.dropPosted(space.id, made.id);
+    issueForget(rec, number);
+    return { deleted: made.id };
+  });
+  if (out.error) return issueFail(res, out);
+  res.json({ deleted: out.deleted });
 });
 
 // Someone with Projects' `edit` asks for a pull now: at most one a minute (429), never while the service asked to wait (429),
