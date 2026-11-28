@@ -179,6 +179,13 @@ test('airlineLinks says which links belong on the card now', () => {
   assert.deepEqual(airlineLinks(flight(), at(10, 18)).soon, { checkIn: false, status: true });
 });
 
+test('the Bookings view puts a flight\'s links in its row, by the card\'s rule', () => {
+  const js = read('travel.js');
+  assert.ok(js.includes("if (kind === 'journey') airlineRowInto(r.querySelector('.decision-main'), i);"), 'a journey row gets the links row');
+  assert.ok(/function row\(list[\s\S]*?return r;\s*\}/.test(js), 'row hands its element back');
+  assert.ok(/\.decision-main > \.card-airline \{/.test(read('travel.css')), 'the links row is styled inside a Bookings row');
+});
+
 // The release gate (Thomas, 2026-11-26: "Show all, with the release gate"): the links show for every entry now, and no release ships until
 // a person has opened both addresses of every entry and set `checked`. The default run only warns, so the module's lane stays green; with
 // `--release` (or RELEASE_GATE=1) an unchecked entry fails. The project manager runs it at release prep:

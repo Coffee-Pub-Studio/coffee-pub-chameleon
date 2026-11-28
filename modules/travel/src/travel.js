@@ -1431,6 +1431,7 @@
     const btn = r.querySelector('[data-action="open"]');
     if (button) { btn.textContent = button; btn.dataset.action = 'edit-item'; btn.dataset.id = id; } else btn.remove();
     list.append(r);
+    return r;
   }
   function section(body, title) {
     const [t, ul] = parts('tpl-decisions');
@@ -1461,7 +1462,8 @@
         const line = kind === 'stay'
           ? [i.checkOut && i.date ? `${dayShort(i.date)} – ${dayShort(i.checkOut)}` : dayTime(i), nights ? `${nights} night${nights === 1 ? '' : 's'}` : '', i.place || i.address].filter(Boolean).join(' · ')
           : [dayTime(i), back ? dayTime(back) : '', route].filter(Boolean).join(' · ');
-        row(ul, { icon: kind === 'stay' ? 'bed' : cardOf(i).badge || 'route', title: i.title, sub: line, code: i.confirm, button: 'Open', id: i.id });
+        const r = row(ul, { icon: kind === 'stay' ? 'bed' : cardOf(i).badge || 'route', title: i.title, sub: line, code: i.confirm, button: 'Open', id: i.id });
+        if (kind === 'journey') airlineRowInto(r.querySelector('.decision-main'), i); // a flight's check-in and status links, on the card's own rule (48 hours before)
       }
     }
   }
