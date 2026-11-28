@@ -118,7 +118,7 @@ Written on `fa5ea4bd` from the builders' reports of the pull requests #1065 to #
 
 - **There is no "Weather is working" test button** on the Weather module's page.
 - **A failing weather service is asked again on the next request,** bounded by the limit of 30 a minute, unless it answered 429 or 403, when that position is left alone for 30 minutes.
-- **Redrawing the Itinerary replays the weather icon's fade-in** (reduced motion turns it off), and a negative temperature prints with a hyphen, not a minus sign.
+- **A negative temperature on an Itinerary day prints with a hyphen, not a minus sign.** The SDK's `host.ui.dayWeather` builds that text.
 - **Place search still follows redirects without an address check and sends the repository address in its `User-Agent`** (`server/geocode.js`); the weather lookup does not.
 - Not verified: the real weather service (MET Norway was never reached; its terms need a person to accept them first), a sandboxed module frame, a guest, Fahrenheit, a real phone or screen reader.
 
