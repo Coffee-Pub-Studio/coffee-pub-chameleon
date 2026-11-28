@@ -203,7 +203,7 @@ try {
       // the column menu: Fold, then the module's editor items for an owner (check-schedule-board-editor.mjs drives them)
       await ev(tab, `__all(${JSON.stringify(F + '.sdk-board-col')})[1].querySelector('.sdk-board-colmore').click()`);
       await sleep(300);
-      same(await ev(tab, `__all(${JSON.stringify(F + '[role=menuitem]')}).map((m) => m.textContent.trim())`), ['Fold', 'Rename', 'Move left', 'Move right', 'Counts as done', 'Delete'], `${tag}: the column menu for an owner`);
+      same(await ev(tab, `__all(${JSON.stringify(F + '[role=menuitem]')}).map((m) => m.textContent.trim())`), ['Fold', 'Rename', 'Move left', 'Move right', 'Counts as done', 'Colour', 'Delete'], `${tag}: the column menu for an owner`);
       await tab.key('Escape');
     }
     await tab.close();
