@@ -88,8 +88,8 @@ await test('a pulled issue shows one Target date, which is the work\'s end', () 
   assert.match(page, /hide\(\$\('f-target-field'\), !on\);/);
   assert.match(page, /\$\('f-target-field'\)\.contains\(el\)/, 'enabled with the plan\'s own fields, even where Title, Done and tags are not');
   assert.match(page, /const endOf = \(e\) => \(target \? target : e\.start \|\| e\.end\);/, 'empty goes back to the day it was opened');
-  assert.match(page, /return \{ \.\.\.e, fields: fieldsFromForm\(e\.fields\), end: endOf\(e\) \};/);
-  assert.match(page, /fields: fieldsFromForm\(e\.fields\), end: endOf\(e\) \}; \/\/ a tag the plan no longer lists/);
+  assert.match(page, /return \{ \.\.\.e, fields: fieldsFromForm\(e\.fields\), end: endOf\(e\), \.\.\.owned \};/);
+  assert.match(page, /fields: fieldsFromForm\(e\.fields\), end: endOf\(e\), \.\.\.owned, \.\.\.placed \}; \/\/ a tag the plan no longer lists/);
   assert.match(page, /target < was\.start\) \{ editorError\(`The target date is before the day it was opened/, 'a date before it was opened is refused');
   assert.match(page, /dates\.target = host\.ui\.datePicker\(\$\('f-target'\), \{ clearable: true \}\);/);
   assert.match(page, /\[\x27start\x27, \x27end\x27, \x27target\x27\]\) if \(dates\[k\]\)/, 'its picker is destroyed with the others');
