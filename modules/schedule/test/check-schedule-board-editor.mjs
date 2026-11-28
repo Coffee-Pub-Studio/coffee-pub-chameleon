@@ -73,7 +73,7 @@ await test('delete moves the work and takes the target\'s flag; the refusals are
 });
 await test('the page: the column menu, its right, the Add control, one write with Undo', () => {
   const menu = page.slice(page.indexOf('function columnMenu'), page.indexOf('function columnMenu') + 1400);
-  assert.match(menu, /if \(!canColumns\(\)\) return \[\]/, 'no items without the columns right');
+  assert.match(menu, /if \(!canColumns\(\)\) return keepItem\(c\);/, 'no column items without the columns right (a followed plan\'s Done column gives anyone the link to its closed issues, and nothing else)');
   for (const w of ["'Rename'", "'Move left'", "'Move right'", "'Counts as done'", "'Delete'"]) assert.ok(menu.includes(w), w);
   assert.match(page, /const canColumns = \(\) => host\.can\('columns'\)/);
   assert.match(page, /hide\(\$\('col-add'\), !canColumns\(\)\)/, 'Add a column is hidden without the right');
