@@ -280,7 +280,7 @@ await test('the page: Update by id is its own mode, for edit, with the file\'s f
   assert.match(page, /offerUndo\(plan, `Updated \$\{n\}/);
   assert.match(page, /if \(canEdit\) items\.push\(\{ id: 'check', label: 'Check file'/, 'Check file reads such a file in a followed plan too');
   const apply = page.slice(page.indexOf('async function applyImport'), page.indexOf('function offerUndo'));
-  assert.ok(apply.indexOf('writeField(f.id') < apply.indexOf('await write(e,'), 'the fields before the entries');
+  assert.ok(apply.indexOf('writeField(f.id') < apply.indexOf('() => write(e,'), 'the fields before the entries');
 });
 
 if (process.exitCode) process.exit(1);

@@ -1699,53 +1699,106 @@
     state.boardRaw = value;
     state.boardVersion = saved && saved.version;
   }
-  async function putBack(plan) {
+  // The host lets a module save about 240 times a minute for one person; over that it answers 429 and says how long to wait. A big import,
+  // or the Undo of one, would stop half way. So each write waits as long as it is told and carries on, and the bar says how far it is.
+  const PACE_WAITS_MAX = 12; // a wait is at most a minute, so this is far past anything real
+  const PACE_SHOW_FROM = 30; // a run of fewer writes than this is over in a moment and shows no progress
+  const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+  function showProgress(text) {
+    clearTimeout(undoTimer);
+    $('undo-text').textContent = text;
+    $('undo-btn').hidden = true;
+    $('undo').hidden = false;
+  }
+  function endProgress() { $('undo-btn').hidden = false; $('undo').hidden = true; }
+  async function paced(fn, progress) {
+    for (let tries = 0; ; tries += 1) {
+      try { return await fn(); } catch (err) {
+        if (!(err && err.status === 429) || tries >= PACE_WAITS_MAX) throw err;
+        const secs = Math.min(65, Math.max(1, Math.ceil(Number(err.retryAfter)) || 5));
+        for (let left = secs; left > 0; left -= 1) {
+          if (progress) showProgress(`${progress()} Waiting ${left} ${left === 1 ? 'second' : 'seconds'} for the ${label('plan')} to catch up.`);
+          await sleepMs(1000);
+        }
+      }
+    }
+  }
+  // Puts back what `plan` changed, one write at a time, each waiting out the host's limit. Never stops at the first it cannot do: answers
+  // { total, failed, rest } where `rest` is what could not be put back, in the shape of a plan, so Undo can be offered for it again.
+  async function putBack(plan, verb) {
+    const things = (plan.fields || []).length + plan.created.length + plan.was.length + (plan.board ? 1 : 0);
+    let done = 0;
+    const progress = () => `${verb || 'Putting it back'}: ${done} of ${things}.`;
+    const step = () => { done += 1; if (things >= PACE_SHOW_FROM) showProgress(progress()); };
+    const rest = { created: [], was: [], fields: [] };
+    const fail = (err) => { rest.error = rest.error || (err && err.message) || ''; };
     if (plan.board) {
       try {
-        if (plan.board.was) await writeBoard(plan.board.was);
-        else if (state.boardRaw) { await host.storage.delete(BOARD_KEY, { version: state.boardVersion }); state.boardRaw = null; state.boardVersion = undefined; }
+        if (plan.board.was) await paced(() => writeBoard(plan.board.was), progress);
+        else if (state.boardRaw) { await paced(() => host.storage.delete(BOARD_KEY, { version: state.boardVersion }), progress); state.boardRaw = null; state.boardVersion = undefined; }
       } catch (err) { /* read again on its change */ }
+      step();
     }
     for (const f of plan.fields || []) {
-      try { if (f.was) await writeField(f.id, f.was); else await removeField(f.id); } catch (err) { /* read again on its change */ }
+      try { await paced(() => (f.was ? writeField(f.id, f.was) : removeField(f.id)), progress); } catch (err) { rest.fields.push(f); fail(err); }
+      step();
     }
     for (const id of plan.created) {
       const x = state.entries.get(id);
-      if (!x) continue;
-      try { await host.storage.delete(SC_PREFIX + id, { version: x.version }); } catch (err) { /* gone already */ }
-      state.entries.delete(id);
-      host.objects.setLinks(pointer(id), []).catch(() => {});
+      if (x) {
+        try { await paced(() => host.storage.delete(SC_PREFIX + id, { version: x.version }), progress); } catch (err) { if (err && err.status === 429) { rest.created.push(id); fail(err); step(); continue; } /* gone already */ }
+        state.entries.delete(id);
+        host.objects.setLinks(pointer(id), []).catch(() => {});
+      }
+      step();
     }
     for (const w of plan.was) {
       const x = state.entries.get(w.id);
-      const saved = await host.storage.set(SC_PREFIX + w.id, w.value, x ? { version: x.version } : {});
-      state.entries.set(w.id, { e: scClean(w.id, w.value), version: saved && saved.version });
-      host.objects.setLinks(pointer(w.id), w.value.ref ? [w.value.ref] : []).catch(() => {});
+      try {
+        const saved = await paced(() => host.storage.set(SC_PREFIX + w.id, w.value, x ? { version: x.version } : {}), progress);
+        state.entries.set(w.id, { e: scClean(w.id, w.value), version: saved && saved.version });
+        host.objects.setLinks(pointer(w.id), w.value.ref ? [w.value.ref] : []).catch(() => {});
+      } catch (err) { rest.was.push(w); fail(err); }
+      step();
     }
-    await settleMilestones();
+    try { await paced(() => settleMilestones(), progress); } catch (err) { /* read on the next load */ }
     render();
+    return { total: things, failed: rest.created.length + rest.was.length + rest.fields.length, rest };
   }
   // `newBoard`: the file's board to store first (the columns right, `columns`, is asked of the server by that write: a refusal is the
   // server's own sentence and nothing has been written yet).
   // `newFields`: the fields the file defines that the plan lacks or has to gain choices on (stored first; the `columns` right is asked of the
   // server by those writes). `mode` 'update' writes only the entries given, which are the plan's own changed in what the space owns.
+  // What a failed import says: nothing was imported, or, when the put-back could not finish, how many entries keep the imported values.
+  const importFailure = (err) => {
+    const base = err && err.status === 409 ? 'Someone else changed the plan just now.' : (err && err.message) || '';
+    const n = err && err.notPutBack;
+    if (n) return `${base} Stopped part way: ${n} ${n === 1 ? 'entry keeps' : 'entries keep'} the imported values.`.trim();
+    return err && err.status === 409 ? `${base} Nothing was imported. Try again.` : `Nothing was imported. ${base}`.trim();
+  };
   async function applyImport(entries, mode, newBoard, newFields) {
     const plan = { created: [], was: [] };
     importing = true;
+    const total = (newBoard ? 1 : 0) + (newFields ? newFields.length : 0) + entries.length;
+    let done = 0;
+    const progress = () => `Importing: ${done} of ${total}.`;
+    const step = () => { done += 1; if (total >= PACE_SHOW_FROM) showProgress(progress()); };
     try {
       if (newBoard) {
         plan.board = { was: state.boardRaw };
-        await writeBoard(scBoardValue(newBoard));
+        await paced(() => writeBoard(scBoardValue(newBoard)), progress);
+        step();
       }
       if (newFields && newFields.length) {
         plan.fields = newFields.map((f) => ({ id: f.id, was: (state.fieldRows.get(SC_FIELD_PREFIX + f.id) || {}).value || null }));
-        for (const f of newFields) await writeField(f.id, scFieldValue(f));
+        for (const f of newFields) { await paced(() => writeField(f.id, scFieldValue(f)), progress); step(); }
       }
       const keep = new Set(entries.map((e) => e.id));
       for (const e of entries) {
         const had = storedNow(e.id);
         if (had) plan.was.push({ id: e.id, value: had.value }); else plan.created.push(e.id);
-        await write(e, had ? had.version : undefined);
+        await paced(() => write(e, (storedNow(e.id) || {}).version), progress);
+        step();
       }
       if (mode === 'replace') {
         for (const old of list().filter((x) => !keep.has(x.id))) {
@@ -1758,11 +1811,14 @@
         }
       }
     } catch (err) {
-      try { await putBack(plan); } catch (again) { /* what could not be put back is read on the next load */ }
+      // What was written is put back; if some of it cannot be, the person is told how many entries keep the imported values.
+      let left = plan.created.length + plan.was.length;
+      try { left = (await putBack(plan, 'Putting it back')).failed; } catch (again) { /* left stays as counted */ }
+      if (left) err.notPutBack = left;
       throw err;
-    } finally { importing = false; }
+    } finally { importing = false; endProgress(); }
     for (const e of entries) if (e.ref) host.objects.setLinks(pointer(e.id), [e.ref]).catch(() => {});
-    await settleMilestones();
+    await paced(() => settleMilestones(), progress);
     render();
     return plan;
   }
@@ -1770,6 +1826,7 @@
     clearTimeout(undoTimer);
     undoPlan = plan;
     $('undo-text').textContent = text;
+    $('undo-btn').hidden = false;
     $('undo').hidden = false;
     undoTimer = setTimeout(() => { undoPlan = null; $('undo').hidden = true; }, UNDO_SECONDS * 1000);
   }
@@ -1779,7 +1836,16 @@
     undoPlan = null;
     $('undo').hidden = true;
     if (!plan) return;
-    try { await putBack(plan); say('Put back.', 'success'); } catch (err) { say((err && err.message) || 'It could not be put back.', 'danger'); }
+    importing = true; // nothing else is imported while this runs
+    try {
+      const r = await putBack(plan);
+      if (!r.failed) say('Put back.', 'success');
+      else {
+        // Not everything could be: say how many, and keep Undo for what is left.
+        say(`Put back ${r.total - r.failed} of ${r.total}.${r.rest.error ? ` ${r.rest.error}` : ''} Undo again for the rest.`, 'danger');
+        offerUndo(r.rest, `${r.failed} ${r.failed === 1 ? 'entry is' : 'entries are'} not put back yet.`);
+      }
+    } catch (err) { say((err && err.message) || 'It could not be put back.', 'danger'); } finally { importing = false; if (!undoPlan) endProgress(); }
   });
   // Check file: the same reading as Import, nothing written. Says what the file would add, or its problems.
   async function showCheck(file, parsed) {
@@ -1828,7 +1894,7 @@
       const plan = await applyImport(entries, mode, newBoard, parsed.fields);
       offerUndo(plan, mode === 'add' ? `Added ${words}.` : `Replaced the ${label('plan')} with ${words}.`);
     } catch (err) {
-      say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
+      say(importFailure(err), 'danger');
     }
   }
   // Update by id: only what the space owns (fields, days, owners, order) on the entries that are in the plan; nothing else about them.
@@ -1846,7 +1912,7 @@
       const plan = await applyImport(r.entries, 'update', null, parsed.fields);
       offerUndo(plan, `Updated ${n} ${n === 1 ? 'entry' : 'entries'} by id.`);
     } catch (err) {
-      say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
+      say(importFailure(err), 'danger');
     }
   }
   let picker = null;
