@@ -30,16 +30,29 @@
 // newest; a request with no header gets 2022-11-28; 2022-11-28 is supported for 24 months after 2026-03-10. What 2026-03-10 changes
 // that this adapter could meet is the removal of the singular `assignee` from an issue, which no record reads; nothing there is
 // needed, so the header is left as it was.
-// What a write may carry is fixed here: a title, a state and its reason, a label's name, and for a new issue its title and
-// labels. Never (until plan-github-full-sync.md step 3 adds them) a body, a comment, an assignee or a milestone, and never
-// anything of the space or the person. Read, besides the issues: the repository's open milestones (GET .../milestones?state=open,
-// one page of 100, conditional), to keep a milestone with no issue in the plan; and, for a person who links their own GitHub
+// What a write may carry is fixed here (plan-github-full-sync.md, step 3): a title, a state and its reason, the body (the issue's
+// text, as written), the milestone's number or none, a label's name, a comment's text, the logins of linked Owners to assign or
+// unassign, and for a new issue its title, labels and body. Never anything of the space or the person: no name, no login a member
+// did not link. Read, besides the issues: the repository's open milestones (GET .../milestones?state=open,
+// one page of 100, conditional), to keep a milestone with no issue in the plan; an issue's newest 100 comments when the issue view
+// opens (GET .../issues/{n}/comments, oldest first, each comment's id, author's id and login, times and text, nothing else); whether
+// GitHub will assign a login (GET .../assignees/{login}); and, for a person who links their own GitHub
 // account on Profile (plan-github-full-sync.md, section 4), GET /user with their user token, of which only the account's `id` and
 // `login` are read (never a name, picture or e-mail address). Re-read on 2026-11-28 at docs.github.com ("Get the authenticated
 // user": 200 with `login` and `id`, both required, 304, 401, 403; a token with no scopes still authenticates as its owner; "Delete
 // an app token": DELETE /applications/{client_id}/token, Basic auth with the client id and secret and no bearer, `access_token` in
 // the body, 204, 422; "Generating a user access token for a GitHub App": `state` must match or the flow is aborted, PKCE's
 // `code_verifier` with the exchange).
+// Re-read on 2026-11-28 at docs.github.com for step 3 ("REST API endpoints for issue comments", "... for assignees", "... for
+// milestones", "Update an issue", "Permissions required for GitHub Apps", "Rate limits for the REST API"): an issue's comments are
+// listed in ascending id order with no direction to ask (so the newest 100 are the last page or two, from the issue's count), at
+// most 100 a page; create answers 201, edit 200 and delete 204; a comment's `body` is required; "Add assignees" takes up to 10
+// logins and answers 201 with the issue, "Remove assignees" answers 200 with it, and both say assignees are "silently ignored"
+// without push access; "Check if a user can be assigned" answers 204, else 404; "Update an issue" takes `body` (string or null) and
+// `milestone` (a number, or null to remove it), silently dropped without push access; every one of these is under the app's
+// "Issues" permission (read for the reads, write for the writes), so the app asks for nothing new. Not in those pages, so from the
+// planner's memory and not confirmed: that a login GitHub cannot assign is dropped silently (rather than refused) when the caller may
+// push, and the 65,536-character limit of a body or a comment.
 'use strict';
 
 const { userAgent } = require('../product-name');
@@ -185,6 +198,33 @@ const writeHeaders = (token) => {
   return headers;
 };
 const issuePath = (origin, repo, number) => `${origin}/repos/${repo}/issues/${Number(number)}`;
+
+// --- comments and assignees (plan-github-full-sync.md, sections 2 and 3) ---
+const COMMENTS_SHOWN = 100; // the newest this many are read when the issue view opens
+// One comment as the issue view reads it: { id, author: { id, login } | null, at, edited, text }, or null. `text` is plain text as
+// bodyText makes it (never markup); `author` GitHub's account id and login only (null for a deleted account); `edited` whether it
+// was changed after it was written. Nothing else of it (no picture, no e-mail address, no reactions).
+function commentOf(raw) {
+  if (!raw || typeof raw !== 'object' || !Number.isSafeInteger(raw.id) || raw.id < 1) return null;
+  const u = raw.user && typeof raw.user === 'object' ? raw.user : null;
+  const author = u && Number.isSafeInteger(u.id) && u.id > 0 && typeof u.login === 'string' && LOGIN.test(u.login) ? { id: u.id, login: u.login } : null;
+  const at = stamp(raw.created_at);
+  const changed = stamp(raw.updated_at);
+  return { id: raw.id, author, at, edited: Boolean(at && changed && changed > at), text: bodyText(raw.body) };
+}
+// A comment's text may be sent: a string with something in it, at most BODY_MAX characters.
+const commentTextOk = (v) => typeof v === 'string' && v.trim().length > 0 && Array.from(v).length <= BODY_MAX;
+// The answer to a comment's create or edit, with the comment read from it (`bad` when the answer is not one).
+function withComment(got) {
+  const out = answerOf(got, false);
+  if (got.status === 200 || got.status === 201) {
+    const c = commentOf(got.json);
+    if (c) out.comment = c; else out.bad = true;
+  }
+  return out;
+}
+// Logins to send as assignees: each a person's login, once, at most ASSIGNEES_MAX.
+const loginsOf = (v) => [...new Set((Array.isArray(v) ? v : []).filter((l) => typeof l === 'string' && USER_LOGIN.test(l)))].slice(0, ASSIGNEES_MAX);
 const labelOk = (n) => typeof n === 'string' && n.length >= 1 && n.length <= 50 && !/[\u0000-\u001f\u007f]/.test(n);
 
 // An adapter for GitHub's REST shape at `origin` (the stand-in reuses it with its own).
@@ -275,13 +315,80 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
       if (got.status === 304) out.etag = out.etag || etag;
       return out;
     },
-    // The title and the state (with its reason) of one issue; nothing else can be sent.
-    async update({ repo, number, title, state, stateReason, token = '' }, ask) {
+    // The title, the state (with its reason), the body (the issue's text, a string; '' empties it) and the milestone (its number,
+    // or null for none) of one issue; nothing else can be sent, and only what is named is.
+    async update({ repo, number, title, state, stateReason, body: text, milestone, token = '' }, ask) {
       const body = {};
       if (typeof title === 'string' && title) body.title = title.slice(0, 256);
       if (state === 'open' || state === 'closed') body.state = state;
       if (body.state && ['completed', 'reopened', 'not_planned'].includes(stateReason)) body.state_reason = stateReason;
+      if (typeof text === 'string' && Array.from(text).length <= BODY_MAX) body.body = text;
+      if (milestone === null || (Number.isSafeInteger(milestone) && milestone > 0)) body.milestone = milestone;
+      if (!Object.keys(body).length) return { status: 0, wait: {}, limited: false, message: '' };
       return answerOf(await ask('PATCH', issuePath(origin, repo, number), writeHeaders(token), body), true);
+    },
+    // An issue's newest comments (plan-github-full-sync.md, section 2): at most COMMENTS_SHOWN, oldest first. GitHub lists them by
+    // ascending id with no way to ask the newest first, so `total` (the issue's own count of comments, from its record) says which
+    // page is the last: one page when there are at most 100 (conditional on `etag`: a 304 costs nothing), else the last two pages,
+    // asked unconditionally, and the newest 100 of them. Answers { status, etag, comments: [{ id, author: { id, login } | null, at,
+    // edited, text }], total, wait, bad? }; `total` how many the issue has, as far as the pages tell.
+    async comments({ repo, number, total = 0, etag = '', token = '' }, ask) {
+      const count = Number.isSafeInteger(total) && total > 0 ? total : 0;
+      const last = Math.max(1, Math.ceil(count / PER_PAGE));
+      const pages = last > 1 ? [last - 1, last] : [1];
+      const list = [];
+      let tag = '';
+      let out = null;
+      for (const page of pages) {
+        const headers = writeHeaders(token);
+        if (etag && pages.length === 1) headers['If-None-Match'] = etag;
+        const got = await ask('GET', `${issuePath(origin, repo, number)}/comments?per_page=${PER_PAGE}&page=${page}`, headers);
+        out = answerOf(got, false);
+        if (got.status === 304 && pages.length === 1) return { ...out, etag: text(got.header('etag'), 200) || etag, comments: [], total: count };
+        if (got.status !== 200) return { ...out, etag: '', comments: [], total: count };
+        if (!Array.isArray(got.json)) return { ...out, status: 0, etag: '', comments: [], total: count, bad: true };
+        if (pages.length === 1) tag = text(got.header('etag'), 200);
+        list.push(...got.json.map(commentOf).filter(Boolean));
+      }
+      const seen = new Set();
+      const comments = list.filter((c) => (seen.has(c.id) ? false : seen.add(c.id))).sort((a, b) => a.id - b.id).slice(-COMMENTS_SHOWN);
+      const shown = pages.length === 1 ? list.length : (last - 1) * PER_PAGE + list.length - PER_PAGE;
+      return { ...out, status: 200, etag: tag, comments, total: Math.max(shown, comments.length) };
+    },
+    // A new comment on one issue: its text as written, nothing added (plan-github-full-sync.md, decision 7). Answers the comment.
+    async addComment({ repo, number, text: words, token = '' }, ask) {
+      if (!commentTextOk(words)) return { status: 0, wait: {}, limited: false, message: 'empty' };
+      const got = await ask('POST', `${issuePath(origin, repo, number)}/comments`, writeHeaders(token), { body: words });
+      return withComment(got);
+    },
+    // A comment's new text (by the comment's id, which GitHub keeps for the whole repository). Answers the comment.
+    async editComment({ repo, id, text: words, token = '' }, ask) {
+      if (!commentTextOk(words) || !Number.isSafeInteger(id) || id < 1) return { status: 0, wait: {}, limited: false, message: 'empty' };
+      const got = await ask('PATCH', `${origin}/repos/${repo}/issues/comments/${id}`, writeHeaders(token), { body: words });
+      return withComment(got);
+    },
+    // One comment off GitHub: 204 when done, 404 when it is not there.
+    async deleteComment({ repo, id, token = '' }, ask) {
+      if (!Number.isSafeInteger(id) || id < 1) return { status: 0, wait: {}, limited: false, message: 'empty' };
+      return answerOf(await ask('DELETE', `${origin}/repos/${repo}/issues/comments/${id}`, writeHeaders(token)), false);
+    },
+    // Logins to assign to one issue (never a replacement of its set: those assigned stay). Answers the issue.
+    async assign({ repo, number, logins, token = '' }, ask) {
+      const names = loginsOf(logins);
+      if (!names.length) return { status: 0, wait: {}, limited: false, message: '' };
+      return answerOf(await ask('POST', `${issuePath(origin, repo, number)}/assignees`, writeHeaders(token), { assignees: names }), true);
+    },
+    // Logins to take off one issue (the others stay). Answers the issue.
+    async unassign({ repo, number, logins, token = '' }, ask) {
+      const names = loginsOf(logins);
+      if (!names.length) return { status: 0, wait: {}, limited: false, message: '' };
+      return answerOf(await ask('DELETE', `${issuePath(origin, repo, number)}/assignees`, writeHeaders(token), { assignees: names }), true);
+    },
+    // Whether GitHub will assign this login in the repository: 204, or 404 when it will not (asked before assigning, since GitHub
+    // drops a login it cannot assign rather than refusing it).
+    async canAssign({ repo, login, token = '' }, ask) {
+      if (typeof login !== 'string' || !USER_LOGIN.test(login)) return { status: 404, wait: {}, limited: false, message: '' };
+      return answerOf(await ask('GET', `${origin}/repos/${repo}/assignees/${encodeURIComponent(login)}`, writeHeaders(token)), false);
     },
     // Labels to add to one issue (never a replacement of its set).
     async addLabels({ repo, number, labels, token = '' }, ask) {
@@ -401,11 +508,12 @@ function makeAdapter({ id, name, origin, webOrigin = WEB_ORIGIN, terms, allowHtt
       }
       return out;
     },
-    // A new issue: its title and its labels, an empty body. Answers the record.
-    async create({ repo, title, labels, token = '' }, ask) {
+    // A new issue: its title, its labels and its body (only when one is given; else an empty body). Answers the record.
+    async create({ repo, title, labels, body: text, token = '' }, ask) {
       const body = { title: String(title || '').slice(0, 256) };
       const names = (Array.isArray(labels) ? labels : []).filter(labelOk).slice(0, 5);
       if (names.length) body.labels = names;
+      if (typeof text === 'string' && text && Array.from(text).length <= BODY_MAX) body.body = text;
       return answerOf(await ask('POST', `${origin}/repos/${repo}/issues`, writeHeaders(token), body), true);
     },
   };
@@ -426,3 +534,5 @@ module.exports.nextPage = nextPage;
 module.exports.waitOf = waitOf;
 module.exports.BODY_MAX = BODY_MAX;
 module.exports.ASSIGNEES_MAX = ASSIGNEES_MAX;
+module.exports.commentOf = commentOf;
+module.exports.COMMENTS_SHOWN = COMMENTS_SHOWN;

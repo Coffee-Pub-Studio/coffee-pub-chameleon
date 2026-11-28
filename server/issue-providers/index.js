@@ -20,17 +20,22 @@
 // `get`, one page, conditional on `etag`; the pull asks it once after each list it reads, so a milestone with no issue stays in the plan.
 //
 // An adapter may also write (documentation/plans/plan-github-two-way.md); one without these cannot be written through:
-//     get({ repo, number, etag, token }, ask), update({ repo, number, title?, state?, stateReason?, token }, ask),
+//     get({ repo, number, etag, token }, ask), update({ repo, number, title?, state?, stateReason?, body?, milestone?, token }, ask),
 //     addLabels({ repo, number, labels, token }, ask), removeLabel({ repo, number, label, token }, ask),
-//     hasLabel({ repo, label, token }, ask), create({ repo, title, labels, token }, ask), and `writeGapMs` (the least time between
-//     two writes). A token is the repository's installation token from the GitHub app (server/issue-app.js; never logged, never
+//     hasLabel({ repo, label, token }, ask), create({ repo, title, labels, body?, token }, ask), and `writeGapMs` (the least time between
+//     two writes). For the issue view and its writes (documentation/plans/plan-github-full-sync.md, step 3) also
+//     comments({ repo, number, total, etag, token }, ask) (the newest 100, oldest first: { comments: [{ id, author: { id, login } | null,
+//     at, edited, text }], total, etag }), addComment({ repo, number, text, token }, ask) and editComment({ repo, id, text, token }, ask)
+//     (each answering the `comment`), deleteComment({ repo, id, token }, ask) (204), assign and unassign({ repo, number, logins, token },
+//     ask) (each answering the record) and canAssign({ repo, login, token }, ask) (204, or 404 when the login can't be assigned). A token is the repository's installation token from the GitHub app (server/issue-app.js; never logged, never
 //     answered, never kept in a space's data); an adapter that serves the app also has appInfo({ jwt }, ask) and
 //     mintToken({ jwt, installation, repositoryId, permissions }, ask), and for the sign-in exchangeCode, userInstallations,
 //     userRepositories, revokeUserToken and whoAmI({ userToken }, ask) (the signed-in account's { id, login }, for a person's link on
 //     Profile, plan-github-full-sync.md section 4). Each answers { status, wait, limited, message, record? }: `limited` when the answer is a limit to wait out (not a
 //     refusal of the token or the change), `message` the service's own sentence on one line, `record` the issue after the write.
 //     `ask(method, url, headers, body?)` is the core's (server/issues.js, getter): this origin only, 6 seconds, 2 MB, a redirect
-//     never followed for a write. Only a title, a state, label names and a new issue's title and labels may be sent.
+//     never followed for a write. Only a title, a state, label names, a body, a milestone's number, a comment's text, linked Owners'
+//     logins and a new issue's title, labels and body may be sent.
 //
 // A record, the same for every service (nothing else in the core knows which service it came from):
 //   { number, title, open, labels: [{ name, color }], url, created, updated, closed?, milestone?: { number, title, due, open }, body?,

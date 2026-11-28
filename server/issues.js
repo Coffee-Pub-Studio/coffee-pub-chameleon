@@ -6,7 +6,9 @@
 // What goes out: GET requests to the adapter's origin naming the repository, which issues (all, open or closed), a `since` time, a page and the last etag,
 // and after each list its open milestones (with that list's last etag), with the
 // repository's installation token when the space is linked through the GitHub app (server/issue-app.js, plan-github-app.md) and
-// no token otherwise. Nothing of the space, the environment or its people.
+// no token otherwise. Nothing of the space, the environment or its people. The issue view and its writes (plan-github-full-sync.md,
+// step 3; the routes in server/index.js) also read one issue and its newest comments, and send an issue's text, its milestone, a
+// comment's text and the logins of linked Owners, as the adapter's header lists.
 //
 // What is kept, per environment: issues.json in the environment's data folder,
 //   { spaces: { <spaceId>: { provider, repo, on, since, etag, last, tried, fullAt, next, restUntil, error, counts, by, at } } }
@@ -18,13 +20,16 @@
 // not secrets), `writeOk` (the linking person could write on the service), `linkBy` and `linkAt` (who linked and when, Chameleon's
 // own key) and `appError` (the last trouble with the app as one sentence, or '').
 // With two-way on (documentation/plans/plan-github-two-way.md, step 1) also `write` (changes made here go to the service) and
-// `writeBy`, `writeAt`, who turned writing on and when.
+// `writeBy`, `writeAt`, who turned writing on and when. `posted` (plan-github-full-sync.md, section 2 and decision 8): the newest
+// POSTED_MAX comments made from this space, [{ id, number, by, at }] (the service's comment id, the issue's number, who made it here
+// as Chameleon's own key, never a login, and when), oldest first: who may edit or delete a comment made here.
 // The done window (documentation/plans/plan-done-window.md, step 1): `keepDays`, how many days closed issues stay in the plan
 // (a whole number from 7 to 365, 30 when absent). Closed work older than the cutoff (cutoffOf) is not stored and is removed.
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const phaseRule = require('../public/phases.js');
 
 const FILE_NAME = 'issues.json';
@@ -39,6 +44,8 @@ const MAX_TAGS = 20; // a list setting's rows (server/setting-list.js)
 const TITLE_MAX = 120;
 const DESCRIPTION_MAX = 2000; // the stored copy of an issue's text (plan-github-full-sync.md, section 1); the whole text is GitHub's
 const SPARE_LABELS_MAX = 30; // labels past the `tags` setting's rows, kept in source.labels
+const TEXT_MAX = 65536; // the most characters the service holds in an issue's text or a comment (GitHub's, from memory: not in its REST pages)
+const POSTED_MAX = 500; // the comments made from a space that are remembered, newest first (plan-github-full-sync.md, section 2)
 const REST_MS = 30 * 60 * 1000; // after a 403 or 429 that names no time
 const MAX_REST_MS = 24 * 3600 * 1000;
 const NOW_GAP_MS = 60 * 1000; // the least time between two pulls a person asks for
@@ -94,6 +101,20 @@ const SAY = Object.freeze({
   noLabel: (name) => `GitHub has no label called ${name}.`,
   badTitle: `Give it a title of at most ${TITLE_MAX} characters.`,
   badColumn: 'That is not a column an issue can start in.',
+  // The issue view and its writes (plan-github-full-sync.md, step 3).
+  textConflict: 'This changed on GitHub a moment ago. It now shows GitHub\'s version. Your text is kept below; copy what you need.',
+  tooLong: `GitHub holds at most ${TEXT_MAX.toLocaleString('en-US')} characters.`,
+  badText: 'Send the text as words.',
+  noBase: 'Send the base the description was opened with.',
+  cutDescription: 'This description is longer than the plan holds, so it can\'t be replaced from here.',
+  noAssign: (name) => `${name} can't be assigned on GitHub in this repository.`,
+  notMilestone: 'That is not a milestone in this plan.',
+  notInPlan: 'That issue is not in this plan.',
+  emptyComment: 'Write a comment first.',
+  onlyHere: 'Only a comment made here can be changed here.',
+  notAuthor: 'Only the person who wrote this comment can change it.',
+  notAuthorDelete: (owner) => `Only the person who wrote this comment, or ${owner}, can delete it.`, // `owner`: the template's word, from word()
+  commentGone: (name) => `That comment is not on ${name} any more.`,
 });
 
 class IssuesError extends Error {
@@ -132,7 +153,21 @@ function cleanRecord(r) {
     linkBy: app && typeof r.linkBy === 'string' ? r.linkBy.slice(0, 80) : '', linkAt: app ? iso(r.linkAt) : '',
     appError: app && typeof r.appError === 'string' ? r.appError.slice(0, 300) : '',
     keepDays: validKeepDays(r.keepDays) ? r.keepDays : KEEP_DAYS.start,
+    posted: cleanPosted(r.posted),
   };
+}
+
+// The comments made from a space (`posted`): each { id, number, by, at } with a whole id and number, a key and a time; each id once
+// (the later kept), the newest POSTED_MAX, oldest first.
+function cleanPosted(list) {
+  const byId = new Map();
+  for (const p of Array.isArray(list) ? list : []) {
+    if (!p || typeof p !== 'object' || !Number.isSafeInteger(p.id) || p.id < 1 || !Number.isInteger(p.number) || p.number < 1 || p.number > 999999999) continue;
+    if (typeof p.by !== 'string' || !p.by || p.by.length > 80) continue;
+    byId.delete(p.id);
+    byId.set(p.id, { id: p.id, number: p.number, by: p.by, at: iso(p.at) });
+  }
+  return [...byId.values()].slice(-POSTED_MAX);
 }
 
 class IssuePulls {
@@ -174,6 +209,23 @@ class IssuePulls {
     this.all().set(spaceId, rec);
     this.save();
     return rec;
+  }
+
+  // A comment made from the space: who made it ({ id, number, by, at }) or null.
+  postedOf(spaceId, id) {
+    const r = this.get(spaceId);
+    return (r && r.posted.find((p) => p.id === id)) || null;
+  }
+
+  // Remembers a comment made from the space (the newest POSTED_MAX are kept), or forgets one.
+  addPosted(spaceId, entry) {
+    const r = this.get(spaceId);
+    return r ? this.set(spaceId, { posted: [...r.posted, entry] }) : null;
+  }
+
+  dropPosted(spaceId, id) {
+    const r = this.get(spaceId);
+    if (r && r.posted.some((p) => p.id === id)) this.set(spaceId, { posted: r.posted.filter((p) => p.id !== id) });
   }
 
   forgetSpace(spaceId) {
@@ -565,25 +617,32 @@ const agedOut = (key, value, cutoff) => Boolean(cutoff) && WORK_KEY.test(String(
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) --------------------------------------------------------
 
-// The fields of a piece of work by who owns them when a space writes back: GitHub's own that go out (column and done, title,
-// tags), the space's own that stay here, and everything else (description, assignees, source, kind, parent, id, ...) which is
-// GitHub's and read-only: refused, with nothing sent (plan-github-full-sync.md step 3 sends the description, the milestone and
-// linked Owners). `by` is set by the write itself.
-const OWN_FIELDS = Object.freeze(['owners', 'waitsOn', 'start', 'end', 'rank', 'fields']);
-const SENT_FIELDS = Object.freeze(['column', 'done', 'title', 'tags']);
+// The fields of a piece of work by who owns them when a space writes back (plan-github-full-sync.md, "The stored work"): the
+// space's own that stay here (OWN_FIELDS, and Owners with no linked GitHub account), GitHub's own that go out (SENT_FIELDS, and
+// Owners with a linked account, assigned or unassigned there), and everything else (assignees, source, kind, notes, id, ...),
+// which is GitHub's and read-only: refused, with nothing sent. `by` is set by the write itself.
+const OWN_FIELDS = Object.freeze(['waitsOn', 'start', 'end', 'rank', 'fields']);
+const SENT_FIELDS = Object.freeze(['column', 'done', 'title', 'tags', 'description', 'parent']);
+const OWNERS = 'owners'; // split by the link: see diffWork
 const sortedTags = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => typeof t === 'string'))].sort() : []);
+const keysOf = (v) => (Array.isArray(v) ? [...new Set(v.filter((k) => typeof k === 'string'))] : []);
+const MILESTONE_ID = /^ghm-(\d{1,9})$/;
 
-// What a person's new value changes of the stored work: { column, title, tags: { add, remove }, own, foreign }. `column` is the
-// column asked for (only when column or done changed), `title` the new title (only when changed), `tags` the ids added and
-// removed, `own` whether a space's own field changed, `foreign` the names of GitHub-only fields that changed. `doneOn` is not
+// What a person's new value changes of the stored work: { column, title, tags: { add, remove }, description, parent, owners: { add,
+// remove }, own, foreign }. `column` is the column asked for (only when column or done changed), `title` the new title (only when
+// changed), `tags` the ids added and removed, `description` the new text ('' for none; null when unchanged or not given), `parent`
+// null when unchanged, else { milestone, ok } (the milestone's number or null for none; `ok` false for a parent that is not a
+// milestone's id), `owners` the members with a linked account (`linked`: their keys) added and removed, `own` whether a space's
+// own field changed (Owners with no link among them), `foreign` the names of GitHub-only fields that changed. `doneOn` is not
 // read: it follows `done` and is the service's closed day, never sent and never taken from a person's value (keepOwn,
 // issueStore; pulledRefusal holds it as stored).
-function diffWork(stored, given) {
+function diffWork(stored, given, { linked = null } = {}) {
   const s = stored && typeof stored === 'object' ? stored : {};
   const g = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
-  const out = { column: null, title: null, tags: { add: [], remove: [] }, own: false, foreign: [] };
+  const keys = linked instanceof Set ? linked : new Set(linked || []);
+  const out = { column: null, title: null, tags: { add: [], remove: [] }, description: null, parent: null, owners: { add: [], remove: [] }, own: false, foreign: [] };
   for (const k of new Set([...Object.keys(s), ...Object.keys(g)])) {
-    if (k === 'by' || k === 'doneOn' || sameValue(s[k], g[k])) continue;
+    if (k === 'by' || k === 'doneOn' || k === OWNERS || sameValue(s[k], g[k])) continue;
     if (OWN_FIELDS.includes(k)) out.own = true;
     else if (!SENT_FIELDS.includes(k)) out.foreign.push(k);
   }
@@ -596,14 +655,35 @@ function diffWork(stored, given) {
   const now = sortedTags(g.tags);
   out.tags.add = now.filter((t) => !was.includes(t));
   out.tags.remove = was.filter((t) => !now.includes(t));
+  // A value with no `description` leaves the text as it is (so a writer that does not know the field never empties the issue);
+  // '' empties it.
+  const text = (v) => (v === undefined || v === null ? '' : v);
+  if (g.description !== undefined && !sameValue(text(s.description), text(g.description))) out.description = g.description === null ? '' : g.description;
+  const parentOf = (v) => (v === undefined || v === null ? '' : v);
+  if (!sameValue(parentOf(s.parent), parentOf(g.parent))) {
+    const p = parentOf(g.parent);
+    const m = typeof p === 'string' ? MILESTONE_ID.exec(p) : null;
+    out.parent = p === '' ? { milestone: null, ok: true } : { milestone: m ? Number(m[1]) : null, ok: Boolean(m) };
+  }
+  const had = keysOf(s.owners);
+  const want = keysOf(g.owners);
+  for (const k of want) if (!had.includes(k)) { if (keys.has(k)) out.owners.add.push(k); else out.own = true; }
+  for (const k of had) if (!want.includes(k)) { if (keys.has(k)) out.owners.remove.push(k); else out.own = true; }
+  if (!Array.isArray(g.owners) && g.owners !== undefined && !sameValue(s.owners, g.owners)) out.foreign.push(OWNERS);
   return out;
 }
 
+// Whether a diff sends anything to the service.
+const diffSends = (d) => d.column !== null || d.title !== null || d.tags.add.length > 0 || d.tags.remove.length > 0
+  || d.description !== null || d.parent !== null || d.owners.add.length > 0 || d.owners.remove.length > 0;
+
 const labelOf = (column) => `priority: ${column}`;
-// The calls that bring `rec` (the issue as GitHub has it now) to column `column`, a new `title`, and the labels named: the
-// service's own sentences are not here, only the plan of calls { patch, remove, add }. Labels are removed and added one at a
-// time (never the whole set replaced), so a label someone added meanwhile stays.
-function changePlan(rec, { column = null, title = null, addNames = [], removeIds = [] }) {
+// The calls that bring `rec` (the issue as GitHub has it now) to column `column`, a new `title`, the labels named, the text `body`
+// (a string; null leaves it), the milestone `milestone` (a number, null for none; undefined leaves it), and the logins to assign
+// and unassign: the service's own sentences are not here, only the plan of calls { patch, remove, add, assign, unassign }. Labels
+// and assignees are removed and added (never the whole set replaced), so what someone added meanwhile stays; what is already so
+// is not sent.
+function changePlan(rec, { column = null, title = null, addNames = [], removeIds = [], body = null, milestone, assign = [], unassign = [] }) {
   const patch = {};
   const remove = [];
   const add = [];
@@ -620,7 +700,52 @@ function changePlan(rec, { column = null, title = null, addNames = [], removeIds
   }
   for (const l of rec.labels) if (!PRIORITY.test(l.name) && removeIds.includes(tagId(l.name))) remove.push(l.name);
   for (const name of addNames) if (!rec.labels.some((l) => l.name === name) && !add.includes(name)) add.push(name);
-  return { patch, remove, add };
+  if (typeof body === 'string' && body !== (rec.body || '')) patch.body = body;
+  const had = rec.milestone ? rec.milestone.number : null;
+  if (milestone !== undefined && milestone !== had) patch.milestone = milestone;
+  const on = (login) => (Array.isArray(rec.assignees) ? rec.assignees : []).some((a) => a.login.toLowerCase() === String(login).toLowerCase());
+  return {
+    patch, remove, add,
+    assign: [...new Set(assign)].filter((l) => !on(l)),
+    unassign: [...new Set(unassign)].filter((l) => on(l)),
+  };
+}
+
+// The `base` of an issue's text (plan-github-full-sync.md, section 1): a hash of the text as the record holds it, given with the
+// text the issue view opens and sent back with a save; a save whose base is not the service's text now is a conflict.
+const baseOf = (text) => crypto.createHash('sha256').update(typeof text === 'string' ? text : '', 'utf8').digest('hex').slice(0, 32);
+
+// A map that keeps at most `maxEntries` values and at most `maxChars` characters of them in all (each value's size from `sizeOf`),
+// dropping the oldest first; a value bigger than `maxChars` on its own is not kept. What the server remembers of the service's
+// answers (an issue read, an issue's comments) is held in these, so a run of long issues can't fill the memory.
+class SizedCache {
+  constructor({ maxEntries, maxChars, sizeOf = (v) => JSON.stringify(v).length }) {
+    this.maxEntries = maxEntries;
+    this.maxChars = maxChars;
+    this.sizeOf = sizeOf;
+    this.map = new Map(); // key -> { value, size }
+    this.chars = 0;
+  }
+  get size() { return this.map.size; }
+  get(key) { const e = this.map.get(key); return e ? e.value : undefined; }
+  has(key) { return this.map.has(key); }
+  delete(key) {
+    const e = this.map.get(key);
+    if (!e) return false;
+    this.chars -= e.size;
+    this.map.delete(key);
+    return true;
+  }
+  set(key, value) {
+    this.delete(key);
+    let size = 0;
+    try { size = Math.max(0, Number(this.sizeOf(value)) || 0); } catch { size = Infinity; }
+    if (size > this.maxChars) return this;
+    this.map.set(key, { value, size });
+    this.chars += size;
+    while (this.map.size > this.maxEntries || this.chars > this.maxChars) this.delete(this.map.keys().next().value);
+    return this;
+  }
 }
 
 // The id of the Area choice a title names: the words before its first colon, when the plan's `area` field (`field:area`'s value,
@@ -677,6 +802,7 @@ async function writeCall(adapter, call, { fetchImpl, now = Date.now() } = {}) {
   if (a.status === 0 && !a.message) return { ok: true, answer: a }; // nothing to send
   if (a.status === 304) return { ok: true, answer: a }; // a conditional read that has not changed
   if (a.status === 200 || a.status === 201) return a.bad ? { ok: false, status: 502, error: SAY.bad(adapter.name) } : { ok: true, answer: a };
+  if (a.status === 204) return { ok: true, answer: a }; // done, nothing to read (a comment deleted; a login that can be assigned)
   if (a.limited) {
     const until = restUntil(a.wait, now);
     return { ok: false, status: 429, restUntil: until, served: a, error: SAY.writeWait(adapter.name, Math.max(1000, until - now)) };
@@ -696,6 +822,7 @@ function cleanRepo(adapter, raw) {
 
 module.exports = {
   IssuePulls, IssuesError, askIssues, askMilestones, mergeByNumber, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, diffSends, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS, OWNERS,
+  baseOf, SizedCache, cleanPosted, TEXT_MAX, POSTED_MAX,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, DESCRIPTION_MAX, SPARE_LABELS_MAX, descriptionOf, oneLine,
 };
