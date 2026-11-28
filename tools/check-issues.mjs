@@ -5,9 +5,11 @@
  *
  * In this process, against a fake GitHub (an http server speaking the REST shape) and the test stand-in adapter
  * (server/issue-providers/test-standin.js, the GitHub adapter at another origin): GitHub's reading (pull requests skipped, no
- * person, no body, labels, milestones, the next page only on its own origin); only GitHub registered without the stand-in's
- * variable; the mapping (closed is done, the `priority: now|next|later` labels are columns, anything else open is the inbox, the
- * title cut at 120, tags from the other labels, the link as the notes, no owners, the board's five columns); the rest after a
+ * author, the whole body, assignees by id and login, the comment count, labels, milestones, the next page only on its own origin);
+ * only GitHub registered without the stand-in's variable; the mapping (closed is done, the `priority: now|next|later` labels are
+ * columns, anything else open is the inbox, the title cut at 120, tags from the other labels and the rest in `source.labels`, the
+ * issue's text in `description` cut at 2,000 with `source.cut`, unlinked assignees as logins, no notes on pulled work, the open
+ * milestones kept with or without work, the board's five columns; documentation/plans/plan-github-full-sync.md, step 1); the rest after a
  * refusal (retry-after, the limit's reset, else 30 minutes); the ask (pages, a 304, the token only in Authorization, 2 MB,
  * a redirect elsewhere refused); the shared terms record (one file for every service, which starts empty).
  *
@@ -16,7 +18,10 @@
  * done, every write by system:issues, a second pull in place (never a copy), a 304 that changes nothing, a label moving work, a
  * close moving it to done, a person's write to the plan or the board refused while it is on, Pull now's gap, the service's 429
  * obeyed and the timer picking up after it, the full pull removing an issue that is gone, a repository that is not there, off
- * leaving the work editable, and the token never in an answer, the data, the record or the server's log.
+ * leaving the work editable, and the token never in an answer, the data, the record or the server's log; the issue's text stored in
+ * `description` (cut and marked past 2,000), assignees as logins, both kept exactly by Projects' scClean and scValue and refused as
+ * GitHub's on a person's write; the open milestones asked after each list (conditional), an empty one stored, a closed one dropped,
+ * and a failed list keeping what is there.
  *
  * Then writing back (documentation/plans/plan-github-two-way.md, step 1), against the same fake, which now takes writes and
  * records every request it receives (method, path, body, headers): only an owner turns writing on, and only for a repository
@@ -84,12 +89,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // list (the full pull's second ask). Every request is kept.
 function fakeGitHub() {
   const seen = [];
+  const milestoneAsks = []; // every request for the open milestones
   const app = []; // every request to the app's endpoints, apart from `seen` (the issues): { method, path, body, jwt, headers }
   const jwts = new Set(); // every JWT the fake received, to look for in the outputs
   const state = {
     mints: [], mintOnce: null, mintTtlMs: 3600 * 1000, mintToken: null, installs: { 7: { mode: 'ok' }, 8: { mode: 'ok' }, 9: { mode: 'ok' }, 10: { mode: 'ok' } }, publicKey: KEYS.publicKey,
     issues: new Map(), once: null, onceWrite: null, failClosed: null, slowList: 0, missing: new Set(), clock: Math.floor(Date.now() / 1000) * 1000 - 3 * 86400 * 1000, // a few days ago, so the issues it closes are inside the done window
     labels: new Set(['priority: now', 'priority: next', 'priority: later', 'bug', 'good first issue', 'docs']), created: [],
+    milestones: new Map(), onceMilestones: null, // number -> GitHub's milestone; `onceMilestones` replaces the next answer to the list
   };
   const tick = () => { state.clock += 1000; return new Date(state.clock).toISOString(); };
   const issue = (number, o = {}) => {
@@ -97,8 +104,8 @@ function fakeGitHub() {
     const had = state.issues.get(number);
     const v = {
       number, title: `Server: issue ${number}`, state: 'open', labels: [], html_url: `https://github.com/${REPO}/issues/${number}`,
-      created_at: had ? had.created_at : t, closed_at: null, milestone: null, body: null, user: { login: 'someone' },
-      assignees: [{ login: 'someone' }], ...(had || {}), ...o, updated_at: t,
+      created_at: had ? had.created_at : t, closed_at: null, milestone: null, body: null, user: { id: 500, login: 'someone' },
+      assignees: [], comments: 0, ...(had || {}), ...o, updated_at: t,
     };
     if (v.state === 'closed' && !v.closed_at) v.closed_at = t;
     if (v.state === 'open') v.closed_at = null;
@@ -155,6 +162,18 @@ function fakeGitHub() {
     let body = null;
     try { body = raw ? JSON.parse(raw) : null; } catch { body = '(not json)'; }
     if (req.url === '/app' || req.url.startsWith('/app/')) return handleApp(req, res, body);
+    // The open milestones (plan-github-full-sync.md, section 5), asked once after each list a pull reads: kept apart from `seen`, so
+    // what the issue lists and the writes saw stays as it was.
+    const mu = new URL(req.url, 'http://x');
+    if (/^\/repos\/[^/]+\/[^/]+\/milestones$/.test(mu.pathname)) {
+      milestoneAsks.push({ method: req.method, url: req.url, headers: req.headers, body, raw });
+      if (state.onceMilestones) { const f = state.onceMilestones; state.onceMilestones = null; return f(req, res); }
+      if (req.method !== 'GET' || mu.searchParams.get('state') !== 'open') return json(res, 404, { message: 'Not Found' });
+      const list = [...state.milestones.values()].filter((m) => m.state === 'open');
+      const etag = `W/"m${Buffer.from(JSON.stringify(list)).toString('base64').slice(-24)}"`;
+      if (req.headers['if-none-match'] === etag) { res.writeHead(304, { etag }); return res.end(); }
+      return json(res, 200, list, { etag });
+    }
     seen.push({ method: req.method, url: req.url, headers: req.headers, body, raw });
     if (state.once) { const f = state.once; state.once = null; return f(req, res); }
     if (req.method !== 'GET' && state.onceWrite) { const f = state.onceWrite; state.onceWrite = null; return f(req, res); }
@@ -232,7 +251,7 @@ function fakeGitHub() {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => handle(req, res, Buffer.concat(chunks).toString('utf8')));
   });
-  return { server, seen, app, jwts, state, issue, label };
+  return { server, seen, milestoneAsks, app, jwts, state, issue, label };
 }
 
 const gh = fakeGitHub();
@@ -242,26 +261,38 @@ process.env.ISSUES_TEST_STANDIN = ORIGIN;
 const I = require('../server/issues.js');
 const GITHUB = require('../server/issue-providers/github.js');
 const STANDIN = require('../server/issue-providers/test-standin.js');
+// Planner - Projects' own reading of an entry (scClean, scValue), so what the pull stores is checked to come back from a page unchanged.
+const SC = new Function(`${fs.readFileSync(path.join(ROOT, 'modules', 'schedule', 'src', 'schedule-lib.js'), 'utf8')}\nreturn { scClean, scValue };`)();
 
 // --- GitHub's reading ------------------------------------------------------------------------------------------------------
-await test('GitHub\'s answer read as records: pull requests skipped, no person, the body as plain text', () => {
+await test('GitHub\'s answer read as records: pull requests skipped, the whole body as plain text, assignees by id and login, the comment count', () => {
   const raw = {
     number: 12, title: '  Chat:\u0007 a title  ', state: 'closed', html_url: 'https://github.com/o/r/issues/12', created_at: '2026-10-01T10:00:00Z',
     updated_at: '2026-10-03T10:00:00Z', closed_at: '2026-10-02T09:00:00Z', labels: [{ name: 'priority: now', color: 'B60205' }, 'bug', { name: '' }],
-    milestone: { number: 3, title: 'Release', due_on: '2026-12-01T08:00:00Z', state: 'open' }, body: 'secret body', user: { login: 'who' }, assignees: [{ login: 'who' }],
+    milestone: { number: 3, title: 'Release', due_on: '2026-12-01T08:00:00Z', state: 'open' }, body: 'secret body', user: { login: 'author-login', email: 'a@b.c' },
+    assignees: [{ id: 41, login: 'octo-cat', avatar_url: 'https://x/y.png', email: 'o@c.t' }], comments: 3,
   };
   const r = GITHUB.record(raw);
   assert.deepEqual(r, {
     number: 12, title: 'Chat:  a title', open: false, labels: [{ name: 'priority: now', color: 'b60205' }, { name: 'bug', color: '' }],
     url: 'https://github.com/o/r/issues/12', created: '2026-10-01T10:00:00.000Z', updated: '2026-10-03T10:00:00.000Z', closed: '2026-10-02T09:00:00.000Z',
-    milestone: { number: 3, title: 'Release', due: '2026-12-01', open: true }, body: 'secret body',
+    milestone: { number: 3, title: 'Release', due: '2026-12-01', open: true }, body: 'secret body', assignees: [{ id: 41, login: 'octo-cat' }], comments: 3,
   });
-  assert.ok(!/who/.test(JSON.stringify(r)), 'no login');
+  assert.ok(!/author-login|@|avatar|png/.test(JSON.stringify(r)), 'no author, no e-mail address, no picture');
   assert.equal('body' in GITHUB.record({ ...raw, body: null }) || 'body' in GITHUB.record({ ...raw, body: '  \r\n ' }) || 'body' in GITHUB.record({ ...raw, body: 5 }), false, 'no text, no body');
   assert.equal(GITHUB.record({ ...raw, body: 'a\r\nb\rc\u0000\u0007d\te\u007f<b>x</b>' }).body, 'a\nb\ncd\te<b>x</b>', 'newlines kept, other control characters out, markup left as text');
-  const big = GITHUB.record({ ...raw, body: `${'x'.repeat(1999)}\u{1F600}\u{1F600}` }).body;
-  assert.deepEqual([Array.from(big).length, big.endsWith('…'), /[\ud800-\udbff]$/.test(big.slice(0, -1))], [2000, true, false], 'cut on a character with an ellipsis, no half pair');
-  assert.deepEqual(Object.keys(GITHUB.record({ ...raw, assignee: { login: 'a' }, comments: 4, author_association: 'OWNER' })).sort(), ['body', 'closed', 'created', 'labels', 'milestone', 'number', 'open', 'title', 'updated', 'url'], 'only the fields the record names');
+  // The whole body (plan-github-full-sync.md, step 1): no 2,000 cut in the record; at most 65,536 characters, never inside a pair.
+  const long = `${'x'.repeat(4999)}\u{1F600}`;
+  assert.equal(GITHUB.record({ ...raw, body: long }).body, long, 'a body over 2,000 is whole in the record');
+  const huge = GITHUB.record({ ...raw, body: `${'x'.repeat(65535)}\u{1F600}\u{1F600}` }).body;
+  assert.deepEqual([GITHUB.BODY_MAX, Array.from(huge).length, /[\ud800-\udbff]$/.test(huge)], [65536, 65536, false], 'GitHub\'s own limit, counted in characters');
+  // Assignees: GitHub's id and login only, each id once, at most 10; anything that is not one is dropped.
+  const many = Array.from({ length: 12 }, (_, i) => ({ id: 100 + i, login: `user${i}` }));
+  assert.deepEqual(GITHUB.record({ ...raw, assignees: many }).assignees, many.slice(0, 10));
+  assert.deepEqual(GITHUB.record({ ...raw, assignees: [{ login: 'no-id' }, { id: 0, login: 'zero' }, { id: 5, login: '-bad' }, { id: 6, login: 'a b' }, { id: 7, login: 'ok' }, { id: 7, login: 'again' }, { id: 8, login: 'Copilot' }, { id: 9, login: 'dependabot[bot]' }, null, 'x'] }).assignees,
+    [{ id: 7, login: 'ok' }, { id: 8, login: 'Copilot' }, { id: 9, login: 'dependabot[bot]' }]);
+  assert.deepEqual([GITHUB.record({ ...raw, assignees: undefined }).assignees, GITHUB.record({ ...raw, comments: -1 }).comments, GITHUB.record({ ...raw, comments: '4' }).comments], [[], 0, 0]);
+  assert.deepEqual(Object.keys(GITHUB.record({ ...raw, assignee: { login: 'a' }, author_association: 'OWNER', reactions: { total_count: 2 } })).sort(), ['assignees', 'body', 'closed', 'comments', 'created', 'labels', 'milestone', 'number', 'open', 'title', 'updated', 'url'], 'only the fields the record names');
   assert.equal(GITHUB.record({ ...raw, pull_request: { url: 'x' } }), null, 'a pull request is not an issue');
   assert.equal(GITHUB.record({ ...raw, html_url: 'javascript:alert(1)' }).url, '', 'only a github.com link');
   assert.equal(GITHUB.record({ ...raw, number: 'x' }), null);
@@ -320,24 +351,52 @@ await test('an issue as a piece of work', () => {
   assert.ok(w.title.endsWith('…'), 'cut with an ellipsis');
   assert.deepEqual({ ...w, title: '' }, {
     kind: 'work', title: '', start: '2026-10-01', end: '2026-10-01', done: false, tags: ['bug', 'good-first-issue'],
-    notes: 'https://github.com/o/r/issues/1\nLabels: wontfix', by: 'system:issues', column: 'now',
-    source: { from: 'github', repo: 'o/r', number: 7, url: 'https://github.com/o/r/issues/1', updated: '2026-10-01T10:00:00.000Z' },
+    by: 'system:issues', column: 'now',
+    source: { from: 'github', repo: 'o/r', number: 7, url: 'https://github.com/o/r/issues/1', updated: '2026-10-01T10:00:00.000Z', labels: ['wontfix'] },
   });
-  assert.ok(!('owners' in w), 'no owners');
-  // The issue's description: below the link, the milestone and the labels; the body is cut, never the link.
+  assert.ok(!('owners' in w) && !('assignees' in w) && !('notes' in w) && !('description' in w), 'no owners, no assignees, no notes, no text');
+  // The issue's text (plan-github-full-sync.md, step 1): its own field, `description`, never `notes`; the link is source.url and the
+  // milestone `parent`. Cut at 2,000 characters with an ellipsis (never inside a pair), and then `source.cut`.
   const withBody = I.workOf(rec({ milestone: { number: 2, title: 'M', due: '', open: true }, body: 'Line one\n\nLine two' }), at);
-  assert.equal(withBody.notes, 'https://github.com/o/r/issues/1\nMilestone: M\nLine one\n\nLine two', 'link, milestone, then the body');
-  assert.equal(I.workOf(rec({ body: 'Why' }), at).notes, 'https://github.com/o/r/issues/1\nWhy');
-  assert.equal(I.workOf(rec({}), at).notes, 'https://github.com/o/r/issues/1', 'no body, the notes as before');
-  const longBody = I.workOf(rec({ milestone: { number: 2, title: 'M', due: '', open: true }, body: `${'y'.repeat(1999)}\u{1F600}` }), at).notes;
-  assert.deepEqual([Array.from(longBody).length <= 2000, longBody.startsWith('https://github.com/o/r/issues/1\nMilestone: M\n'), longBody.endsWith('…'), /[\ud800-\udbff]$/.test(longBody)], [true, true, true, false], 'cut at 2000, link kept, marked');
+  assert.deepEqual([withBody.description, withBody.parent, 'notes' in withBody, 'cut' in withBody.source], ['Line one\n\nLine two', 'ghm-2', false, false]);
+  const exact = 'z'.repeat(2000);
+  assert.deepEqual([I.workOf(rec({ body: exact }), at).description, I.workOf(rec({ body: exact }), at).source.cut], [exact, undefined], '2,000 exactly is not cut');
+  const whole = `${'y'.repeat(4998)}\u{1F600}x`;
+  const longBody = I.workOf(rec({ body: whole }), at);
+  assert.deepEqual([Array.from(longBody.description).length, longBody.description.endsWith('…'), /[\ud800-\udbff]$/.test(longBody.description.slice(0, -1)), longBody.source.cut],
+    [2000, true, false, true], 'a body over 2,000 stored cut, marked, with source.cut');
+  assert.equal(I.DESCRIPTION_MAX, 2000);
+  const pair = I.workOf(rec({ body: `${'y'.repeat(1998)}\u{1F600}\u{1F600}\u{1F600}` }), at).description;
+  assert.deepEqual([Array.from(pair).length, /[\ud800-\udbff]$/.test(pair.slice(0, -1))], [2000, false], 'never half a pair before the ellipsis');
+  // Spare labels: past the tags setting's rows, in source.labels, each once, at most 30, read only.
+  const spare = I.workOf(rec({ labels: Array.from({ length: 35 }, (_, i) => ({ name: `extra ${i}`, color: '' })) }), at).source.labels;
+  assert.deepEqual([spare.length, spare[0], spare[29]], [30, 'extra 0', 'extra 29']);
+  // Assignees: with no member linked (none can be yet), every one is kept as a login; none is an Owner.
+  const assigned = I.workOf(rec({ assignees: [{ id: 41, login: 'octo-cat' }, { id: 42, login: 'Copilot' }] }), at);
+  assert.deepEqual([assigned.assignees, 'owners' in assigned], [['octo-cat', 'Copilot'], false]);
+  // A linked member (plan-github-full-sync.md, step 2, not built: the map is the contract) is an Owner instead of a login.
+  const linked = I.workOf(rec({ assignees: [{ id: 41, login: 'octo-cat' }, { id: 42, login: 'Copilot' }] }), { ...at, linked: new Map([[41, 'user:mia']]) });
+  assert.deepEqual([linked.owners, linked.assignees], [['user:mia'], ['Copilot']]);
+  const kept = I.keepOwn({ ...linked, owners: ['user:bo', 'user:mia'], start: '2026-09-01' }, I.workOf(rec({ assignees: [] }), at), { linked: ['user:mia'] });
+  assert.deepEqual(kept.owners, ['user:bo'], 'a linked Owner GitHub no longer assigns goes; an unlinked one stays');
+  assert.deepEqual(I.keepOwn({ owners: ['user:bo'] }, I.workOf(rec({}), at)).owners, ['user:bo'], 'with no link, Owners are the space\'s own as before');
   const closed = I.workOf(rec({ open: false, closed: '2026-10-05T23:00:00.000Z', milestone: { number: 2, title: 'M', due: '', open: true } }), at);
-  assert.deepEqual([closed.column, closed.done, closed.end, closed.parent, closed.notes], ['done', true, '2026-10-05', 'ghm-2', 'https://github.com/o/r/issues/1\nMilestone: M']);
+  assert.deepEqual([closed.column, closed.done, closed.end, closed.parent, 'notes' in closed], ['done', true, '2026-10-05', 'ghm-2', false]);
   const rows = I.tagRowsOf([rec({ labels: [{ name: 'good first issue', color: '7057ff' }, { name: 'priority: now', color: 'aaaaaa' }, { name: 'bug', color: '' }] })]);
   assert.deepEqual([...rows.values()], [{ id: 'good-first-issue', label: 'good first issue', icon: 'tag', color: '#7057ff' }, { id: 'bug', label: 'bug', icon: 'tag', color: '#808080' }]);
   const works = new Map([['plan:gh-1', { ...closed, done: true, start: '2026-10-01' }], ['plan:gh-2', { ...closed, done: false, start: '2026-09-01' }]]);
   const ms = I.milestonesOf(works, new Map([[2, { title: 'M', due: '', open: true }]]), new Map(), at);
   assert.deepEqual(ms.get('plan:ghm-2'), { kind: 'milestone', title: 'M', start: '2026-09-01', done: false, progress: 50, by: 'system:issues', source: { from: 'github', repo: 'o/r', milestone: 2 } });
+  // The open milestones the service lists are kept with or without work; a closed one with no work goes; with no list read, a
+  // stored one with no work is kept as it is; a new empty one only while the plan has entries to spare.
+  const open = new Map([[2, { number: 2, title: 'M', due: '', open: true }], [5, { number: 5, title: 'Empty', due: '2026-12-24', open: true }]]);
+  const storedMs = new Map([['plan:ghm-9', { kind: 'milestone', title: 'Closed now', done: false, progress: 0, by: 'system:issues', source: { from: 'github', repo: 'o/r', milestone: 9 } }]]);
+  const withOpen = I.milestonesOf(works, new Map(), storedMs, at, { open });
+  assert.deepEqual([...withOpen.keys()].sort(), ['plan:ghm-2', 'plan:ghm-5'], 'the empty open one in, the closed empty one out');
+  assert.deepEqual(withOpen.get('plan:ghm-5'), { kind: 'milestone', title: 'Empty', start: '2026-12-24', done: false, progress: 0, by: 'system:issues', source: { from: 'github', repo: 'o/r', milestone: 5, due: '2026-12-24' } });
+  assert.deepEqual([...I.milestonesOf(works, new Map(), storedMs, at).keys()].sort(), ['plan:ghm-2', 'plan:ghm-9'], 'no list read: the stored one stays');
+  assert.deepEqual([...I.milestonesOf(new Map(), new Map(), new Map(), at, { open, free: 1 }).keys()], ['plan:ghm-2'], 'no more than the plan holds');
+  assert.deepEqual([...I.milestonesOf(new Map(), new Map(), new Map([['plan:ghm-5', {}]]), at, { open, free: 0 }).keys()], ['plan:ghm-5'], 'a stored one is not counted again');
   assert.deepEqual(I.boardOf(() => '').columns, [{ id: 'inbox', label: 'Inbox' }, { id: 'now', label: 'Now' }, { id: 'next', label: 'Next' }, { id: 'later', label: 'Later' }, { id: 'done', label: 'Done', done: true }]);
   assert.equal(I.boardOf((k) => (k === 'board-inbox' ? 'Triage' : '')).columns[0].label, 'Triage', 'the module\'s words name the columns');
   assert.equal(I.sameValue({ a: 1, b: [1, { c: 2, d: 3 }] }, { b: [1, { d: 3, c: 2 }], a: 1 }), true);
@@ -1244,24 +1303,74 @@ await live('Pull now: someone with edit, at most once in the gap', async () => {
   assert.ok(Number(soon.headers.get('retry-after')) >= 1);
 });
 
-await live('the issue\'s description is pulled as text, replaced when it changes on GitHub, and never sent back', async () => {
+await live('the issue\'s text is pulled into its own field, cut and marked when long, replaced when it changes on GitHub, and never sent back', async () => {
   const key = 'plan:gh-700';
-  const link = `https://github.com/${REPO}/issues/700`;
-  gh.issue(700, { title: 'Server: has a description', body: 'First line\r\nSecond <b>line</b>\u0007' });
+  gh.issue(700, { title: 'Server: has a description', body: 'First line\r\nSecond <b>line</b>\u0007', assignees: [{ id: 41, login: 'octo-cat', avatar_url: 'https://x/a.png' }], comments: 2, user: { id: 500, login: 'author-login' } });
   ok(await pullNow(S.bugs), 'a pull');
   let e = (await plan(S.bugs))[key];
-  assert.equal(e.value.notes, `${link}\nFirst line\nSecond <b>line</b>`, 'the link, then the body as text');
-  assert.deepEqual(Object.keys(e.value).sort(), ['by', 'column', 'done', 'end', 'kind', 'notes', 'source', 'start', 'title'], 'no person, no comment in what is stored');
-  assert.ok(!/someone|assignee|login/.test(JSON.stringify(e)), 'no login anywhere in the entry');
-  gh.issue(700, { body: 'Edited on GitHub' });
+  assert.equal(e.value.description, 'First line\nSecond <b>line</b>', 'the body as text, in `description`');
+  assert.deepEqual(e.value.assignees, ['octo-cat'], 'an assignee no member linked: kept as a login');
+  assert.deepEqual(Object.keys(e.value).sort(), ['assignees', 'by', 'column', 'description', 'done', 'end', 'kind', 'source', 'start', 'title'], 'no notes on pulled work, no comment, no author');
+  assert.ok(!/author-login|avatar|png|"owners"/.test(JSON.stringify(e)), 'no author, no picture, no Owner from GitHub');
+  assert.equal(e.value.source.url, `https://github.com/${REPO}/issues/700`, 'the link is the source\'s');
+  // A save from the page (scClean, then scValue, as Projects stores it) of the space's own fields keeps everything GitHub owns.
+  const asSaved = SC.scValue(SC.scClean('gh-700', e.value));
+  assert.ok(I.sameValue(asSaved, e.value), 'the module keeps the pulled value exactly');
+  const at = gh.seen.length;
+  const own = ok(await putKey(S.bugs, key, { ...asSaved, end: '2026-12-31' }, S.mia), 'a member sets the target date');
+  assert.deepEqual([own.json.item.value.end, own.json.item.value.description, own.json.item.value.assignees], ['2026-12-31', e.value.description, ['octo-cat']]);
+  assert.equal(gh.seen.length, at, 'nothing asked of the service');
+  for (const [what, patch] of [['description', { description: 'mine' }], ['assignees', { assignees: ['me'] }], ['source.cut', { source: { ...asSaved.source, cut: true } }]]) {
+    const r = await putKey(S.bugs, key, { ...own.json.item.value, ...patch }, S.mia);
+    assert.deepEqual([r.status, r.json && r.json.error], [403, 'This comes from Test stand-in (not an issue service). Change it there.'], `${what} is GitHub's (step 1 is read only)`);
+  }
+  // A body over 2,000 characters: stored cut with an ellipsis and source.cut; the whole is in the record, never stored.
+  const whole = `${'Long line. '.repeat(400)}The end.`;
+  gh.issue(700, { body: whole });
   ok(await pullNow(S.bugs), 'the next pull');
   e = (await plan(S.bugs))[key];
-  assert.equal(e.value.notes, `${link}\nEdited on GitHub`, 'the stored notes are replaced');
+  assert.deepEqual([Array.from(e.value.description).length, e.value.description.endsWith('…'), e.value.source.cut, whole.startsWith(e.value.description.slice(0, -1))], [2000, true, true, true]);
+  assert.ok(!JSON.stringify(e).includes('The end.'), 'the rest of the text is not stored');
+  assert.ok(I.sameValue(SC.scValue(SC.scClean('gh-700', e.value)), e.value), 'and the module keeps the cut copy exactly');
+  gh.issue(700, { body: 'Edited on GitHub', assignees: [] });
+  ok(await pullNow(S.bugs), 'the pull after it is edited');
+  e = (await plan(S.bugs))[key];
+  assert.deepEqual([e.value.description, 'cut' in e.value.source, 'assignees' in e.value], ['Edited on GitHub', false, false], 'replaced, no longer cut, no one assigned');
   gh.issue(700, { body: null });
   ok(await pullNow(S.bugs), 'the pull after the description is emptied');
-  assert.equal((await plan(S.bugs))[key].value.notes, link, 'no description, the link alone');
+  e = (await plan(S.bugs))[key];
+  assert.deepEqual(['description' in e.value, 'notes' in e.value], [false, false], 'no text, no field');
   assert.ok(gh.seen.every((x) => x.method === 'GET' || !JSON.stringify(x.body || '').includes('Edited on GitHub')), 'nothing of the description was sent');
   gh.state.issues.delete(700);
+});
+
+await live('the open milestones: one with no issue is in the plan; a closed one goes when no work names it; trouble keeps what is there', async () => {
+  const msKeys = async () => Object.keys(await plan(S.bugs)).filter((k) => k.startsWith('plan:ghm-')).sort();
+  const before = gh.milestoneAsks.length;
+  gh.state.milestones.set(31, { number: 31, title: 'Empty for now', state: 'open', due_on: '2026-12-24T08:00:00Z', open_issues: 0 });
+  gh.state.milestones.set(32, { number: 32, title: 'Closed and empty', state: 'closed', due_on: null });
+  ok(await pullNow(S.bugs), 'a pull');
+  assert.ok((await msKeys()).includes('plan:ghm-31'), 'the open milestone with no work is stored');
+  assert.ok(!(await msKeys()).includes('plan:ghm-32'), 'a closed one with no work is not');
+  const m = (await plan(S.bugs))['plan:ghm-31'].value;
+  assert.deepEqual([m.kind, m.title, m.start, m.done, m.progress, m.by, m.source.milestone], ['milestone', 'Empty for now', '2026-12-24', false, 0, 'system:issues', 31]);
+  const asks = gh.milestoneAsks.slice(before);
+  assert.ok(asks.length >= 1 && asks.every((x) => x.method === 'GET' && new URL(x.url, 'http://x').searchParams.get('state') === 'open'), 'only the open ones are asked, by GET');
+  assert.ok(asks.every((x) => !x.url.includes(TOKEN) && (!x.headers.authorization || x.headers.authorization === `Bearer ${TOKEN}`)), 'the token only in Authorization');
+  // Asked again: conditional, and a 304 changes nothing.
+  ok(await pullNow(S.bugs), 'the next pull');
+  assert.ok(gh.milestoneAsks[gh.milestoneAsks.length - 1].headers['if-none-match'], 'the last etag is sent back');
+  assert.ok((await msKeys()).includes('plan:ghm-31'));
+  // GitHub fails the list: the pull goes on and the milestone stays.
+  gh.state.onceMilestones = (req, res) => { res.writeHead(500); res.end(); };
+  ok(await pullNow(S.bugs), 'a pull whose milestones list fails');
+  assert.equal((await status(S.bugs)).error, '', 'the pull itself did not fail');
+  assert.ok((await msKeys()).includes('plan:ghm-31'), 'what was listed before stays');
+  // Closed on GitHub, with no work under it: gone at the next pull.
+  gh.state.milestones.get(31).state = 'closed';
+  ok(await pullNow(S.bugs), 'the pull after it is closed');
+  assert.ok(!(await msKeys()).includes('plan:ghm-31'), 'a closed milestone no work names is removed');
+  gh.state.milestones.clear();
 });
 
 await live('the service asks to wait: obeyed, and the timer pulls once the wait is over', async () => {
@@ -1285,8 +1394,11 @@ await live('the full pull removes an issue that is gone', async () => {
   assert.ok((await plan(S.bugs))['plan:gh-5'], 'still there before the full pull');
   await sleep(Math.max(0, FULL_MS - (Date.now() - Date.parse(s0.last)) + 200));
   const from = gh.seen.length;
+  // Gone from GitHub: issue 5, and any issue an earlier test took away after the last full pull (as 700 above, depending on timing).
+  const gone = Object.keys(await plan(S.bugs)).filter((k) => /^plan:gh-\d+$/.test(k) && !gh.state.issues.has(Number(k.slice(8))));
+  assert.ok(gone.includes('plan:gh-5'));
   const r = ok(await pullNow(S.bugs), 'the full pull').json;
-  assert.equal(r.counts.removed, 1);
+  assert.equal(r.counts.removed, gone.length);
   assert.deepEqual(gh.seen.slice(from).filter((x) => x.url.startsWith(`/repos/${REPO}/issues?`)).map(qOf), [['open', null], ['closed', `${r.keep.from}T00:00:00Z`]], 'it read every open issue and the closed ones since the cutoff');
   const p = await plan(S.bugs);
   assert.equal(p['plan:gh-5'], undefined, 'gone');

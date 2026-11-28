@@ -4,7 +4,7 @@
  *   - the order: Title, Notes, Done, Tags, Phase and the fields first; Owners, Part of, the days and Waits on after;
  *   - Waits on is a short control: a list of the work already chosen, a search that lists at most 8 matches, tick to add and untick to
  *     remove, and the stored `waitsOn` is still the ticked boxes;
- *   - a pulled issue's own view: "Issue #n", an Open on GitHub link, the description as plain text (textContent, never markup) above where
+ *   - a pulled issue's own view: "Issue #n", an Open on GitHub link, the description (`description`, plan-github-full-sync.md step 1) as plain text (textContent, never markup) above where
  *     Notes were, Kind, the days, Owners, Part of, Waits on, Phase and Notes not shown, and no sentence that says "the rest comes from"
  *     GitHub (GitHub has no days, owners or waits on);
  *   - the same markup and code give own work the full window.
@@ -59,8 +59,9 @@ await test('a pulled issue has its own view, not a greyed form', () => {
   for (const id of ['f-dates', 'f-owners-field', 'f-parent-field', 'f-waits-field', 'f-phase-field']) assert.ok(view.includes(`'${id}'`), `${id} is not shown for an issue`);
   assert.match(view, /link\.classList\.add\('src-open'\)/);
   assert.match(view, /Open on \$\{shown\.source\.from === 'github' \? 'GitHub' : state\.pull\.name\}/);
-  assert.match(view, /\$\('f-desc'\)\.textContent = on \? shown\.notes : '';/, 'the description is text, never markup');
-  assert.match(view, /hide\(\$\('f-desc-field'\), !on \|\| !shown\.notes\);/);
+  assert.match(view, /\$\('f-desc'\)\.textContent = on \? shown\.description : '';/, 'the description (its own field, never the notes) is text, never markup');
+  assert.match(view, /hide\(\$\('f-desc-field'\), !on \|\| !shown\.description\);/);
+  assert.doesNotMatch(view, /shown\.notes/, 'a pulled issue\'s notes are never drawn: it has none');
   assert.doesNotMatch(view, /innerHTML|insertAdjacentHTML/);
   assert.match(page, /fitKind\(\);\n\s*showIssueView\(shown, issueView\);/, 'applied after the window\'s own hiding');
   assert.match(css, /\.desc \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;[^}]*max-height:/, 'a long description wraps and scrolls');
