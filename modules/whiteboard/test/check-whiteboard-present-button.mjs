@@ -2,8 +2,9 @@
 /*
  * check-whiteboard-present-button.mjs -- the toolbar's Present button (whiteboard.js: toolbarTail, presentToggle), in a real browser against a
  * throwaway server (tools/shots.mjs; no LiveKit). Guards: pressing Present with a frame on the board starts the read-through and it STAYS on
- * (the host calls a toolbar button's handler from a loop over a live set, and starting to present changes which toolbar buttons there are, so the
- * button is made again inside its own click and was called again by it: it started and stopped at once); pressing it again ends it.
+ * (starting to present changes which toolbar buttons there are, so the button is made again inside its own click; the host delivers an event
+ * only to the handlers there when it began, so the new button does not hear that click: before that fix it started and stopped at once);
+ * pressing it again ends it.
  * With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass.
  */
 import fs from 'node:fs';
