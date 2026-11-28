@@ -87,7 +87,7 @@ function fakeGitHub() {
   const jwts = new Set(); // every JWT the fake received, to look for in the outputs
   const state = {
     mints: [], mintOnce: null, mintTtlMs: 3600 * 1000, mintToken: null, installs: { 7: { mode: 'ok' }, 8: { mode: 'ok' }, 9: { mode: 'ok' }, 10: { mode: 'ok' } }, publicKey: KEYS.publicKey,
-    issues: new Map(), once: null, onceWrite: null, slowList: 0, missing: new Set(), clock: Date.parse('2026-11-01T00:00:00Z'),
+    issues: new Map(), once: null, onceWrite: null, slowList: 0, missing: new Set(), clock: Math.floor(Date.now() / 1000) * 1000 - 3 * 86400 * 1000, // a few days ago, so the issues it closes are inside the done window
     labels: new Set(['priority: now', 'priority: next', 'priority: later', 'bug', 'good first issue', 'docs']), created: [],
   };
   const tick = () => { state.clock += 1000; return new Date(state.clock).toISOString(); };
@@ -697,6 +697,64 @@ await test('the adapter\'s writes carry only the fields the plan allows', async 
   assert.match((await wc(lim(502, {}, ''))).error, /did not answer\. Nothing was changed; try again\.$/);
 });
 
+// --- the done window: the pieces (documentation/plans/plan-done-window.md, step 1) ---------------------------------------------
+await test('the done window: doneOn is the closed day, keepDays 7 to 365 (30 when absent), the cutoff never shorter than the phase', () => {
+  const at = { repo: 'o/r', provider: 'github', tagIds: new Set() };
+  const closed = I.workOf(rec({ open: false, closed: '2026-10-05T23:00:00.000Z' }), at);
+  assert.deepEqual([closed.done, closed.doneOn], [true, '2026-10-05'], 'closed work is done on its closed day');
+  assert.equal('doneOn' in I.workOf(rec({}), at), false, 'open work has no done day');
+  assert.equal('doneOn' in I.workOf(rec({ open: false, closed: '' }), at), false, 'no closed day, no done day');
+  // In a space that writes back the days are the space's own, but doneOn is always the fresh record's: set on close, gone on reopen.
+  const own = { ...closed, start: '2026-09-01', end: '2026-09-09', rank: 'r' };
+  const reopened = I.keepOwn(own, I.workOf(rec({}), at));
+  assert.deepEqual([reopened.done, 'doneOn' in reopened, reopened.end, reopened.rank], [false, false, '2026-09-09', 'r'], 'a reopen clears doneOn, keeps the own end');
+  const closedAgain = I.keepOwn({ ...own, done: false, doneOn: undefined }, I.workOf(rec({ open: false, closed: '2026-11-02T01:00:00.000Z' }), at));
+  assert.deepEqual([closedAgain.doneOn, closedAgain.end], ['2026-11-02', '2026-09-09'], 'a close sets doneOn from the closed day, the own end kept');
+  assert.equal(I.keepOwn({ ...own, doneOn: '2020-01-01' }, closed).doneOn, '2026-10-05', 'never the stored doneOn');
+  const d = I.diffWork(closed, { ...closed, doneOn: '2020-01-01' });
+  assert.deepEqual([d.own, d.foreign, d.column], [false, [], null], 'diffWork does not read doneOn (it follows done)');
+  // keepDays
+  assert.equal(I.KEEP_DAYS.start, 30);
+  for (const v of [7, 30, 365]) assert.equal(I.validKeepDays(v), true, String(v));
+  for (const v of [6, 366, 0, -1, 30.5, '30', null, undefined, true, NaN, Infinity]) assert.equal(I.validKeepDays(v), false, String(v));
+  assert.equal(I.SAY.keepDays, 'Keep closed issues for 7 to 365 days.');
+  const base = { provider: 'github', repo: 'o/r' };
+  const clean = (r) => { const p = new I.IssuePulls(fs.mkdtempSync(path.join(os.tmpdir(), 'issues-keep-'))); return p.set('s1', { ...base, ...r }).keepDays; };
+  assert.equal(clean({}), 30, 'absent: 30');
+  assert.equal(clean({ keepDays: 14 }), 14);
+  for (const bad of [3, 400, '14', 14.5]) assert.equal(clean({ keepDays: bad }), 30, `stored ${JSON.stringify(bad)}: 30`);
+  // The cutoff: today less keepDays, or the start of the phase holding today when that is earlier.
+  const today = '2026-11-28';
+  assert.equal(I.cutoffOf({ keepDays: 30 }, null, today, []), '2026-10-29');
+  assert.equal(I.cutoffOf({}, null, today, []), '2026-10-29', 'no keepDays: 30');
+  assert.equal(I.cutoffOf({ keepDays: 7 }, { phases: {} }, today, []), '2026-11-21');
+  assert.equal(I.cutoffOf({ keepDays: 30 }, null, 'not a day', []), '', 'no day: no cutoff');
+  const phases = [{ id: 'start', label: 'Start' }, { id: 'build', label: 'Build', main: true }, { id: 'wrap', label: 'Wrap' }];
+  const space = (dates) => ({ createdAt: '2025-01-01T00:00:00.000Z', phases: dates });
+  assert.equal(I.cutoffOf({ keepDays: 30 }, space({ start: { start: '2026-08-01' }, build: { start: '2026-09-15', end: '2026-12-31' } }), today, phases), '2026-09-15', 'a long current phase wins');
+  assert.equal(I.cutoffOf({ keepDays: 30 }, space({ start: { start: '2026-08-01' }, build: { start: '2026-11-20', end: '2026-12-31' } }), today, phases), '2026-10-29', 'a short phase: keepDays is the floor');
+  assert.equal(I.cutoffOf({ keepDays: 30 }, space({ start: { start: '2026-08-01' }, build: { start: '2026-09-15', end: '2026-10-31' }, wrap: { start: '2026-11-01' } }), today, phases), '2026-10-29', 'only the phase that holds today');
+  assert.equal(I.cutoffOf({ keepDays: 30 }, space({}), today, phases), '2026-10-29', 'no phase dates: keepDays (not the day the space was made)');
+  assert.equal(I.cutoffOf({ keepDays: 30 }, space({ build: { start: '2026-09-15' } }), today, []), '2026-10-29', 'no phases on the template: keepDays');
+  // Which records are skipped and which stored entries age out: only pulled, closed or done work before the cutoff.
+  const cut = '2026-10-29';
+  assert.equal(I.closedOutside(rec({ open: false, closed: '2026-10-28T23:59:00Z' }), cut), true);
+  assert.equal(I.closedOutside(rec({ open: false, closed: '2026-10-29T00:00:00Z' }), cut), false, 'the cutoff day itself is kept');
+  assert.equal(I.closedOutside(rec({ open: true, created: '2020-01-01T00:00:00Z', closed: '2020-01-02T00:00:00Z' }), cut), false, 'open work is never outside');
+  assert.equal(I.closedOutside(rec({ open: false, closed: '' }), cut), false, 'no closed day: kept');
+  assert.equal(I.closedOutside(rec({ open: false, closed: '2020-01-01T00:00:00Z' }), ''), false, 'no cutoff: kept');
+  const old = { kind: 'work', title: 'x', done: true, doneOn: '2026-10-01', start: '2026-09-01', end: '2026-10-01' };
+  assert.equal(I.agedOut('plan:gh-4', old, cut), true);
+  assert.equal(I.agedOut('plan:gh-4', { ...old, doneOn: cut }, cut), false, 'done on the cutoff day: kept');
+  assert.equal(I.agedOut('plan:gh-4', { ...old, done: false }, cut), false, 'open work is never removed');
+  assert.equal(I.agedOut('plan:gh-4', { ...old, doneOn: undefined }, cut), false, 'no done day: left to the full pull');
+  assert.equal(I.agedOut('plan:gh-4', { ...old, doneOn: 'long ago' }, cut), false);
+  for (const key of ['plan:hand', 'plan:ghm-2', 'board:main', 'field:area', 'plan:gh-x', 'plan:gh-1/2']) assert.equal(I.agedOut(key, old, cut), false, `${key} is never the window's`);
+  assert.equal(I.agedOut('plan:gh-4', old, ''), false, 'no cutoff: nothing ages out');
+  assert.equal(I.MAX_ENTRIES, 1000, 'the limit is unchanged');
+  assert.equal(I.SAY.full, 'This plan holds at most 1000 entries; the rest are not pulled.');
+});
+
 // --- the shared terms record -------------------------------------------------------------------------------------------------
 await test('the terms: one record for every service, which starts empty', () => {
   const { ServiceTerms } = require('../server/service-terms.js');
@@ -899,7 +957,7 @@ await live('set up: Planner - Projects on, a member, an agent and a guest link',
 
 await live('the gate: only an owner turns it on, the terms first, only into an empty plan', async () => {
   const on = { on: true, repo: REPO, provider: 'issues-standin' };
-  assert.deepEqual(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads the status').json, { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling: false, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', appState: 'unchecked', app: null });
+  assert.deepEqual(ok(await call('GET', P(S.bugs), { token: S.mia }), 'a member reads the status').json, { on: false, provider: '', name: '', repo: '', last: '', next: '', error: '', counts: null, pulling: false, write: false, canWrite: false, via: 'public', writeOk: false, appError: '', appState: 'unchecked', app: null, keep: null });
   const mia = await call('PUT', P(S.bugs), { token: S.mia, body: on });
   assert.equal(mia.status, 403, 'a member');
   assert.match(mia.json.error, /^Only an owner can turn the pull from .+ on or off\.$/);
@@ -1974,6 +2032,157 @@ await live('the pull view tells whether the server has a working GitHub app, wit
   await call('GET', P(S.other), { token: S.admin });
   assert.equal(gh.app.length, before, 'reading the view asks GitHub nothing');
 });
+// --- live: the done window (documentation/plans/plan-done-window.md, step 1) ---------------------------------------------------
+// A space of its own following 'window/repo' with no link (the fake answers every repository with the same issues), seeded with
+// open and closed issues of different ages. Nothing of this may reach the service but reads.
+const WREPO = 'window/repo';
+const at = (days) => new Date(Date.now() + days * 86400 * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+const dayAgo = (days) => at(-days).slice(0, 10);
+const windowWrites = () => gh.seen.filter((x) => x.url.startsWith(`/repos/${WREPO}`) && x.method !== 'GET');
+const pulled = (p) => Object.keys(p).filter((k) => /^plan:gh-\d+$/.test(k)).sort((a, b) => Number(a.slice(8)) - Number(b.slice(8)));
+await live('the done window: closed work inside is kept with doneOn from its closed day, outside is not stored, open work of any age stays', async () => {
+  gh.state.issues.clear();
+  gh.issue(101, { title: 'Server: open, made long ago', created_at: '2020-01-01T00:00:00Z' });
+  gh.issue(102, { title: 'Chat: closed two days ago', state: 'closed', closed_at: at(-2) });
+  gh.issue(103, { title: 'Docs: closed a hundred days ago', state: 'closed', closed_at: at(-100) });
+  gh.issue(104, { title: 'Maps: closed twenty days ago', state: 'closed', closed_at: at(-20) });
+  gh.issue(105, { title: 'Call: open, made in 2021', created_at: '2021-06-01T00:00:00Z', labels: [gh.label('priority: now')] });
+  const people = ok(await call('GET', '/api/users', { token: S.admin }), 'the people').json.users;
+  const members = people.filter((u) => u.login === 'mia' || u.agent).map((u) => u.key);
+  S.window = ok(await call('POST', '/api/spaces', { token: S.admin, body: { name: 'Window', members } }), 'a space').json.space.id;
+  S.plain = ok(await call('POST', '/api/spaces', { token: S.admin, body: { name: 'Own plan' } }), 'a space that follows nothing').json.space.id;
+  // An own plan keeps all its done work (decision 4): old done work by hand, even under a pulled-looking key, is never the window's.
+  ok(await putKey(S.plain, 'plan:hand', { kind: 'work', title: 'Old, by hand', start: '2020-01-01', end: '2020-01-02', done: true, doneOn: '2020-01-02' }, S.admin), 'own old done work');
+  ok(await putKey(S.plain, 'plan:gh-103', { kind: 'work', title: 'Mine, not pulled', start: '2020-01-01', end: '2020-01-02', done: true, doneOn: '2020-01-02' }, S.admin), 'a key like a pulled one, by hand');
+  const r = ok(await call('PUT', P(S.window), { token: S.admin, body: { on: true, repo: WREPO, provider: 'issues-standin' } }), 'follows, no link');
+  assert.deepEqual(r.json.keep, { days: 30, from: dayAgo(30), url: '' }, 'the view: 30 days, the cutoff day, no link until the adapter has one');
+  const s = await until('the first pull', async () => { const v = await status(S.window); return v.last ? v : null; });
+  assert.equal(s.error, '');
+  const p = await plan(S.window);
+  assert.deepEqual(pulled(p), ['plan:gh-101', 'plan:gh-102', 'plan:gh-104', 'plan:gh-105'], 'the old closed issue is not stored');
+  assert.deepEqual([p['plan:gh-102'].value.done, p['plan:gh-102'].value.doneOn, p['plan:gh-102'].value.end], [true, dayAgo(2), dayAgo(2)], 'doneOn is the closed day');
+  assert.equal(p['plan:gh-104'].value.doneOn, dayAgo(20));
+  assert.ok(!('doneOn' in p['plan:gh-101'].value) && !('doneOn' in p['plan:gh-105'].value), 'open work has no doneOn');
+  assert.deepEqual(s.counts, { total: 4, open: 2, done: 2, written: 4, removed: 0 });
+  const rec = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.window];
+  assert.equal(rec.keepDays, 30, 'keepDays stored on the pull record, 30 to start');
+  // The space's own entries in a followed plan: a field definition and a colour on the board.
+  ok(await putKey(S.window, 'field:area', { id: 'area', label: 'Area', order: 0, options: [{ id: 'server', label: 'Server' }] }, S.admin), 'a field, the space\'s own');
+  const board = p['board:main'].value;
+  ok(await putKey(S.window, 'board:main', { ...board, columns: board.columns.map((c, j) => (j === 4 ? { ...c, color: '#0e8a16' } : c)) }, S.admin), 'a column colour, the space\'s own');
+  ok(await pullNow(S.window), 'a second pull, which keeps the etag for the next');
+  assert.equal(windowWrites().length, 0, 'nothing sent to the service');
+});
+
+await live('the done window: keepDays is the owner\'s, a whole number from 7 to 365, refused with a sentence otherwise', async () => {
+  const SAID = 'Keep closed issues for 7 to 365 days.';
+  const mia = await call('PUT', P(S.window), { token: S.mia, body: { keepDays: 14 } });
+  assert.equal(mia.status, 403, 'a member');
+  assert.equal((await call('PUT', P(S.window), { token: S.agent, body: { keepDays: 14 } })).status, 403, 'an agent');
+  assert.equal((await call('PUT', P(S.window), { body: { keepDays: 14 } })).status, 401, 'nobody');
+  for (const bad of [6, 366, 0, -30, 14.5, '14', null, true, [14], { days: 14 }]) {
+    const x = await call('PUT', P(S.window), { token: S.admin, body: { keepDays: bad } });
+    assert.deepEqual([x.status, x.json && x.json.error], [400, SAID], `keepDays ${JSON.stringify(bad)}`);
+  }
+  assert.deepEqual([(await call('PUT', P(S.window), { token: S.admin, body: { on: true, repo: WREPO, provider: 'issues-standin', keepDays: 400 } })).status], [400], 'nor with on');
+  const none = await call('PUT', P(S.plain), { token: S.admin, body: { keepDays: 14 } });
+  assert.deepEqual([none.status, none.json.error], [409, 'No pull is on in this space.'], 'a space that follows nothing has no window');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.plain], undefined, 'and gets no record');
+  const s = await status(S.window);
+  assert.deepEqual([s.keep.days, s.write], [30, false], 'nothing refused changed anything');
+});
+
+await live('the done window: a shorter window trims stored closed work at the next pull, even a 304, with no request but the read', async () => {
+  const r = ok(await call('PUT', P(S.window), { token: S.admin, body: { keepDays: 7 } }), 'seven days');
+  assert.deepEqual([r.json.keep.days, r.json.keep.from, r.json.write, r.json.on], [7, dayAgo(7), false, true], 'the view says it; writing and the pull unchanged');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8')).spaces[S.window].keepDays, 7, 'stored');
+  const seen = gh.seen.length;
+  const s = ok(await pullNow(S.window), 'a pull').json;
+  const asked = gh.seen.slice(seen).filter((x) => x.url.startsWith(`/repos/${WREPO}`));
+  assert.ok(asked.length >= 1 && asked.every((x) => x.method === 'GET'), 'only reads');
+  assert.deepEqual([asked.length, /since=/.test(asked[0].url), Boolean(asked[0].headers['if-none-match'])], [1, true, true], 'one conditional read, answered 304 (nothing changed)');
+  const p = await plan(S.window);
+  assert.deepEqual(pulled(p), ['plan:gh-101', 'plan:gh-102', 'plan:gh-105'], 'closed twenty days ago: gone; open work of any age: kept');
+  assert.equal(s.counts.removed, 1);
+  assert.ok(p['field:area'] && p['board:main'].value.columns[4].color === '#0e8a16', 'the space\'s own field and colour stay');
+  const own = await plan(S.plain);
+  assert.deepEqual(Object.keys(own).filter((k) => k.startsWith('plan:')).sort(), ['plan:gh-103', 'plan:hand'], 'an own plan keeps all its done work');
+  assert.equal(windowWrites().length, 0, 'nothing sent to the service');
+});
+
+await live('the done window: an old closed issue that changes is not stored again; one closed long ago is removed; a reopened one is new open work', async () => {
+  gh.issue(103, { title: 'Docs: closed a hundred days ago, commented' });
+  gh.issue(104, { title: 'Maps: closed twenty days ago, commented' });
+  let p = (ok(await pullNow(S.window), 'a pull'), await plan(S.window));
+  assert.ok(!p['plan:gh-103'] && !p['plan:gh-104'], 'old closed work brought by since is not stored');
+  gh.issue(102, { closed_at: at(-90) });
+  const s = ok(await pullNow(S.window), 'a pull').json;
+  p = await plan(S.window);
+  assert.equal(p['plan:gh-102'], undefined, 'stored, then back closed before the cutoff: removed');
+  assert.equal(s.counts.removed, 1);
+  gh.issue(103, { state: 'open' });
+  ok(await pullNow(S.window), 'a pull');
+  p = await plan(S.window);
+  assert.deepEqual([p['plan:gh-103'].value.done, p['plan:gh-103'].value.column, 'doneOn' in p['plan:gh-103'].value], [false, 'inbox', false], 'reopened: new open work');
+  assert.equal(windowWrites().length, 0, 'nothing sent to the service');
+});
+
+await live('the done window: a person\'s write may not set doneOn on pulled work', async () => {
+  gh.issue(106, { title: 'Server: closed today', state: 'closed', closed_at: at(0) });
+  ok(await pullNow(S.window), 'a pull');
+  const had = (await plan(S.window))['plan:gh-106'].value;
+  assert.equal(had.doneOn, dayAgo(0));
+  const SAID = 'This comes from Test stand-in (not an issue service). Change it there.';
+  for (const doneOn of ['2020-01-01', undefined]) {
+    const x = await putKey(S.window, 'plan:gh-106', { ...had, rank: 'a1', doneOn }, S.admin);
+    assert.deepEqual([x.status, x.json && x.json.error], [403, SAID], `an own-fields write with doneOn ${doneOn}`);
+  }
+  ok(await putKey(S.window, 'plan:gh-106', { ...had, rank: 'a1' }, S.admin), 'own fields with doneOn as stored');
+  assert.equal((await plan(S.window))['plan:gh-106'].value.doneOn, dayAgo(0));
+});
+
+await live('the done window: never shorter than the phase that holds today; a longer window brings old issues back at the full pull', async () => {
+  ok(await call('PATCH', '/api/settings', { token: S.admin, body: { template: 'project' } }), 'a template with phases');
+  ok(await call('PATCH', `/api/spaces/${S.window}`, { token: S.admin, body: { phases: { start: { start: dayAgo(80) }, build: { start: dayAgo(60), end: dayAgo(-30) } } } }), 'the phase holding today began 60 days ago');
+  assert.deepEqual((await status(S.window)).keep, { days: 7, from: dayAgo(60), url: '' }, 'the phase\'s start wins over 7 days');
+  gh.issue(107, { title: 'Chat: closed 45 days ago', state: 'closed', closed_at: at(-45) });
+  const s0 = await status(S.window);
+  await sleep(Math.max(0, FULL_MS - (Date.now() - Date.parse(s0.last)) + 200));
+  ok(await pullNow(S.window), 'the full pull');
+  assert.ok(!/since=/.test(gh.seen.filter((x) => x.url.startsWith(`/repos/${WREPO}`)).at(-1).url), 'it read every page');
+  let p = await plan(S.window);
+  assert.deepEqual(pulled(p), ['plan:gh-101', 'plan:gh-103', 'plan:gh-104', 'plan:gh-105', 'plan:gh-106', 'plan:gh-107'], 'inside the phase: back at the full pull; closed 90 and more days ago: not');
+  ok(await call('PATCH', '/api/settings', { token: S.admin, body: { template: 'default' } }), 'back to no phases');
+  assert.deepEqual((await status(S.window)).keep.from, dayAgo(7));
+  const s = ok(await pullNow(S.window), 'a pull').json;
+  p = await plan(S.window);
+  assert.deepEqual(pulled(p), ['plan:gh-101', 'plan:gh-103', 'plan:gh-105', 'plan:gh-106'], 'without the phase, 7 days again: trimmed locally');
+  assert.equal(s.counts.removed, 2);
+  ok(await call('PUT', P(S.window), { token: S.admin, body: { keepDays: 30 } }), 'thirty days');
+  assert.equal(windowWrites().length, 0, 'nothing sent to the service');
+});
+
+await live('the done window: the limit of 1000 is as it was, counted after the window\'s removals', async () => {
+  const startAt = 2001;
+  for (let i = 0; i < 1000; i += 1) gh.issue(startAt + i, { title: `Server: open ${i}` });
+  const s = ok(await pullNow(S.window), 'a big pull: its sentence', 502).json;
+  let p = await plan(S.window);
+  assert.equal(pulled(p).length, 1000, 'at most 1000 pieces of work');
+  assert.equal(s.error, 'This plan holds at most 1000 entries; the rest are not pulled.');
+  assert.ok(p['plan:gh-106'] && p['plan:gh-101'], 'what was stored stays');
+  // Done work that ages out frees its place in the same pull: gh-106 (closed today) is made to age out by a 7-day window. The issues
+  // the limit kept out are taken off the fake first, so a full pull, if this is one, cannot give the freed place to one of them.
+  for (const k of [...gh.state.issues.keys()]) if (!p[`plan:gh-${k}`]) gh.state.issues.delete(k);
+  gh.issue(106, { closed_at: at(-10) });
+  gh.issue(3500, { title: 'Server: one more' });
+  ok(await call('PUT', P(S.window), { token: S.admin, body: { keepDays: 7 } }), 'seven days');
+  const s2 = ok(await pullNow(S.window), 'a pull').json;
+  p = await plan(S.window);
+  assert.deepEqual([Boolean(p['plan:gh-106']), Boolean(p['plan:gh-3500']), pulled(p).length, s2.error], [false, true, 1000, ''], 'the removal counted before the limit');
+  assert.equal(windowWrites().length, 0, 'nothing sent to the service');
+  ok(await call('PUT', P(S.window), { token: S.admin, body: { on: false } }), 'off');
+});
+
 await live('no secret is in an answer, the data, the record, the log or a request but the one that carries it', async () => {
   const jwts = [...gh.jwts];
   await stop();
@@ -1993,10 +2202,10 @@ await live('no secret is in an answer, the data, the record, the log or a reques
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   for (const f of walk(dataDir)) for (const [what, v] of Object.entries(secrets)) assert.ok(!fs.readFileSync(f).includes(v), `${what}: not in ${path.relative(dataDir, f)}`);
   const record = JSON.parse(fs.readFileSync(path.join(dataDir, 'issues.json'), 'utf8'));
-  assert.deepEqual(Object.keys(record.spaces).sort(), [S.bugs, S.other].sort());
+  assert.deepEqual(Object.keys(record.spaces).sort(), [S.bugs, S.other, S.window].sort());
   assert.equal(record.spaces[S.bugs].repo, REPO);
   assert.deepEqual([record.spaces[S.bugs].via, record.spaces[S.bugs].installation, record.spaces[S.bugs].repositoryId, record.spaces[S.bugs].writeOk, typeof record.spaces[S.bugs].linkBy, Boolean(record.spaces[S.bugs].linkAt), record.spaces[S.bugs].appError], ['app', 7, 777, true, 'string', true, '']);
-  assert.ok(Object.keys(record.spaces[S.bugs]).every((k) => ['provider', 'repo', 'on', 'since', 'etag', 'last', 'tried', 'fullAt', 'next', 'restUntil', 'error', 'counts', 'by', 'at', 'write', 'writeBy', 'writeAt', 'via', 'installation', 'repositoryId', 'writeOk', 'linkBy', 'linkAt', 'appError'].includes(k)), 'only the fields the plan names');
+  assert.ok(Object.keys(record.spaces[S.bugs]).every((k) => ['provider', 'repo', 'on', 'since', 'etag', 'last', 'tried', 'fullAt', 'next', 'restUntil', 'error', 'counts', 'by', 'at', 'write', 'writeBy', 'writeAt', 'via', 'installation', 'repositoryId', 'writeOk', 'linkBy', 'linkAt', 'appError', 'keepDays'].includes(k)), 'only the fields the plan names');
   // What reached the fake: the repository's requests carry the installation token in Authorization only; the app's carry a JWT only.
   for (const x of gh.seen.filter((r) => /^\/repos\/(Drowbe|other)\//.test(r.url))) {
     assert.ok(!x.url.includes(TOKEN) && !(x.raw || '').includes(TOKEN), `${x.method} ${x.url}: the token only in Authorization`);
