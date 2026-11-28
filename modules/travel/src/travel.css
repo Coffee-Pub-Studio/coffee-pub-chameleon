@@ -69,6 +69,7 @@
 .decision-main { flex: 1; min-width: 0; }
 .decision-title { font-weight: var(--weight-strong); overflow-wrap: anywhere; }
 .decision-sub { color: var(--text-muted); font-size: var(--text-12); }
+.decision-main > .card-airline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-top: var(--space-2); } /* a flight's links in Bookings: the card's row, without its own line and padding */
 .decision .code { display: inline-block; margin-top: 4px; }
 .code:empty { display: none; }
 
