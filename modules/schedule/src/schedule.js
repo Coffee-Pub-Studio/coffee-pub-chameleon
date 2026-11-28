@@ -584,8 +584,9 @@
     sentTimer = setTimeout(() => { state.sent = ''; chrome(); }, 12000);
     say(text, 'danger');
   }
-  // `make(entry)` gives the entry as it should be (or null for nothing to send). Resolves { ok, error }.
-  function sendPulled(id, make) {
+  // `make(entry)` gives the entry as it should be (or null for nothing to send). Resolves { ok, error }. `quiet` skips the redraw after a
+  // write that went through, for a write that is one of several (the caller draws once at the end); a refusal is always drawn.
+  function sendPulled(id, make, quiet) {
     const run = async () => {
       const had = state.entries.get(id);
       if (!had) return { ok: false, error: 'That is not on the plan any more.' };
@@ -595,7 +596,7 @@
         const saved = await host.storage.set(SC_PREFIX + id, scValue(next), { version: had.version });
         if (saved && saved.value) remember(id, saved.value, saved.version);
         if (state.sent) { state.sent = ''; clearTimeout(sentTimer); }
-        render();
+        if (!quiet) render();
         return { ok: true, error: '' };
       } catch (err) {
         if (err && err.current && err.current.value) remember(id, err.current.value, err.current.version);
@@ -907,7 +908,12 @@
       if (!moved.entry) return;
       const placed = scPlace(list(), moved.entry, moved.entry.column, b, m.before || '');
       // The work above it that needs a rank goes first (the rank alone, so the column never shows the card half way), then the card.
-      for (const o of placed.others) await sendPulled(o.id, (e) => (e.rank === o.rank ? null : { ...e, rank: o.rank }));
+      // The ranks are written one after another without a redraw between them (the first move in a column of unranked cards writes one
+      // for every card above the drop), and the board is drawn once, with the card's own write. The first refusal stops the move.
+      for (const o of placed.others) {
+        const r = await sendPulled(o.id, (e) => (e.rank === o.rank ? null : { ...e, rank: o.rank }), true);
+        if (!r.ok) return;
+      }
       await sendPulled(m.id, (e) => { const r = scSetColumn(e, m.column, b, { label: (k) => kindWord(k) }); return r.entry ? { ...r.entry, rank: placed.entry.rank } : null; });
       return;
     }
