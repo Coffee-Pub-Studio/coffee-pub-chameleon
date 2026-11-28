@@ -3169,7 +3169,7 @@
       readKeysOnly(changes, scope, spaceId).then((full) => { if (full) replay(full); });
       return;
     }
-    for (const fn of listeners.get(event) || []) {
+    for (const fn of [...(listeners.get(event) || [])]) {
       try {
         fn(data);
       } catch (err) {
