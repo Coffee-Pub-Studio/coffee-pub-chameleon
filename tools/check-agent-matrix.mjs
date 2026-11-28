@@ -110,6 +110,28 @@ await test('"Change it on GitHub" is a row the Agent column may tick, off to sta
   assert.ok(/who\.user\.agent \|\| !hasOwnerRights\(who\.user\)\) return res\.status\(403\)/.test(src), 'an agent never turns writing on');
 });
 
+await test('addComment is the agent\'s way to comment on an issue: an action it may ask for, under write_out, and no comment route on the list (plan-github-full-sync.md, section 8)', () => {
+  const schedule = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'schedule', 'module.json'), 'utf8'));
+  const def = schedule.actions.provides.find((a) => a.name === 'addComment');
+  assert.ok(def && routes.agentMayAsk(def), 'an action an agent may ask for (a write, not local, asker-only or kept from AI)');
+  assert.deepEqual(def.input, { ref: 'ref:schedule:plan', text: 'text' });
+  const update = schedule.actions.provides.find((a) => a.name === 'updateEntry');
+  assert.ok(routes.agentMayAsk(update) && update.input.description === 'text?' && update.input.parent === 'string?', 'updateEntry takes the description and the milestone');
+  assert.ok(routes.agentModuleKeys(schedule).includes('module.schedule.write_out'), 'its row is the Agent column\'s to tick');
+  // It reaches GitHub only through the action route: the issue view's routes (the text, the comments) are a person's, never on the list.
+  assert.ok(AGENT_ROUTES.some((e) => e.kind === 'agent' && e.method === 'post' && e.path === '/api/spaces/:id/action' && e.needs === 'module'), 'the action route');
+  assert.deepEqual(AGENT_ROUTES.filter((e) => /\/issues/.test(e.path)).map((e) => `${e.method} ${e.path}`), [], 'no issue route on the list');
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  const f = src.slice(src.indexOf('async function agentIssueComment('), src.indexOf('\nfunction agentThrough('));
+  assert.ok(/issueWriteGate\(\{ rec, adapter, ctx, found \}, \['addComment'\]\)/.test(f), 'write_out and writing on, as a person\'s comment');
+  const gate = src.slice(src.indexOf('function issueWriteGate('), src.indexOf('\n}\n', src.indexOf('function issueWriteGate(')));
+  assert.ok(/if \(!ctx\.perms\[`module\.\$\{found\.manifest\.id\}\.write_out`\]\) return \{ status: 403, error: issuesLib\.SAY\.noWriteOut\(adapter\.name\) \};/.test(gate), 'the gate asks for write_out');
+  // Its Undo deletes it, only by an owner (the agent made it; decision 8), never by the agent: the review routes refuse a token.
+  const why = src.slice(src.indexOf('function issueCommentUndoWhy('), src.indexOf('\n}\n', src.indexOf('function issueCommentUndoWhy(')));
+  assert.ok(/!user \|\| !hasOwnerRights\(user\)/.test(why) && /at\.ctx\.who\.user && !at\.ctx\.who\.user\.agent/.test(why), 'only a person who is an owner');
+  assert.ok(!AGENT_ROUTES.some((e) => /changes|agent-review/.test(e.path)), 'an agent never undoes or reviews');
+});
+
 await test('the set-up column is plan-agent-matrix.md\'s: three rows, all off, and what each set-up route needs', () => {
   assert.deepEqual([...SETUP_BUILT_IN], ['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']);
   assert.deepEqual({ ...routes.SETUP_DEFAULTS }, { agentMakeSpaces: false, agentChangeSpaces: false, agentAskPeople: false }, 'nothing until an owner ticks it (decision 5)');

@@ -6252,7 +6252,7 @@ function agentChangeText(c, found, title, withSpace) {
   const produce = found ? found.manifest.refs.produces.find((p) => p.kind === c.object.kind) : null;
   const kind = String(produce?.name || c.object.kind).toLowerCase();
   const thing = c.change === 'added' ? `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}` : `the ${kind}`;
-  const verb = { added: 'added', edited: 'changed', deleted: 'deleted' }[c.change];
+  const verb = { added: 'added', edited: 'changed', deleted: 'deleted', commented: 'commented on' }[c.change];
   const where = found ? modules.shownName(found.manifest) : `a ${word('module')}`;
   const space = withSpace ? store.spaceById(c.space)?.name : null;
   return `${agentShownName(agent)} ${verb} ${thing}${title ? ` "${title}"` : ''} in ${where}${space ? `, in ${String(space).slice(0, 80)}` : ''}`;
@@ -6262,17 +6262,18 @@ function agentChangeText(c, found, title, withSpace) {
 function agentChangeOut(c, who, { withSpace = false } = {}) {
   const found = modules.enabled(c.object.module) || null;
   const title = agentChangeTitle(c, found);
-  const hold = c.change === 'added' ? null : moduleHolds.readKeyed(c.object.module, c.id);
-  const problem = deletePath.undoProblem(c, hold);
+  const hold = c.change === 'added' || c.change === 'commented' ? null : moduleHolds.readKeyed(c.object.module, c.id);
+  const problem = c.change === 'commented' ? (c.undoneAt ? 'undone' : null) : deletePath.undoProblem(c, hold);
   let why = problem ? UNDO_WHY[problem] : null;
   const space = store.spaceById(c.space);
   if (!why && (!found || !space)) why = UNDO_WHY.gone;
   if (!why) {
     const at = moduleAccessAt(found, who, 'space', space, 'own');
     if (at.error) why = at.error;
+    else if (c.change === 'commented') why = issueCommentUndoWhy(c, at)?.error || null;
     else if (pulledChange(c)) {
       const a = issueAdapterOf(issuePulls.get(c.space).provider);
-      if (c.change !== 'edited') why = 'That change can only be undone on GitHub.';
+      if (c.change !== 'edited') why = issuesLib.SAY.undoOnGitHub;
       else if (!at.ctx.perms[`module.${c.object.module}.write_out`]) why = issuesLib.SAY.noWriteOut(a ? a.name : 'GitHub');
     } else if (c.object.module === issuesLib.MODULE_ID && issuesLib.WORK_KEY.test(c.object.key || '') && issuePulls.get(c.space)?.on) {
       const a = issueAdapterOf(issuePulls.get(c.space).provider);
@@ -6298,12 +6299,21 @@ async function undoAgentObject(req, res, given, match) {
   const user = currentUser(req);
   const who = moduleViewer(req);
   const tz = typeof req.body?.tz === 'string' ? req.body.tz : null;
-  // Pulled work in a space that writes back: the undo is another write to the service, held to the same rules (undoThrough).
+  // Pulled work in a space that writes back: the undo is another write to the service, held to the same rules (undoThrough); a
+  // comment's is its delete (undoComment). A comment is never undone any other way.
+  if (given.change === 'commented' && !pulledChange(given)) {
+    const found = agentRecordsHere().change(given.id);
+    if (!found || !match(found)) return void res.status(404).json({ error: `No such change. A change can be undone for ${AGENT_UNDO_DAYS} days.` });
+    if (found.undoneAt) return void res.status(409).json({ error: 'That was undone already.' });
+    const pull = issuePulls.get(found.space);
+    const a = pull ? issueAdapterOf(pull.provider) : null;
+    return void res.status(403).json({ error: pull && pull.on && a ? issuesLib.SAY.fromGitHub(a.name) : issuesLib.SAY.undoOnGitHub });
+  }
   if (pulledChange(given)) {
     const found = agentRecordsHere().change(given.id);
     if (!found || !match(found)) return void res.status(404).json({ error: `No such change. A change can be undone for ${AGENT_UNDO_DAYS} days.` });
     if (found.undoneAt) return void res.status(409).json({ error: 'That was undone already.' });
-    const out = await undoThrough(who, found);
+    const out = found.change === 'commented' ? await undoComment(who, found) : await undoThrough(who, found);
     if (out.error) return void res.status(out.status).json({ error: out.error });
     try {
       const done = agentRecordsHere().undo(found.id, match, user.key, () => {});
@@ -6349,32 +6359,86 @@ function pulledChange(c) {
 // go back to what they were, over the work as it is now, through issueWriteThrough, so the service is asked first and the same
 // rules hold (their right to change it there, the one-field conflict rule, a service that does not answer). Only while nothing
 // changed the work here since the agent did. An add is not undone this way (the agent's adds never reach pulled work), a plain
-// sentence says so. Answers { by } or { status, error }.
+// sentence says so; an added comment is undone by undoComment. Answers { by } or { status, error }.
 async function undoThrough(who, c) {
   const found = modules.enabled(c.object.module);
   const space = store.spaceById(c.space);
   if (!found || !space) return { status: 409, error: UNDO_WHY.gone };
   const at = moduleAccessAt(found, who, 'space', space, 'own');
   if (at.error) return { status: at.status, error: at.error };
-  if (c.change !== 'edited') return { status: 409, error: 'That change can only be undone on GitHub.' };
+  if (c.change !== 'edited') return { status: 409, error: issuesLib.SAY.undoOnGitHub };
   const hold = moduleHolds.readKeyed(c.object.module, c.id);
   const problem = deletePath.undoProblem(c, hold);
   if (problem) return { status: 409, error: UNDO_WHY[problem] };
   const slow = overLimit(found.manifest.id, at.ctx.by, 'write');
   if (slow) return { status: 429, error: limitMessage() };
   const now = moduleData.get(c.object.module, at.ctx.scopeKey, c.object.key);
-  // Only what the agent changed goes back. What it changed is not recorded, so it is read from what differs now: the agent's
-  // actions touch the column (with done) or the title and the space's own fields, never the tags. More than one of those groups
-  // differing, or the tags, means GitHub's own changes were drawn in with the agent's, and which is whose can't be told: refused.
+  // Only what the agent changed goes back: the parts its change recorded (`fields`, issuesLib.changedParts). Any other part that
+  // differs now from before it was GitHub's own, drawn in with the agent's write (the tags, which an agent never changes, an
+  // assignee, a text or a milestone set on GitHub), and which is whose can't be told: refused, nothing sent.
   const before = hold.items[0].value;
-  const d = issuesLib.diffWork(now.value, before);
-  if (d.tags.add.length || d.tags.remove.length || (d.column !== null && d.title !== null)) return { status: 409, error: issuesLib.SAY.undoMixed };
+  const linked = issueLinkedKeys();
+  const asked = new Set(Array.isArray(c.fields) ? c.fields : []);
+  const differs = issuesLib.changedParts(issuesLib.diffWork(now.value, before, { linked }));
+  if (differs.some((k) => !asked.has(k))) return { status: 409, error: issuesLib.SAY.undoMixed };
+  // A text that was cut when the agent changed it was never held whole here, so it can't be put back.
+  if (differs.includes('description') && before.source && before.source.cut === true) return { status: 409, error: issuesLib.SAY.undoCut };
   const back = { ...now.value };
-  const fields = [...issuesLib.OWN_FIELDS, issuesLib.OWNERS, ...(d.column !== null ? ['column', 'done'] : []), ...(d.title !== null ? ['title'] : [])];
-  for (const k of fields) { if (before[k] !== undefined) back[k] = before[k]; else delete back[k]; }
+  const put = (k) => { if (before[k] !== undefined) back[k] = before[k]; else delete back[k]; };
+  for (const k of [...issuesLib.OWN_FIELDS, issuesLib.OWNERS]) put(k);
+  if (differs.includes('column')) { put('column'); put('done'); }
+  if (differs.includes('title')) put('title');
+  // An issue that had no text gets an empty one back ('' empties it; a value without the field leaves the text as it is).
+  if (differs.includes('description')) back.description = typeof before.description === 'string' ? before.description : '';
+  if (differs.includes('parent')) put('parent');
   const out = await issueWriteThrough(at.ctx, c.object.key, back, { expected: c.versionAfter });
+  // GitHub changed one of those parts since the agent did (plan-github-full-sync.md, section 8): the text, Owners or the milestone
+  // are refused with the undo's own sentence; the column and the title keep the write-through's (plan-github-two-way.md, section 11).
+  if (out.error === issuesLib.SAY.conflict && differs.some((k) => ['description', 'parent', 'owners'].includes(k))) return { status: 409, error: issuesLib.SAY.undoMixed };
   if (out.error) return { status: out.status, error: out.error === SOMEONE_CHANGED ? UNDO_WHY.changed : out.error };
   moduleHolds.dropKeyed(c.object.module, c.id);
+  return { by: at.ctx.by };
+}
+// Why the person at `at` (moduleAccessAt's) may not undo the agent's comment `c` now, as { status, error }, or null: the space must
+// still follow with writing on, they need `write_out`, the comment must still be remembered as the agent's in `posted`, and only an
+// owner may delete a comment someone else made here (decision 8 of plan-github-full-sync.md: the agent made it, so not a moderator).
+function issueCommentUndoWhy(c, at) {
+  const rec = issuePulls.get(c.space);
+  const adapter = rec && rec.on ? issueAdapterOf(rec.provider) : null;
+  if (!adapter) return { status: 409, error: issuesLib.SAY.undoOnGitHub };
+  if (!rec.write) return { status: 403, error: issuesLib.SAY.fromGitHub(adapter.name) };
+  if (!at.ctx.perms[`module.${at.ctx.manifest.id}.write_out`]) return { status: 403, error: issuesLib.SAY.noWriteOut(adapter.name) };
+  if (typeof adapter.deleteComment !== 'function') return { status: 403, error: issuesLib.SAY.noWrite };
+  const made = issuePulls.postedOf(c.space, c.comment);
+  if (!made || made.by !== c.agent) return { status: 409, error: issuesLib.SAY.undoOnGitHub };
+  const user = at.ctx.who && at.ctx.who.user && !at.ctx.who.user.agent ? at.ctx.who.user : null;
+  if (!user || !hasOwnerRights(user)) return { status: 403, error: issuesLib.SAY.notAuthorDelete(word('owner', { a: true })) };
+  return null;
+}
+// Undoes the agent's comment `c` as the person `who`: it is deleted from the service, as an owner's delete from the issue view
+// (DELETE /api/spaces/:id/issues/:number/comments/:commentId), and forgotten in `posted`. A comment already gone from the service
+// is forgotten too and said (404). Answers { by } or { status, error }.
+async function undoComment(who, c) {
+  const found = modules.enabled(c.object.module);
+  const space = store.spaceById(c.space);
+  if (!found || !space) return { status: 409, error: UNDO_WHY.gone };
+  const at = moduleAccessAt(found, who, 'space', space, 'own');
+  if (at.error) return { status: at.status, error: at.error };
+  const why = issueCommentUndoWhy(c, at);
+  if (why) return why;
+  const rec = issuePulls.get(space.id);
+  const adapter = issueAdapterOf(rec.provider);
+  const gate = issueWriteGate({ rec, adapter, ctx: at.ctx, found }, ['deleteComment']);
+  if (gate) return { status: gate.status, error: gate.error };
+  const made = issuePulls.postedOf(space.id, c.comment);
+  const out = await inIssueWriteLane(async () => {
+    const sent = await issueMutate(rec, adapter, (ask, a) => adapter.deleteComment({ repo: a.repo, id: made.id, token: a.token }, ask));
+    if (!sent.ok && !sent.notFound) return sent;
+    issuePulls.dropPosted(space.id, made.id);
+    issueForget(rec, made.number);
+    return sent.ok ? {} : { status: 404, error: issuesLib.SAY.commentGone(adapter.name) };
+  });
+  if (out.error) return { status: out.status, error: out.error };
   return { by: at.ctx.by };
 }
 // Whether `user` may approve an agent's ask and see and undo its changes in the space `spaceId` (decision 5): owners and the
@@ -6464,7 +6528,7 @@ function agentChangesAfter(ctx, pending, applied, { agent, request }) {
     const kept = agentRecordsHere().noteObject({
       id: p.changeId, agent: agent.key, space: ctx.scopeKey.slice(6), change: p.had ? 'edited' : 'added',
       object: { module: p.ref.module, kind: p.ref.kind, id: p.ref.id, scope: 'space', key: p.key }, versionAfter: a.item.version, held: p.had ? p.held : false,
-      ...(request ? { request } : {}),
+      ...(request ? { request } : {}), ...(p.fields ? { fields: p.fields } : {}),
     });
     if (!kept) moduleHolds.dropKeyed(ctx.manifest.id, p.changeId);
   }
@@ -9772,6 +9836,10 @@ app.post('/api/spaces/:id/action', async (req, res) => {
       }
       if (!agentSeesRef(req.agent.user, v)) return res.status(403).json({ error: AGENT_CANT });
     }
+    // A request's text is cut at ACTION_TEXT_MAX (busInput); a comment goes to GitHub as written, so a longer one is refused, never cut.
+    if (provider.found.manifest.id === issuesLib.MODULE_ID && def.name === ISSUE_COMMENT_ACTION && typeof given.text === 'string' && given.text.replace(/\r\n?/g, '\n').trim().length > ACTION_TEXT_MAX) {
+      return res.status(400).json({ error: `A comment from an agent is at most ${ACTION_TEXT_MAX.toLocaleString('en-US')} characters.` });
+    }
   }
   if (!def.local) {
     try { busPlace(who, providerId, 'space', space.id, 'write'); } catch (err) {
@@ -9863,6 +9931,8 @@ function serverCarries(found, def, input, spaceId) {
 const ACTION_TZ = (() => {
   try { return process.env.TZ ? (Intl.DateTimeFormat(undefined, { timeZone: process.env.TZ }), process.env.TZ) : 'UTC'; } catch { return 'UTC'; }
 })();
+// The longest `text` a request's input keeps (busInput).
+const ACTION_TEXT_MAX = 8000;
 const ACTION_CHANGED = 'That changed while it was being done, so nothing was changed. Read it again and ask again.';
 
 // Carries out the agent's request `request` (made claimed by the server) and answers the agent: the module's handler runs
@@ -9971,6 +10041,15 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     if (outcome.refused !== undefined) return end(422, { ok: false, error: outcome.refused || `${shown} could not do that.` });
     // A write for the person: an agent's person scope is no one's (plan-agent-server-actions.md, section 4).
     if (outcome.denied === 'person') return end(403, { ok: false, error: AGENT_NO_PERSON_DATA() });
+    // A comment on an issue (plan-github-full-sync.md, section 8): the handler checked the work and the text and writes nothing; the
+    // server posts it, as a person's comment from the issue view is posted, and records it for Undo.
+    if (id === issuesLib.MODULE_ID && def.name === ISSUE_COMMENT_ACTION) {
+      const e = outcome.effects;
+      if (outcome.writes.length || e.links.length || e.schedules.length || e.notify.length || e.phaseEnd) return fault('result');
+      const out = await agentIssueComment({ ctx, space: here, found: now, input, agent, request });
+      if (out.error) return end(out.status, { ok: false, error: out.error });
+      return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), data: { note: out.note } });
+    }
     // Writes outside the space (section 4), all checked before anything is written: only with the module's own permission
     // to write its environment data, as the agent; only one of the module's own kinds that carry space marks; only a value
     // that marks this space; and never a change to which other spaces it is marked for (a new one marks this space alone).
@@ -10008,6 +10087,8 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     }
     // The review list's records (plan-agent-edit-delete.md, step 5): an edit's earlier value is held before it is written.
     const pending = agentChangesBefore(ctx, (via ? [via.first] : outcome.writes).filter((w) => w.scope !== 'environment').map((w) => w.key), agent);
+    // For pulled work, which of its parts the agent asked to change, so its Undo puts back those and nothing GitHub drew in with them.
+    for (const p of pending) { const w = outcome.writes.find((x) => x.key === p.key && x.scope !== 'environment'); if (w) p.fields = issueAskedFields(ctx, w); }
     const applied = [];
     if (via) {
       const slow = overLimit(id, ctx.by, 'write');
@@ -10073,6 +10154,57 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
 // space follows a repository with writing on and the writes name pulled work, else null. `other` is every write but the first
 // pulled one that is not a milestone's done and progress following the work (the pull draws those itself).
 const SOMEONE_CHANGED = 'someone changed this since you read it';
+// Which parts of the pulled work at `w.key` a write changes (issuesLib.changedParts: column, title, tags, description, parent,
+// owners, own), kept on the agent's change so its Undo puts back those and nothing GitHub drew in with them; null for anything else.
+function issueAskedFields(ctx, w) {
+  if (ctx.manifest.id !== issuesLib.MODULE_ID || ctx.scope !== 'space' || !ctx.spaceId || !issuesLib.WORK_KEY.test(w.key)) return null;
+  const pull = issuePulls.get(ctx.spaceId);
+  if (!pull || !pull.on) return null;
+  const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, w.key);
+  return had ? issuesLib.changedParts(issuesLib.diffWork(had.value, w.value, { linked: issueLinkedKeys() })) : null;
+}
+// The agent's comment on an issue (Projects' addComment, plan-github-full-sync.md, section 8): the same rules as a person's from the
+// issue view (POST /api/spaces/:id/issues/:number/comments): a space that follows with writing on, `write_out`, the text as written
+// and at most GitHub's length, the write limit and the service's rest. Posted by the app with nothing of the agent added (decision 7),
+// remembered in `posted` as the agent's (so an owner may delete it, and its Undo deletes it), and recorded as the agent's change
+// (`commented`, the comment's id beside the work's pointer). Answers { note } or { status, error }.
+const ISSUE_COMMENT_ACTION = 'addComment';
+async function agentIssueComment({ ctx, space, found, input, agent, request }) {
+  const ref = input && input.ref;
+  const key = ref && typeof ref.id === 'string' ? `plan:${ref.id}` : '';
+  const m = issuesLib.WORK_KEY.exec(key);
+  if (!m) return { status: 422, error: 'Only an issue takes a comment.' };
+  const number = Number(m[1]);
+  const rec = issuePulls.get(space.id);
+  if (!rec || !rec.on) return { status: 409, error: `No pull is on in this ${word('space')}.` };
+  const adapter = issueAdapterOf(rec.provider);
+  if (!adapter) return { status: 409, error: 'This server has no such service.' };
+  const had = moduleData.get(found.manifest.id, ctx.scopeKey, key);
+  if (!had) return { status: 404, error: issuesLib.SAY.notInPlan };
+  if (typeof input.text !== 'string') return { status: 400, error: issuesLib.SAY.badText };
+  const text = issueText(input.text);
+  if (!text.trim()) return { status: 400, error: issuesLib.SAY.emptyComment };
+  if (Array.from(text).length > issuesLib.TEXT_MAX) return { status: 400, error: issuesLib.SAY.tooLong };
+  const gate = issueWriteGate({ rec, adapter, ctx, found }, ['addComment']);
+  if (gate) return gate;
+  const out = await inIssueWriteLane(async () => {
+    const made = await issueMutate(rec, adapter, (ask, a) => adapter.addComment({ repo: a.repo, number, text, token: a.token }, ask));
+    if (!made.ok) return made;
+    const c = made.answer.comment;
+    if (!c) return { status: 502, error: issuesLib.SAY.bad(adapter.name) };
+    issuePulls.addPosted(space.id, { id: c.id, number, by: ctx.by, at: isoAt(Date.now()) });
+    issueForget(rec, number);
+    return { comment: c };
+  });
+  if (out.error) return { status: out.status, error: out.error };
+  const kept = agentRecordsHere().noteObject({
+    agent: agent.key, space: space.id, change: 'commented',
+    object: { module: found.manifest.id, kind: 'plan', id: ref.id, scope: 'space', key }, versionAfter: had.version, held: false,
+    comment: out.comment.id, ...(request ? { request: request.id } : {}),
+  });
+  if (!kept) console.warn(`${currentEnvironment().slug ? `[${currentEnvironment().slug}] ` : ''}An agent's comment on ${rec.repo} could not be kept for an undo.`);
+  return { note: `Added a comment to issue #${number}.` };
+}
 function agentThrough(ctx, writes) {
   if (ctx.manifest.id !== issuesLib.MODULE_ID || ctx.scope !== 'space' || !ctx.spaceId) return null;
   const pull = issuePulls.get(ctx.spaceId);
@@ -12094,7 +12226,7 @@ function busInput(who, def, input, taker) {
       // multi-line box, so its line breaks and tabs stay (a \r\n or lone \r becomes \n); other control characters read as spaces.
       const text = base === 'string'
         ? v.replace(/\p{Cc}/gu, ' ').trim().slice(0, 200)
-        : v.replace(/\r\n?/g, '\n').replace(/(?![\n\t])\p{Cc}/gu, ' ').trim().slice(0, 8000);
+        : v.replace(/\r\n?/g, '\n').replace(/(?![\n\t])\p{Cc}/gu, ' ').trim().slice(0, ACTION_TEXT_MAX);
       if (!text && !optional) throw refError(400, `${field} is needed`);
       // Only spaces is no value, as "" is: cleared where the action clears it, else left out.
       if (!text && !clears.has(field)) continue;

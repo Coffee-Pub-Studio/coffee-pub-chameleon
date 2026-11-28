@@ -157,5 +157,23 @@ const ACTION_HANDLERS = {
   setColumn: (input, ctx) => scChange(input, ctx, (e, f) => scMoveTo(input, ctx, e, f)),
   // Only the fields given change. A day sent as "" (the manifest's `clears`) clears it, as emptying it in the editor does; so do
   // the owners and the notes.
-  updateEntry: (input, ctx) => scChange(input, ctx, (e, f) => scUpdate(e, input, { datesRequired: f.datesRequired, label: f.label, people: f.people, space: f.space, fieldDefs: f.fieldDefs })),
+  // `description` and `parent` too (plan-github-full-sync.md, section 8): on pulled work the server sends them to GitHub, as a person's.
+  updateEntry: (input, ctx) => scChange(input, ctx, (e, f) => {
+    const entries = scEntriesOf(ctx);
+    return scUpdate(e, input, { datesRequired: f.datesRequired, label: f.label, people: f.people, space: f.space, fieldDefs: f.fieldDefs, entries, orderAtEnd: (parent) => scOrderAtEnd(entries, parent, f.order) });
+  }),
+  // One comment on an issue's work (plan-github-full-sync.md, section 8): checked here, then posted by the server, which alone reaches
+  // GitHub (server/index.js agentIssueComment); nothing of the plan is written. A page can't post it, so on a page it is refused.
+  addComment: (input, ctx) => {
+    const f = scFacts(ctx);
+    const e = scEntryFor(input, ctx, f);
+    if (e.kind !== 'work' || !e.source || !e.source.number) throw new Error('Only an issue takes a comment.');
+    const text = typeof input.text === 'string' ? input.text.replace(/\r\n?/g, '\n') : '';
+    if (!text.trim()) throw new Error('Write a comment first.');
+    if ([...text].length > SC_COMMENT_MAX) throw new Error('GitHub holds at most 65,536 characters.');
+    if (ctx.carrier !== 'server') throw new Error('Add a comment in the issue view.');
+    return { writes: [], ref: scRef(ctx, e.id) };
+  },
 };
+// The longest comment GitHub takes (server/issues.js, TEXT_MAX).
+const SC_COMMENT_MAX = 65536;

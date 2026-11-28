@@ -6,7 +6,8 @@
 //              object: { module, kind, id, scope, key }, version, reason? }], (an ordinary agent's ask: delete)
 //     changes: [{ id, agent, space, change, at, undoneBy?, undoneAt?,
 //                 before?, after?                           (a set-up change: made, changed)
-//                 object: { module, kind, id, scope, key }, versionAfter, held, request?, ask? }] }  (added, edited, deleted)
+//                 object: { module, kind, id, scope, key }, versionAfter, held, request?, ask?, fields?, comment? }] }
+//                                                           (added, edited, deleted, commented)
 // A set-up ask (`ask`: add, remove or moderator; `on` for the moderator tick) is about one person (`person`, a key) in a space
 // the agent made. A delete ask (`ask`: delete) is about one object at one version (the key's version when it was asked), with
 // the agent's own short reason; keys and ids only, never the object's content. `state` is waiting, approved, declined,
@@ -18,7 +19,10 @@
 // while nothing changed since), and whether its earlier value is held for the Undo (`held`): the value itself is never here,
 // it is held beside the module's data (server/module-holds.js, keyed holds), named by the change's id. `request` is the bus
 // request it was made for; `ask` the delete ask that approved it. A change is kept for AGENT_UNDO_DAYS and then dropped
-// (`onDrop(change)` is told, so its hold goes with it).
+// (`onDrop(change)` is told, so its hold goes with it). An edit of work pulled from an issue keeps `fields`, the names of the parts it
+// changed (server/issues.js CHANGED_PARTS), so its Undo puts back only those. `commented` is a comment the agent made on an issue
+// (Planner - Projects' addComment): the work's pointer and `comment`, the service's id for it; nothing is held, and its Undo deletes
+// the comment (plan-github-full-sync.md, section 8).
 // Keys and ids only, never a person's name or an object's content; the names a set-up change holds are the space's own, as
 // Set up shows them.
 // Every method is synchronous from its check to its write, so two answers to one ask cannot both win. Written whole each
@@ -40,7 +44,8 @@ const FILE = 'agent-records.json';
 const STATES = ['waiting', 'approved', 'declined', 'expired', 'undone'];
 const ASKS = [...SETUP_ASKS, 'delete'];
 const SETUP_CHANGE_KINDS = ['made', 'changed'];
-const OBJECT_CHANGES = ['added', 'edited', 'deleted'];
+const OBJECT_CHANGES = ['added', 'edited', 'deleted', 'commented'];
+const PARTS = ['column', 'title', 'tags', 'description', 'parent', 'owners', 'own']; // server/issues.js CHANGED_PARTS
 const CHANGES = [...SETUP_CHANGE_KINDS, ...OBJECT_CHANGES];
 const FIELDS = ['name', 'description', 'linkIcon'];
 const REASON_MAX = 200;
@@ -118,12 +123,18 @@ function cleanChange(c) {
     out.held = c.held === true;
     if (Number.isSafeInteger(c.request) && c.request > 0) out.request = c.request;
     if (typeof c.ask === 'string' && ID_RE.test(c.ask)) out.ask = c.ask;
+    if (c.change === 'edited' && Array.isArray(c.fields)) out.fields = PARTS.filter((k) => c.fields.includes(k));
+    if (c.change === 'commented') {
+      if (!Number.isSafeInteger(c.comment) || c.comment <= 0) return null;
+      out.comment = c.comment;
+      out.held = false;
+    }
   }
   if (typeof c.undoneBy === 'string' && KEY_RE.test(c.undoneBy)) out.undoneBy = c.undoneBy;
   if (when(c.undoneAt)) out.undoneAt = c.undoneAt;
   return out;
 }
-const copyOf = (r) => (r.object ? { ...r, object: { ...r.object } } : { ...r });
+const copyOf = (r) => (r.object ? { ...r, object: { ...r.object }, ...(r.fields ? { fields: [...r.fields] } : {}) } : { ...r });
 
 class AgentRecords {
   constructor(dir, { log = console.warn } = {}) {
@@ -354,7 +365,8 @@ class AgentRecords {
   }
 
   // An ordinary agent's change to one object: { id? (taken with newId, when its hold was written first), agent, space,
-  // change: added | edited | deleted, object: { module, kind, id, scope: 'space', key }, versionAfter, held, request?, ask? }.
+  // change: added | edited | deleted | commented, object: { module, kind, id, scope: 'space', key }, versionAfter, held, request?, ask?,
+  // fields?, comment? }.
   // Never throws: a record that cannot be kept is said in the server's log and answered null (the caller then lets go of
   // its hold), and the change stands.
   noteObject(given, now = Date.now()) {

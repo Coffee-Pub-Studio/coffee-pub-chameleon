@@ -718,6 +718,39 @@
     }
   },
   {
+    "name": "schedule__addComment",
+    "module": "schedule",
+    "action": "addComment",
+    "label": "Comment on the issue",
+    "description": "Add one comment to the GitHub issue a piece of work comes from.",
+    "effect": "write",
+    "input": {
+      "ref": "ref:schedule:plan",
+      "text": "text"
+    },
+    "clears": [],
+    "schema": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "ref",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "schedule__setColumn",
     "module": "schedule",
     "action": "setColumn",
@@ -796,7 +829,7 @@
     "module": "schedule",
     "action": "updateEntry",
     "label": "Change it on the plan",
-    "description": "Change a plan entry's title, day, start, end, who is doing it, fields or notes; only the fields given change.",
+    "description": "Change a plan entry's title, day, start, end, who is doing it, fields, notes, an issue's description or the milestone it is part of; only the fields given change.",
     "effect": "write",
     "input": {
       "ref": "ref:schedule:plan",
@@ -806,7 +839,9 @@
       "end": "date?",
       "owners": "text?",
       "fields": "text?",
-      "notes": "text?"
+      "notes": "text?",
+      "description": "text?",
+      "parent": "string?"
     },
     "clears": [
       "date",
@@ -814,7 +849,8 @@
       "end",
       "owners",
       "fields",
-      "notes"
+      "notes",
+      "parent"
     ],
     "schema": {
       "type": "object",
@@ -879,6 +915,22 @@
           ],
           "maxLength": 8000,
           "description": "Send \"\" to clear it."
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 200,
+          "description": "Send \"\" to clear it."
         }
       },
       "required": [
@@ -889,7 +941,9 @@
         "end",
         "owners",
         "fields",
-        "notes"
+        "notes",
+        "description",
+        "parent"
       ],
       "additionalProperties": false
     }

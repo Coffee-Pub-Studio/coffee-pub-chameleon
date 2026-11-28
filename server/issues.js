@@ -95,6 +95,8 @@ const SAY = Object.freeze({
   conflict: 'This changed on GitHub a moment ago. It now shows GitHub\'s version.',
   longTitle: 'This title is longer than the plan holds. Change it on GitHub.',
   undoMixed: 'This changed on GitHub as well since then, so it can\'t be undone from here.',
+  undoCut: 'This description was longer than the plan holds, so its change can\'t be undone from here.',
+  undoOnGitHub: 'That change can only be undone on GitHub.',
   oneAtATime: 'A change to GitHub is made on its own, one entry at a time.',
   noDelete: (name) => `${name} issues can't be deleted from here. Close it, or delete it on ${name}.`,
   fromGitHub: (name) => `This comes from ${name}. Change it there.`,
@@ -673,6 +675,14 @@ function diffWork(stored, given, { linked = null } = {}) {
   return out;
 }
 
+// The parts of the work a diff changes, by name, in this order: `column` (with done), `title`, `tags`, `description`, `parent` (the
+// milestone), `owners` (with a linked account) and `own` (the space's own fields, Owners with no link among them). An agent's change
+// to pulled work keeps them (server/index.js issueAskedFields), so its Undo puts back exactly those.
+const CHANGED_PARTS = Object.freeze(['column', 'title', 'tags', 'description', 'parent', 'owners', 'own']);
+const changedParts = (d) => CHANGED_PARTS.filter((k) => (k === 'tags' ? d.tags.add.length > 0 || d.tags.remove.length > 0
+  : k === 'owners' ? d.owners.add.length > 0 || d.owners.remove.length > 0
+    : k === 'own' ? d.own : d[k] !== null));
+
 // Whether a diff sends anything to the service.
 const diffSends = (d) => d.column !== null || d.title !== null || d.tags.add.length > 0 || d.tags.remove.length > 0
   || d.description !== null || d.parent !== null || d.owners.add.length > 0 || d.owners.remove.length > 0;
@@ -823,6 +833,6 @@ function cleanRepo(adapter, raw) {
 module.exports = {
   IssuePulls, IssuesError, askIssues, askMilestones, mergeByNumber, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
   BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, diffSends, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS, OWNERS,
-  baseOf, SizedCache, cleanPosted, TEXT_MAX, POSTED_MAX,
+  baseOf, SizedCache, cleanPosted, TEXT_MAX, POSTED_MAX, CHANGED_PARTS, changedParts,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, DESCRIPTION_MAX, SPARE_LABELS_MAX, descriptionOf, oneLine,
 };

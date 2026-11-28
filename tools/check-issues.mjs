@@ -52,6 +52,14 @@
  * refused; 401, 403 with a wait, 422, 429 and silence change nothing in the space; the + takes an optional description; the memory
  * the reads hold is bounded in entries and characters.
  *
+ * Then an agent and the full sync (plan-github-full-sync.md, section 8 and step 4): without `write_out` its description, milestone
+ * and comment are refused with nothing sent; updateEntry's description is one PATCH of the body, refused when the plan holds it cut
+ * or past the stored cap, and GitHub wins when the text changed; its parent sets and clears the milestone and names only a plan's
+ * milestone; addComment posts exactly the text, remembered as the agent's, shown as the agent, deletable by an owner, refused when
+ * empty, too long for a request or not an issue's, and the comment routes stay a person's; Undo deletes the comment (an owner only,
+ * never a moderator, refused with writing off), puts back a description, a milestone and an Owner with one write each, and is
+ * refused with nothing sent when GitHub changed the text since or an assignee came in with the agent's change.
+ *
  * Not checked here: a real request to api.github.com (no network in a check; the terms must be accepted by a person first), and
  * GitHub's real secondary-limit answers.
  */
@@ -2407,6 +2415,154 @@ await live('the full sync\'s writes: 401, 403 with a wait, 422, 429 and silence 
   }
   assert.equal(gh.state.issues.get(40).body, open.description, 'and nothing changed on GitHub');
   await waitRest();
+});
+
+// --- live: an agent and the full sync (documentation/plans/plan-github-full-sync.md, section 8 and step 4) ------------------------
+// Each of these tests has an agent of its own, so its calls stay under an agent's 20 writes a minute whatever the tests above spent.
+const freshAgent = async () => {
+  const made = ok(await call('POST', '/api/users', { token: S.admin, body: { agent: true } }), 'another agent', 201).json.user;
+  const users = (await call('GET', '/api/users', { token: S.admin })).json.users;
+  S.agent2 = ok(await call('POST', `/api/users/${made.key}/token`, { token: S.admin }), 'its token', 201).json.token;
+  S.agent2Key = made.key;
+  ok(await call('PATCH', `/api/spaces/${S.bugs}`, { token: S.admin, body: { members: ['mia', 'mod'].map((l) => users.find((u) => u.login === l).key).concat(users.filter((u) => u.agent).map((u) => u.key)) } }), 'the agents in the space');
+};
+await live('an agent: updateEntry\'s description and parent, and addComment, go through as a person\'s do, with the same refusals', async () => {
+  await freshAgent();
+  gh.issue(50, { title: 'Agent: fifty', labels: [], body: 'Fifty, as GitHub has it.' });
+  gh.issue(51, { title: 'Agent: fifty-one', labels: [], body: 'z'.repeat(2500) });
+  ok(await pullNow(S.bugs), 'pulled');
+  const a2 = (action, input) => ask(action, input, S.agent2);
+  let at = gh.seen.length;
+  // Without write_out: the plan's sentence, and no request.
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.schedule.write_out': false } }), 'write_out off');
+  for (const [action, input] of [['updateEntry', { ref: refOf(50), description: 'Mine' }], ['updateEntry', { ref: refOf(50), parent: 'ghm-4' }], ['addComment', { ref: refOf(50), text: 'Hello' }]]) {
+    const no = await a2(action, input);
+    assert.deepEqual([no.status, no.json.error], [403, `Only someone allowed to change ${T3} can change this.`], `${action} ${Object.keys(input)[1]}`);
+  }
+  assert.equal(gh.seen.length, at, 'no request of any kind');
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.schedule.write_out': true } }), 'write_out on');
+  // The description: exactly the body, as the plan sends a person's; GitHub's text is then the plan's.
+  at = gh.seen.length;
+  ok(await a2('updateEntry', { ref: refOf(50), description: 'Set by the agent.\nTwo lines.' }), 'a description');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/50', { body: 'Set by the agent.\nTwo lines.' }]]);
+  assert.equal((await plan(S.bugs))['plan:gh-50'].value.description, 'Set by the agent.\nTwo lines.');
+  // A cut text: the agent never saw all of it, so it is never replaced; over the stored cap the module refuses it; nothing sent.
+  at = gh.seen.length;
+  const cut = await a2('updateEntry', { ref: refOf(51), description: 'Short' });
+  assert.deepEqual([cut.status, cut.json.error], [403, 'This description is longer than the plan holds, so it can\'t be replaced from here.']);
+  const big = await a2('updateEntry', { ref: refOf(50), description: 'b'.repeat(2001) });
+  assert.deepEqual([big.status, big.json.error], [422, 'The description is at most 2000 characters here.']);
+  assert.deepEqual(mutations(at), [], 'nothing sent');
+  // The milestone: set and cleared; a parent that is not one of the plan's milestones is refused before a request.
+  at = gh.seen.length;
+  ok(await a2('updateEntry', { ref: refOf(50), parent: 'ghm-4' }), 'Part of: Release four');
+  ok(await a2('updateEntry', { ref: refOf(50), parent: '' }), 'No milestone');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/50', { milestone: 4 }], ['PATCH', '/issues/50', { milestone: null }]]);
+  at = gh.seen.length;
+  const bad = await a2('updateEntry', { ref: refOf(50), parent: 'gh-51' });
+  assert.deepEqual([bad.status, bad.json.error], [422, 'That is not a milestone it can be part of.']);
+  // GitHub changed the text since the plan last saw it: GitHub wins, nothing sent.
+  gh.issue(50, { body: 'Changed on GitHub meanwhile.' });
+  const stale = await a2('updateEntry', { ref: refOf(50), description: 'Stale' });
+  assert.deepEqual([stale.status, stale.json.error], [409, 'This changed on GitHub a moment ago. It now shows GitHub\'s version.']);
+  assert.equal((await plan(S.bugs))['plan:gh-50'].value.description, 'Changed on GitHub meanwhile.');
+  assert.deepEqual(mutations(at), [], 'nothing sent');
+  // addComment: one comment, posted by the app with the text as written, remembered as the agent's.
+  const c = ok(await a2('addComment', { ref: refOf(50), text: 'From the agent.\r\nSecond line.' }), 'a comment').json;
+  assert.deepEqual([c.ok, c.note, c.ref], [true, 'Added a comment to issue #50.', refOf(50)]);
+  assert.deepEqual(shape(mutations(at)), [['POST', '/issues/50/comments', { body: 'From the agent.\nSecond line.' }]], 'exactly the text, nothing of the agent');
+  const mine = postedNow().find((p) => p.number === 50);
+  assert.deepEqual([mine.by, gh.state.comments.get(mine.id).body], [S.agent2Key, 'From the agent.\nSecond line.']);
+  S.agentComment = mine.id;
+  const shown = ok(await call('GET', V(50), { token: S.admin }), 'the owner opens it').json.comments.find((x) => x.id === mine.id);
+  assert.deepEqual([shown.who, shown.mine, shown.canDelete], [{ member: S.agent2Key }, false, true], 'shown as the agent; an owner may delete it');
+  at = gh.seen.length;
+  for (const [input, status, error] of [
+    [{ ref: refOf(50), text: '   ' }, 400, 'text is needed'],
+    [{ ref: refOf(50), text: 'c'.repeat(8001) }, 400, 'A comment from an agent is at most 8,000 characters.'],
+    [{ ref: refOf(999), text: 'x' }, 404, null],
+    [{ ref: refOf(50) }, 400, null],
+  ]) {
+    const no = await a2('addComment', input);
+    assert.equal(no.status, status, JSON.stringify(input));
+    if (error) assert.equal(no.json.error, error);
+  }
+  assert.deepEqual(mutations(at), [], 'nothing refused was sent');
+  // The comment routes stay a person's: the agent's token never reaches them.
+  for (const [method, url] of [['POST', `${V(50)}/comments`], ['PATCH', `${V(50)}/comments/${mine.id}`], ['DELETE', `${V(50)}/comments/${mine.id}`], ['PUT', `${V(50)}/description`]]) {
+    assert.equal((await call(method, url, { token: S.agent2, body: { text: 'x', base: 'x' } })).status, 403, `${method} ${url}`);
+  }
+  assert.deepEqual(mutations(at), [], 'still nothing sent');
+});
+
+await live('an agent: Undo of a description, a milestone, Owners and a comment is another write, refused when GitHub\'s changes were drawn in', async () => {
+  const change = async (n) => { const list = (await reviewOf(n)).filter((x) => !x.undone); assert.ok(list.length, `a change for ${n}`); return list[0]; };
+  const undo = (c, token = S.admin) => call('POST', `/api/spaces/${S.bugs}/changes/${c.id}/undo`, { token, body: {} });
+  const a2 = (action, input) => ask(action, input, S.agent2);
+  const commenter = S.agent2Key;
+  await freshAgent();
+  assert.notEqual(S.agent2Key, commenter);
+  // The comment: listed in words, undone by deleting it, by an owner only (decision 8: the agent made it, so not a moderator).
+  const cc = await change(50);
+  assert.equal(cc.change, 'commented');
+  assert.match(cc.text, /\(agent\) commented on the .+ "Agent: fifty" in /);
+  const asMod = (ok(await call('GET', `/api/spaces/${S.bugs}/agent-review`, { token: S.mod }), 'the moderator\'s list').json.done).find((x) => x.id === cc.id);
+  assert.deepEqual([asMod.undoable, asMod.why], [false, 'Only the person who wrote this comment, or an owner, can delete it.']);
+  let at = gh.seen.length;
+  const modUndo = await undo(cc, S.mod);
+  assert.deepEqual([modUndo.status, modUndo.json.error], [403, 'Only the person who wrote this comment, or an owner, can delete it.']);
+  assert.deepEqual(mutations(at), []);
+  assert.equal(cc.undoable, true);
+  ok(await undo(cc), 'the owner undoes it');
+  assert.deepEqual(shape(mutations(at)), [['DELETE', `/issues/comments/${S.agentComment}`, undefined]]);
+  assert.deepEqual([gh.state.comments.has(S.agentComment), postedNow().some((p) => p.id === S.agentComment)], [false, false], 'gone on GitHub, forgotten here');
+  assert.equal((await undo(cc)).status, 409, 'once');
+  // The description: put back as it was, one PATCH.
+  ok(await a2('updateEntry', { ref: refOf(50), description: 'Agent, second text.' }), 'a description');
+  const cd = await change(50);
+  at = gh.seen.length;
+  ok(await undo(cd), 'undone');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/50', { body: 'Changed on GitHub meanwhile.' }]]);
+  // Changed on GitHub since: the undo's own sentence, nothing sent.
+  ok(await a2('updateEntry', { ref: refOf(50), description: 'Agent, third text.' }), 'again');
+  const cd2 = await change(50);
+  gh.issue(50, { body: 'GitHub again.' });
+  at = gh.seen.length;
+  const late = await undo(cd2);
+  assert.deepEqual([late.status, late.json.error], [409, 'This changed on GitHub as well since then, so it can\'t be undone from here.']);
+  assert.deepEqual(mutations(at), []);
+  // The milestone: put back to none.
+  ok(await a2('updateEntry', { ref: refOf(50), parent: 'ghm-5' }), 'Part of: Release five');
+  const cp = await change(50);
+  at = gh.seen.length;
+  ok(await undo(cp), 'undone');
+  assert.deepEqual(shape(mutations(at)), [['PATCH', '/issues/50', { milestone: null }]]);
+  // Owners: a linked Owner assigned by the agent is unassigned by its Undo.
+  ok(await a2('updateEntry', { ref: refOf(50), owners: S.modKey }), 'the moderator as an Owner');
+  const co = await change(50);
+  at = gh.seen.length;
+  ok(await undo(co), 'undone');
+  assert.deepEqual(shape(mutations(at)), [['DELETE', '/issues/50/assignees', { assignees: [LINKED.login] }]]);
+  // An assignee GitHub added just before the agent's change is drawn in with it: the agent changed only the title, so its Undo
+  // can't tell the assignee apart and is refused, with nothing sent.
+  gh.issue(50, { assignees: [LINKED] });
+  ok(await a2('updateEntry', { ref: refOf(50), title: 'Agent: fifty, retitled' }), 'a title');
+  const ct = await change(50);
+  assert.deepEqual((await plan(S.bugs))['plan:gh-50'].value.owners, [S.modKey], 'GitHub\'s assignee came in with the write');
+  at = gh.seen.length;
+  const mixed = await undo(ct);
+  assert.deepEqual([mixed.status, mixed.json.error], [409, 'This changed on GitHub as well since then, so it can\'t be undone from here.']);
+  assert.deepEqual(mutations(at), []);
+  // Writing off: the comment's undo says why, and sends nothing.
+  ok(await a2('addComment', { ref: refOf(50), text: 'Another.' }), 'a comment');
+  const cc2 = await change(50);
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: false } }), 'writing off');
+  at = gh.seen.length;
+  const off = await undo(cc2);
+  assert.deepEqual([off.status, off.json.error], [403, FROM_GITHUB]);
+  assert.deepEqual(mutations(at), []);
+  ok(await call('PUT', P(S.bugs), { token: S.admin, body: { write: true } }), 'writing on again');
+  ok(await undo(cc2), 'and undone once it is on');
 });
 
 await live('the + takes an optional description: sent as the new issue\'s body, at most 65,536 characters', async () => {
