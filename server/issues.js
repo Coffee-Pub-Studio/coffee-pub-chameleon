@@ -3,7 +3,7 @@
 // the service is the source of truth, and the next pull overwrites anything changed some other way. The core maps the records
 // into the plan (the plan's option a), so this file names the `schedule` module; nothing here knows which service it is.
 //
-// What goes out: GET requests to the adapter's origin naming the repository, a `since` time, a page and the last etag, with the
+// What goes out: GET requests to the adapter's origin naming the repository, which issues (all, open or closed), a `since` time, a page and the last etag, with the
 // repository's installation token when the space is linked through the GitHub app (server/issue-app.js, plan-github-app.md) and
 // no token otherwise. Nothing of the space, the environment or its people.
 //
@@ -278,36 +278,67 @@ function restUntil(wait, now) {
   return Math.min(until, now + MAX_REST_MS);
 }
 
-// Every page of one pull, one request at a time. `full`: from the start (no since, no etag). Answers
-//   { ok: true, notModified, records, etag, complete, pollMs } or { ok: false, status, error, restUntil? }.
-async function askIssues(adapter, { repo, since = '', etag = '', token = '', full = false }, { fetchImpl, now = Date.now() } = {}) {
-  const get = getter(adapter, { fetchImpl });
-  const records = [];
-  let page = null;
-  let firstEtag = '';
-  let pollMs = 0;
-  for (let n = 0; n < MAX_PAGES; n += 1) {
-    let got;
-    try {
-      got = await adapter.list({ repo, since: full ? '' : since, etag: full ? '' : etag, token, page }, get);
-    } catch (err) {
-      return { ok: false, status: 0, error: err instanceof IssuesError && err.kind === 'big' ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
-    }
-    if (got.wait && Number.isFinite(got.wait.pollMs)) pollMs = Math.max(pollMs, got.wait.pollMs);
-    if (got.status === 304 && n === 0) return { ok: true, notModified: true, records: [], etag: got.etag || etag, complete: false, pollMs };
-    if (got.status === 403 || got.status === 429) {
-      // A 403 is a refusal of the token too when the limit is not what is spent; GitHub then names no wait. Either way: rest.
-      return { ok: false, status: got.status, error: SAY.wait(adapter.name), restUntil: restUntil(got.wait, now) };
-    }
-    if (got.status === 401) return { ok: false, status: 401, error: SAY.token(adapter.name) };
-    if (got.status === 404 || got.status === 410) return { ok: false, status: got.status, error: SAY.missing };
-    if (got.status !== 200 || got.bad) return { ok: false, status: got.status, error: got.bad ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
-    if (n === 0) firstEtag = got.etag || '';
-    records.push(...got.records);
-    if (!got.more) return { ok: true, notModified: false, records, etag: full ? '' : firstEtag, complete: true, pollMs };
-    page = got.more;
+// Two lists of records as one, by issue number: an issue closed between the two asks is in both, and the newer record of it
+// (by `updated`; the later list on a tie) wins. Oldest change first, as one list comes.
+function mergeByNumber(first, second) {
+  const byNumber = new Map();
+  for (const r of [...first, ...second]) {
+    const had = byNumber.get(r.number);
+    if (!had || !(r.updated < had.updated)) byNumber.set(r.number, r);
   }
-  return { ok: true, notModified: false, records, etag: full ? '' : firstEtag, complete: false, pollMs };
+  return [...byNumber.values()].sort((a, b) => (a.updated < b.updated ? -1 : a.updated > b.updated ? 1 : 0));
+}
+
+// Every page of one pull, one request at a time, at most MAX_PAGES in all. `full`: from the start (no since, no etag). A full pull
+// with `closedSince` (the done window's cutoff day, cutoffOf; plan-done-window.md step 3) asks twice: every open issue, then the
+// closed issues updated since the start of that day, so closed issues older than the window are never read; with no cutoff day it
+// asks for every issue as one list. A failure of either list fails the whole pull (nothing is written or removed); when the open
+// list stops at the page cap the closed list is not asked and the pull is not complete (so nothing is removed as gone). Answers
+//   { ok: true, notModified, records, etag, complete, pollMs } or { ok: false, status, error, restUntil? }.
+async function askIssues(adapter, { repo, since = '', etag = '', token = '', full = false, closedSince = '' }, { fetchImpl, now = Date.now() } = {}) {
+  const get = getter(adapter, { fetchImpl });
+  let pollMs = 0;
+  let pages = 0;
+  // One list, every page while the page cap allows.
+  async function askList({ state, from, tag }) {
+    const records = [];
+    let page = null;
+    let firstEtag = '';
+    for (let n = 0; pages < MAX_PAGES; n += 1) {
+      pages += 1;
+      let got;
+      try {
+        got = await adapter.list({ repo, since: from, etag: tag, token, page, state }, get);
+      } catch (err) {
+        return { ok: false, status: 0, error: err instanceof IssuesError && err.kind === 'big' ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
+      }
+      if (got.wait && Number.isFinite(got.wait.pollMs)) pollMs = Math.max(pollMs, got.wait.pollMs);
+      if (got.status === 304 && n === 0) return { ok: true, notModified: true, records: [], etag: got.etag || tag, complete: false };
+      if (got.status === 403 || got.status === 429) {
+        // A 403 is a refusal of the token too when the limit is not what is spent; GitHub then names no wait. Either way: rest.
+        return { ok: false, status: got.status, error: SAY.wait(adapter.name), restUntil: restUntil(got.wait, now) };
+      }
+      if (got.status === 401) return { ok: false, status: 401, error: SAY.token(adapter.name) };
+      if (got.status === 404 || got.status === 410) return { ok: false, status: got.status, error: SAY.missing };
+      if (got.status !== 200 || got.bad) return { ok: false, status: got.status, error: got.bad ? SAY.bad(adapter.name) : SAY.silent(adapter.name) };
+      if (n === 0) firstEtag = got.etag || '';
+      records.push(...got.records);
+      if (!got.more) return { ok: true, notModified: false, records, etag: firstEtag, complete: true };
+      page = got.more;
+    }
+    return { ok: true, notModified: false, records, etag: firstEtag, complete: false };
+  }
+  const cutoff = full && phaseRule.isDay(closedSince) ? closedSince : '';
+  if (!cutoff) {
+    const got = await askList({ state: 'all', from: full ? '' : since, tag: full ? '' : etag });
+    return got.ok ? { ...got, etag: full ? '' : got.etag, pollMs } : got;
+  }
+  const open = await askList({ state: 'open', from: '', tag: '' });
+  if (!open.ok) return open;
+  if (!open.complete) return { ok: true, notModified: false, records: open.records, etag: '', complete: false, pollMs };
+  const closed = await askList({ state: 'closed', from: `${cutoff}T00:00:00Z`, tag: '' });
+  if (!closed.ok) return closed;
+  return { ok: true, notModified: false, records: mergeByNumber(open.records, closed.records), etag: '', complete: closed.complete, pollMs };
 }
 
 // --- the mapping into the plan -----------------------------------------------------------------------------------------------
@@ -605,7 +636,7 @@ function cleanRepo(adapter, raw) {
 }
 
 module.exports = {
-  IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
+  IssuePulls, IssuesError, askIssues, mergeByNumber, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
   BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };
