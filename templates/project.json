@@ -1,7 +1,7 @@
 {
   "id": "project",
   "name": "Projects",
-  "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
+  "description": "Run a project together: tasks, meetings, a budget, a brief and a calendar.",
   "version": 7,
   "words": {
     "space": {
@@ -42,7 +42,7 @@
       }
     },
     "budget": {
-      "name": "Effort",
+      "name": "Budget",
       "settings": {
         "categories": [
           {
