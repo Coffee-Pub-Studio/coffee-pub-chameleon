@@ -611,6 +611,32 @@ await test('what a change touches: the sent fields, the space\'s own, and GitHub
   assert.deepEqual(I.changePlan(rec1, { column: 'next' }), { patch: {}, remove: [], add: [] }, 'already there: nothing to send');
 });
 
+await test('a board change that is only its columns\' colours (plan-board-colour.md, decision 2)', () => {
+  const b = I.boardOf(() => '');
+  const at = (i, c) => ({ ...b, columns: b.columns.map((x, j) => (j === i ? { ...x, ...c } : x)) });
+  assert.equal(I.BOARD_KEY, 'board:main');
+  assert.equal(I.colourOnly(b, b), true, 'nothing changed');
+  assert.equal(I.colourOnly(b, at(0, { color: '#00ff7f' })), true);
+  assert.equal(I.colourOnly(at(0, { color: '#00ff7f' }), b), true, 'a colour removed');
+  assert.equal(I.colourOnly(b, { ...b, columns: b.columns.map((x) => ({ color: '#123456', ...x })) }), true, 'wherever the key sits');
+  for (const color of ['red', '#fff', '#ABCDEF', '#abcdef80', 'abcdef', '', null, 0, ['#abcdef'], { r: 1 }]) assert.equal(I.colourOnly(b, at(1, { color })), false, JSON.stringify(color));
+  assert.equal(I.colourOnly(b, at(1, { label: 'X', color: '#abcdef' })), false, 'a label');
+  assert.equal(I.colourOnly(b, at(1, { done: true })), false, 'done set');
+  assert.equal(I.colourOnly(b, at(4, { done: false })), false, 'done unset');
+  assert.equal(I.colourOnly(b, at(1, { id: 'x' })), false, 'an id');
+  assert.equal(I.colourOnly(b, at(1, { label: undefined })), false, 'a label dropped');
+  assert.equal(I.colourOnly(b, { ...b, columns: b.columns.slice(1) }), false, 'one fewer');
+  assert.equal(I.colourOnly(b, { ...b, columns: [...b.columns, { id: 'x', label: 'X' }] }), false, 'one more');
+  assert.equal(I.colourOnly(b, { ...b, columns: [...b.columns].reverse() }), false, 'reordered');
+  assert.equal(I.colourOnly(b, { ...b, name: 'Mine' }), false, 'renamed');
+  assert.equal(I.colourOnly(b, { ...b, rowsBy: 'area' }), false, 'rows added');
+  assert.equal(I.colourOnly(b, { ...b, color: '#abcdef' }), false, 'a colour on the board itself');
+  assert.equal(I.colourOnly(b, JSON.parse(JSON.stringify(b).replace('"id":"inbox"', '"id":"inbox","__proto__":{"x":1}'))), false, 'a hidden key on a column');
+  assert.equal(I.colourOnly(b, { ...b, columns: b.columns.map((x, j) => (j ? x : 'inbox')) }), false, 'a column that is not an object');
+  for (const bad of [null, [], 'x', { ...b, columns: 'x' }]) assert.equal(I.colourOnly(b, bad), false, JSON.stringify(bad));
+  assert.equal(I.colourOnly(null, b), false, 'nothing stored');
+});
+
 await test('the pull keeps the space\'s own fields, and never writes older data over newer', () => {
   const stored = { kind: 'work', title: 'Old', start: '2026-10-02', end: '2026-10-09', owners: ['k1'], rank: 'm', fields: { phase: 'a' }, by: 'k9', source: { updated: '2026-11-02T00:00:00.000Z' } };
   const fresh = { kind: 'work', title: 'New', start: '2026-10-01', end: '2026-10-01', by: 'system:issues', column: 'now', source: { updated: '2026-11-03T00:00:00.000Z' } };
@@ -707,6 +733,8 @@ await test('the gate is read from the code, and each part of it matters', () => 
       (delText.match(/const pulled = d\.pulledRefusal\(ctx, key\);\n    if \(pulled\) return pulled;/g) || []).length === 2, // a person's delete refused
       (text.match(/const pulled = pulledRefusal\(ctx, null\);/g) || []).length === 2, // a Clear and its Undo refused
       /ctx\.who\.system === 'issues'/.test(refusal) && /if \(!rec \|\| !rec\.on\) return null;/.test(refusal), // only the pull, only while on
+      // A board's colours: only `board:main`, only with `columns`, only when nothing but the colours changed.
+      /if \(key === issuesLib\.BOARD_KEY && given !== undefined && ctx\.perms\[`module\.\$\{ctx\.manifest\.id\}\.columns`\]\) \{\n    const had = moduleData\.get\(ctx\.manifest\.id, ctx\.scopeKey, key\);\n    if \(had && issuesLib\.colourOnly\(had\.value, given\)\) return null;/.test(refusal),
       /const inSpace = who\.system \? true :/.test(fnOf(text, 'function moduleSpaceRefusal(')), // the system writer is only issuePullWho
       // Writing back: nothing goes out unless the space has it on, the server names the repository, the person holds write_out,
       // the field is one that may go, and the service is read first.
@@ -758,6 +786,9 @@ await test('the gate is read from the code, and each part of it matters', () => 
     ['the new issue\'s write_out', inPull((t) => t.replace('.write_out`]) return res.status(403)', '.write_out`] === 1) return res.status(403)'))],
     ['the new issue\'s link', inPull((t) => t.replace('if (refusedWrite) return res.status', 'if (false) return res.status'))],
     ['the pull\'s never-older rule', inPull((t) => t.replace('if (issuesLib.olderThanStored(stored.get(key), r)) continue;', ''))],
+    ['the colours: only with columns', inPull((t) => t.replace('&& ctx.perms[`module.${ctx.manifest.id}.columns`]) {', ') {'))],
+    ['the colours: only the stored board', inPull((t) => t.replace('if (had && issuesLib.colourOnly(had.value, given)) return null;', 'if (had) return null;'))],
+    ['the colours: only board:main', inPull((t) => t.replace('if (key === issuesLib.BOARD_KEY && given', 'if (/^board:/.test(key) && given'))],
     ['only while on', inPull((t) => t.replace('if (!rec || !rec.on) return null;\n  if (key', 'if (!rec) return null;\n  if (key'))],
   ]) {
     const mutated = cut ? cut(src) : src;
@@ -962,6 +993,55 @@ await live('while it is on, a person writes nothing of the plan or the board', a
   const p = await plan(S.bugs);
   assert.ok(!p['plan:hand'] && p['plan:gh-1'].value.title !== 'mine', 'nothing written');
   ok(await putKey(S.other, 'plan:hand', { kind: 'work', title: 'mine', start: '2026-11-01', end: '2026-11-01', done: false }, S.mia), 'another space is not held');
+});
+
+// A followed board's column colours are the space's own (plan-board-colour.md, decision 2): a write that changes only `color`
+// passes for someone with `columns`, sends nothing, and any other change to the board is refused as before. `who` holds `columns`;
+// S.mia (a member) does not. Leaves the board as it found it.
+const colourGate = async (space, who) => {
+  const SAID = 'This comes from Test stand-in (not an issue service). Change it there.';
+  const was = (await plan(space))['board:main'];
+  const board = was.value;
+  assert.deepEqual(board.columns.map((c) => c.id), ['inbox', 'now', 'next', 'later', 'done']);
+  const at = gh.seen.length;
+  const hue = (i, color) => ({ ...board, columns: board.columns.map((c, j) => (j === i ? { ...c, color } : c)) });
+  const coloured = { ...board, columns: board.columns.map((c, j) => (j === 0 ? { ...c, color: '#d73a4a' } : j === 4 ? { ...c, color: '#0e8a16' } : c)) };
+  const r = ok(await putKey(space, 'board:main', coloured, who), 'a colour-only change to a followed board');
+  assert.deepEqual(r.json.item.value.columns.map((c) => c.color || ''), ['#d73a4a', '', '', '', '#0e8a16']);
+  assert.equal(r.json.item.by !== 'system:issues', true, 'stored as the person\'s write');
+  const recolour = { ...coloured, columns: coloured.columns.map((c, j) => (j === 0 ? { ...c, color: '#112233' } : c)) };
+  ok(await putKey(space, 'board:main', recolour, who), 'a colour changed again');
+  const lines = board.columns.map((c) => c.label);
+  const refused = [
+    ['a member without columns', hue(1, '#abcdef'), S.mia],
+    ['a colour and a label', { ...board, columns: board.columns.map((c, j) => (j === 1 ? { ...c, label: 'Soon', color: '#abcdef' } : c)) }, who],
+    ['a label alone', { ...board, columns: board.columns.map((c, j) => (j === 1 ? { ...c, label: `${lines[1]}!` } : c)) }, who],
+    ['a column added', { ...board, columns: [...board.columns, { id: 'extra', label: 'Extra', color: '#abcdef' }] }, who],
+    ['a column removed', { ...board, columns: board.columns.slice(1) }, who],
+    ['the columns reordered', { ...board, columns: [board.columns[1], board.columns[0], ...board.columns.slice(2)] }, who],
+    ['done changed', { ...board, columns: board.columns.map((c, j) => (j === 3 ? { ...c, done: true, color: '#abcdef' } : c)) }, who],
+    ['an id changed', { ...board, columns: board.columns.map((c, j) => (j === 2 ? { ...c, id: 'soon' } : c)) }, who],
+    ['the board renamed', { ...hue(1, '#abcdef'), name: 'Mine' }, who],
+    ['a colour on the board', { ...board, color: '#abcdef' }, who],
+    ['another key on a column', { ...board, columns: board.columns.map((c, j) => (j === 1 ? { ...c, icon: 'star' } : c)) }, who],
+    ['a colour word', hue(1, 'red'), who], ['three digits', hue(1, '#fff'), who], ['upper case', hue(1, '#ABCDEF'), who],
+    ['eight digits', hue(1, '#abcdef80'), who], ['no hash', hue(1, 'abcdef'), who], ['a null colour', hue(1, null), who], ['a number', hue(1, 123456), who],
+  ];
+  for (const [what, value, token] of refused) {
+    const x = await putKey(space, 'board:main', value, token);
+    assert.deepEqual([x.status, x.json && x.json.error], [403, SAID], what);
+  }
+  const other = await putKey(space, 'board:second', { id: 'second', name: 'Two', field: 'column', columns: board.columns }, who);
+  assert.deepEqual([other.status, other.json && other.json.error], [403, SAID], 'another board is not made');
+  assert.deepEqual((await plan(space))['board:main'].value, recolour, 'nothing refused was stored');
+  ok(await putKey(space, 'board:main', board, who), 'the colours removed');
+  assert.deepEqual((await plan(space))['board:main'].value, board, 'the board as it was');
+  assert.equal(gh.seen.length, at, 'nothing was asked of or sent to the service');
+};
+
+await live('while it is on and writing is off, a column\'s colour is the space\'s own and nothing else of the board is', async () => {
+  assert.equal((await status(S.bugs)).write, false, 'writing is off');
+  await colourGate(S.bugs, S.admin);
 });
 
 await live('while it is on and writing is off, the space\'s own fields change and GitHub\'s do not', async () => {
@@ -1206,6 +1286,8 @@ await live('GitHub-only fields are refused with nothing sent; the space\'s own a
   assert.equal((await call('DELETE', `/api/modules/schedule/data/plan%3Agh-11?scope=space&space=${S.bugs}`, { token: S.mod })).status, 403, 'delete stays refused');
   assert.equal((await call('DELETE', `/api/modules/schedule/data?scope=space&space=${S.bugs}`, { token: S.admin })).status, 403, 'and Clear');
   assert.equal(gh.seen.length, at, 'nothing was sent');
+  assert.equal((await status(S.bugs)).write, true, 'writing is on');
+  await colourGate(S.bugs, S.mod);
   const r = ok(await edit('plan:gh-11', { owners: [S.modKey], start: '2026-10-05', end: '2026-10-09', rank: 'm', fields: { phase: '2' } }, S.mod), 'the space\'s own fields');
   assert.deepEqual([r.json.item.value.owners, r.json.item.value.start, r.json.item.value.end, r.json.item.value.rank], [[S.modKey], '2026-10-05', '2026-10-09', 'm']);
   assert.equal(gh.seen.length, at, 'no request for the space\'s own');
