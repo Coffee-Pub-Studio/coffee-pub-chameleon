@@ -18,10 +18,13 @@
 // own key) and `appError` (the last trouble with the app as one sentence, or '').
 // With two-way on (documentation/plans/plan-github-two-way.md, step 1) also `write` (changes made here go to the service) and
 // `writeBy`, `writeAt`, who turned writing on and when.
+// The done window (documentation/plans/plan-done-window.md, step 1): `keepDays`, how many days closed issues stay in the plan
+// (a whole number from 7 to 365, 30 when absent). Closed work older than the cutoff (cutoffOf) is not stored and is removed.
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const phaseRule = require('../public/phases.js');
 
 const FILE_NAME = 'issues.json';
 const MODULE_ID = 'schedule'; // Planner - Projects
@@ -37,6 +40,7 @@ const NOTES_MAX = 2000;
 const REST_MS = 30 * 60 * 1000; // after a 403 or 429 that names no time
 const MAX_REST_MS = 24 * 3600 * 1000;
 const NOW_GAP_MS = 60 * 1000; // the least time between two pulls a person asks for
+const KEEP_DAYS = Object.freeze({ min: 7, max: 365, start: 30 }); // the done window's days (plan-done-window.md, decision 2)
 const COLUMNS = Object.freeze([['inbox', 'Inbox'], ['now', 'Now'], ['next', 'Next'], ['later', 'Later'], ['done', 'Done', true]]);
 const PRIORITY = /^priority:\s*(now|next|later)$/i;
 const WORK_KEY = /^plan:gh-(\d{1,9})$/;
@@ -52,6 +56,7 @@ const SAY = Object.freeze({
   silent: (name) => `${name} did not answer.`,
   bad: (name) => `${name}'s answer could not be read.`,
   full: `This plan holds at most ${MAX_ENTRIES} entries; the rest are not pulled.`,
+  keepDays: `Keep closed issues for ${KEEP_DAYS.min} to ${KEEP_DAYS.max} days.`,
   // Writing (plan-github-two-way.md, section 5): nothing is changed in the space unless the service accepted the change.
   noWrite: 'The GitHub app may not change this repository.',
   noApp: 'Connect this repository through the GitHub app to change it from here.',
@@ -93,6 +98,8 @@ class IssuesError extends Error {
 
 const iso = (v) => (typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : '');
 const count = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+// Whether `v` is a number of days the done window may keep.
+const validKeepDays = (v) => Number.isInteger(v) && v >= KEEP_DAYS.min && v <= KEEP_DAYS.max;
 
 function cleanRecord(r) {
   if (!r || typeof r !== 'object') return null;
@@ -114,6 +121,7 @@ function cleanRecord(r) {
     via: app ? 'app' : 'public', installation: app ? r.installation : 0, repositoryId: app ? r.repositoryId : 0, writeOk: app && writeOk,
     linkBy: app && typeof r.linkBy === 'string' ? r.linkBy.slice(0, 80) : '', linkAt: app ? iso(r.linkAt) : '',
     appError: app && typeof r.appError === 'string' ? r.appError.slice(0, 300) : '',
+    keepDays: validKeepDays(r.keepDays) ? r.keepDays : KEEP_DAYS.start,
   };
 }
 
@@ -355,6 +363,8 @@ function workOf(rec, { repo, provider, tagIds }) {
     start,
     end: end < start ? start : end,
     done: column === 'done',
+    // The day it became done is the day it was closed (plan-projects-sizing-burndown.md, decision 2); open work has none.
+    ...(column === 'done' && phaseRule.isDay(dayOf(rec.closed)) ? { doneOn: dayOf(rec.closed) } : {}),
     ...(tags.length ? { tags } : {}),
     notes: lines.filter(Boolean).join('\n').slice(0, NOTES_MAX),
     ...(rec.milestone ? { parent: `ghm-${rec.milestone.number}` } : {}),
@@ -435,6 +445,34 @@ function sameValue(a, b) {
 // Whether a key of the plan is the pull's own (a piece of work or a milestone it wrote).
 const isPulledKey = (key) => WORK_KEY.test(key) || MILESTONE_KEY.test(key);
 
+// --- the done window (documentation/plans/plan-done-window.md, step 1) --------------------------------------------------------
+
+// The first day the window keeps, YYYY-MM-DD: the earlier of `today` less the record's `keepDays` and the start of the space's
+// phase that holds today (decision 2: never shorter than the current phase). `space` is the space record (its `phases` dates and
+// `createdAt`), `phases` the template's phases it reads; the phase counts only when the space has phase dates of its own, so a
+// space with none keeps `keepDays` days (public/phases.js would otherwise start its first phase on the day the space was made).
+// '' when `today` is not a day: then nothing is cut.
+function cutoffOf(rec, space, today, phases) {
+  if (!phaseRule.isDay(today)) return '';
+  const days = rec && validKeepDays(rec.keepDays) ? rec.keepDays : KEEP_DAYS.start;
+  let cutoff = phaseRule.addDays(today, -days);
+  const dates = space && space.phases ? phaseRule.cleanDates(space.phases) : {};
+  if (Array.isArray(phases) && phases.length && Object.keys(dates).length) {
+    let bands = [];
+    try { bands = phaseRule.timelineOf(phases, dates, { today, created: space.createdAt }) || []; } catch { bands = []; }
+    for (const b of bands) if (b.current && phaseRule.isDay(b.start) && b.start < cutoff) cutoff = b.start;
+  }
+  return cutoff;
+}
+
+// Whether a pull's record is closed work the window does not keep: closed on a day before `cutoff`. Never open work.
+const closedOutside = (rec, cutoff) => Boolean(cutoff) && Boolean(rec) && rec.open === false && phaseRule.isDay(dayOf(rec.closed)) && dayOf(rec.closed) < cutoff;
+
+// Whether the stored entry at `key` is pulled work that has aged out of the window: a pulled piece of work (`plan:gh-<n>`, never
+// a milestone, the board, a field or anything the space made), done, with a `doneOn` day before `cutoff`. Never open work.
+const agedOut = (key, value, cutoff) => Boolean(cutoff) && WORK_KEY.test(String(key)) && Boolean(value) && typeof value === 'object'
+  && value.done === true && phaseRule.isDay(value.doneOn) && value.doneOn < cutoff;
+
 
 // --- writing back (documentation/plans/plan-github-two-way.md, step 1) --------------------------------------------------------
 
@@ -447,13 +485,15 @@ const sortedTags = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => typeof
 
 // What a person's new value changes of the stored work: { column, title, tags: { add, remove }, own, foreign }. `column` is the
 // column asked for (only when column or done changed), `title` the new title (only when changed), `tags` the ids added and
-// removed, `own` whether a space's own field changed, `foreign` the names of GitHub-only fields that changed.
+// removed, `own` whether a space's own field changed, `foreign` the names of GitHub-only fields that changed. `doneOn` is not
+// read: it follows `done` and is the service's closed day, never sent and never taken from a person's value (keepOwn,
+// issueStore; pulledRefusal holds it as stored).
 function diffWork(stored, given) {
   const s = stored && typeof stored === 'object' ? stored : {};
   const g = given && typeof given === 'object' && !Array.isArray(given) ? given : {};
   const out = { column: null, title: null, tags: { add: [], remove: [] }, own: false, foreign: [] };
   for (const k of new Set([...Object.keys(s), ...Object.keys(g)])) {
-    if (k === 'by' || sameValue(s[k], g[k])) continue;
+    if (k === 'by' || k === 'doneOn' || sameValue(s[k], g[k])) continue;
     if (OWN_FIELDS.includes(k)) out.own = true;
     else if (!SENT_FIELDS.includes(k)) out.foreign.push(k);
   }
@@ -507,7 +547,7 @@ function areaOf(title, field) {
 
 // The work the pull writes over the stored one in a space that writes back: GitHub's fields from the new record, the space's own
 // (owners, waits, rank, fields, and the days once they exist) and who made the change kept from what is stored; work not stored
-// yet starts and ends on the day the issue was made.
+// yet starts and ends on the day the issue was made. `doneOn` is always the fresh record's (GitHub's closed day), never stored.
 function keepOwn(stored, fresh, { area = null } = {}) {
   if (!stored || typeof stored !== 'object') { // the days start as the day it was made, then are the space's; so does the Area, from the title's "Area:"
     const choice = areaOf(fresh.title, area);
@@ -558,6 +598,6 @@ function cleanRepo(adapter, raw) {
 
 module.exports = {
   IssuePulls, IssuesError, askIssues, getter, restUntil, columnOf, tagRowsOf, tagId, workOf, milestonesOf, boardOf, sameValue,
-  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
+  BOARD_KEY, colourOnly, isPulledKey, cleanRepo, SAY, cutoffOf, closedOutside, agedOut, validKeepDays, KEEP_DAYS, diffWork, changePlan, keepOwn, areaOf, olderThanStored, writeCall, labelOf, PRIORITY, OWN_FIELDS, SENT_FIELDS,
   FILE_NAME, MODULE_ID, SYSTEM_BY, MAX_ENTRIES, MAX_TAGS, NOW_GAP_MS, REST_MS, COLUMNS, WORK_KEY, MILESTONE_KEY, MAX_BODY, FETCH_MS, TITLE_MAX, oneLine,
 };

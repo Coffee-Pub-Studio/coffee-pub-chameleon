@@ -53,7 +53,8 @@ const seen = [];
 const issues = [
   { number: 1, title: 'Server: slow start', state: 'open', labels: [{ name: 'priority: now' }], created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-03T00:00:00Z' },
   { number: 2, title: 'Chat: no sound', state: 'open', labels: [], created_at: '2026-01-04T00:00:00Z', updated_at: '2026-01-05T00:00:00Z' },
-  { number: 3, title: 'Nothing like an area', state: 'closed', labels: [], created_at: '2026-01-06T00:00:00Z', closed_at: '2026-01-07T00:00:00Z', updated_at: '2026-01-07T00:00:00Z' },
+  // Closed a day ago, so it is inside the pull's done window (plan-done-window.md: closed work older than 30 days is not pulled).
+  { number: 3, title: 'Nothing like an area', state: 'closed', labels: [], created_at: '2026-01-06T00:00:00Z', closed_at: new Date(Date.now() - 86400000).toISOString(), updated_at: new Date(Date.now() - 86400000).toISOString() },
 ].map((i) => ({ closed_at: null, milestone: null, body: 'private', user: { login: 'someone' }, assignees: [], html_url: `https://github.com/${REPO}/issues/${i.number}`, ...i }));
 const fake = http.createServer((req, res) => {
   if (links.handle(req, res)) return;
