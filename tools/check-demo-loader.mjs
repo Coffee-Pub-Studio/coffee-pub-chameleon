@@ -57,7 +57,7 @@ const WANT = { travel: 76, maps: 37, calendar: 77, todo: 16, polls: 3, budget: 1
 // The other demos' counts (the Calendar's include the copies of dated planner entries, To-do tasks are not copied).
 const OTHERS = {
   games: { want: { schedule: 26, research: 8, documents: 3, todo: 9, calendar: 13, budget: 8, polls: 2, chat: 17 }, space: 'campaign', planner: ['schedule', 'Campaign'], names: { calendar: 'Sessions', todo: 'Quests', research: 'Lore', budget: 'Costs' }, measure: 'dates', phases: [] },
-  project: { want: { schedule: 21, todo: 11, calendar: 25, budget: 9, research: 6, documents: 2, polls: 1, chat: 15 }, space: 'project', planner: ['schedule', 'Project plan'], names: { budget: 'Effort' }, measure: 'dates', phases: [['start'], ['build'], ['wrap']] },
+  project: { want: { schedule: 21, todo: 11, calendar: 25, budget: 9, research: 6, documents: 2, polls: 1, chat: 15 }, space: 'project', planner: ['schedule', 'Project plan'], names: { budget: 'Budget' }, measure: 'dates', phases: [['start'], ['build'], ['wrap']] },
   learning: { want: { goals: 27, todo: 10, calendar: 14, research: 6, documents: 2, chat: 14 }, space: 'course', planner: ['goals', 'Learning plan'], names: { todo: 'Exercises', research: 'Reading', calendar: 'Sessions' }, measure: 'goals', phases: [['explore', true, 2, 2], ['practice', false, 1, 3, true], ['review', false, 0, 1]] },
   mentoring: { want: { goals: 21, todo: 8, calendar: 10, research: 4, documents: 1, chat: 13 }, space: 'mentorship', planner: ['goals', 'Development plan'], names: { todo: 'Next steps', calendar: 'Check-ins' }, measure: 'goals', phases: [['start', true, 1, 1], ['grow', false, 1, 3, true], ['review', false, 0, 1]] },
 };

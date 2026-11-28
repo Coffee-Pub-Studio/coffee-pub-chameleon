@@ -253,6 +253,7 @@ const byId = (id) => document.getElementById(id) || headerEl?.querySelector(`#${
 // page), else { role, hostAdmin, hosted, slug }. The slots that need an account wait for it only to hide.
 let account;
 let freshModules = 0; // modules this server ships that are not installed yet: Manage > Modules lists them as Available
+let approvalsWaiting = 0; // modules on with an update that waits for approval (GET /api/modules `needsApproval`), for owners and the admin
 let updatesWaiting = 0; // module updates available, for owners and the admin (GET /api/modules)
 let asksWaiting = 0; // the agents' delete asks waiting for this person's answer (GET /api/notifications' `asks`)
 let presentSpace = null; // the space this page is present in (an aside's parent in an aside); the space page says so
@@ -881,7 +882,7 @@ function paintUnread() {
 // primary-nav.js).
 function bellNow() {
   const unread = Object.values(unreadByModule).reduce((sum, n) => sum + (Number(n) || 0), 0);
-  return bellState({ unread, updates: updatesWaiting, asks: asksWaiting, role: account?.role, moduleWord: envWord('module') });
+  return bellState({ unread, updates: updatesWaiting, approvals: approvalsWaiting, asks: asksWaiting, role: account?.role, moduleWord: envWord('module') });
 }
 function paintBell() {
   const bell = byId('notifications-bell');
@@ -1036,7 +1037,7 @@ async function toggleNotices(bell) {
     // shown as nothing new
   }
   if (!noticesOpen || noticesOpen.list !== list) return; // closed while it was asking
-  const { updates } = bellNow();
+  const { updates, approvals } = bellNow();
   const parts = ['<div class="bell-head">Notifications</div>'];
   if (asksWaiting) {
     // The agents' asks: in a space, its Agents view (space.js answers app:open-agent-review); else, for owners and the admin,
@@ -1047,12 +1048,15 @@ async function toggleNotices(bell) {
   if (updates) {
     parts.push(`<a class="bell-updates" href="${escapeHtml(keepingQuery('/admin#modules'))}"><i class="fa-solid fa-puzzle-piece fa-fw" aria-hidden="true"></i><span>${updates} ${escapeHtml(envWord('module'))} update${updates === 1 ? '' : 's'} available</span></a>`);
   }
+  if (approvals) {
+    parts.push(`<a class="bell-updates" href="${escapeHtml(keepingQuery('/admin#modules'))}"><i class="fa-solid fa-circle-check fa-fw" aria-hidden="true"></i><span>${approvals} ${escapeHtml(envWord('module'))} update${approvals === 1 ? ' needs' : 's need'} approval</span></a>`);
+  }
   const sorted = [...notices].sort((a, b) => (Number(new Date(b.at)) || 0) - (Number(new Date(a.at)) || 0));
   if (sorted.length) {
     parts.push('<ul class="bell-notices">');
     for (const n of sorted) parts.push(noticeHtml(n));
     parts.push('</ul>');
-  } else if (!updates) {
+  } else if (!updates && !approvals) {
     parts.push('<p class="sdk-empty-line" data-empty>Nothing new.</p>');
   }
   list.innerHTML = parts.join('');
@@ -1077,8 +1081,7 @@ async function toggleNotices(bell) {
       if (hasOwnerRights(account)) openManage('users');
     });
   }
-  const link = list.querySelector('.bell-updates:not([data-bell-asks])');
-  if (link) {
+  for (const link of list.querySelectorAll('.bell-updates:not([data-bell-asks])')) {
     link.addEventListener('click', (event) => {
       event.preventDefault();
       closeNotices();
@@ -1538,8 +1541,8 @@ export function setUpdateBadge(count) {
 }
 // What needs a look in Manage > Modules: updates plus new modules, as a green count on Manage (the top bar button, the
 // phone menu, a page bar's link) and on that tab. Nothing at zero. The words repeat the number for a screen reader.
-export function manageBadgeLabel(updates, fresh, asks = 0) {
-  return [updates ? `${updates} ${updates === 1 ? 'update' : 'updates'} available` : '', fresh ? `${fresh} available` : '', asks ? `${asks} ${asks === 1 ? 'ask' : 'asks'} waiting for you` : ''].filter(Boolean).join(', ');
+export function manageBadgeLabel(updates, fresh, asks = 0, approvals = 0) {
+  return [updates ? `${updates} ${updates === 1 ? 'update' : 'updates'} available` : '', fresh ? `${fresh} available` : '', approvals ? `${approvals} ${approvals === 1 ? 'update needs' : 'updates need'} approval` : '', asks ? `${asks} ${asks === 1 ? 'ask' : 'asks'} waiting for you` : ''].filter(Boolean).join(', ');
 }
 // Manage's count is for owners and the admin (only they have Manage): the agents' asks waiting for them join it.
 function setAsksWaiting(n) {
@@ -1550,22 +1553,26 @@ function setAsksWaiting(n) {
 }
 function paintManageBadge() {
   const asks = hasOwnerRights(account) ? asksWaiting : 0;
-  const n = updatesWaiting + freshModules + asks;
-  const opts = n ? { tone: 'ok', label: manageBadgeLabel(updatesWaiting, freshModules, asks) } : {};
+  const approvals = hasOwnerRights(account) ? approvalsWaiting : 0;
+  const n = updatesWaiting + freshModules + asks + approvals;
+  const opts = n ? { tone: 'ok', label: manageBadgeLabel(updatesWaiting, freshModules, asks, approvals) } : {};
   for (const id of ['manage-tool', 'admin-link', 'page-bar-manage']) nav.setBadge(id, n, opts);
 }
-export function setManageBadge(updates, fresh) {
+export function setManageBadge(updates, fresh, approvals = 0) {
   updatesWaiting = Math.max(0, Number(updates) || 0);
   freshModules = Math.max(0, Number(fresh) || 0);
+  approvalsWaiting = Math.max(0, Number(approvals) || 0);
   paintBell();
   paintManageBadge();
 }
+// A module that is on with an update that asks for something new nobody has approved (what Manage > Modules marks "Needs approval").
+export const waitsForApproval = (m) => Boolean(m && m.enabled && m.needsApproval);
 async function loadUpdateBadge() {
   try {
     const res = await fetch('/api/modules');
     if (!res.ok) return;
-    const { bundled } = await res.json();
-    setManageBadge((bundled || []).filter((b) => b.update).length, (bundled || []).filter((b) => !b.installed).length);
+    const { bundled, modules } = await res.json();
+    setManageBadge((bundled || []).filter((b) => b.update).length, (bundled || []).filter((b) => !b.installed).length, (modules || []).filter(waitsForApproval).length);
   } catch {
     // no count is fine
   }

@@ -285,10 +285,11 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
     Mentoring the mentee owns them. Games: the game master's preparation and follow-ups, optional due dates. Travel: as
     today. **Show To-do in the Calendar** is a template default the owner can change. A task may link to a goal or a
     milestone in every template.
-21. **Budget** has a **unit**, money, hours or effort, set by the template. Splitting (who owes whom) is available when
-    the unit is money. Project: time and effort (money optional). Games: the group's real costs. Learning and
-    Mentoring: hours. Travel: as today. Categories are seeded per template; the module's name may read Budget, Effort
-    or Time.
+21. **Budget counts money under every template.** Decision 21 as first written gave Budget a unit (money, hours or
+    effort) set by the template. Thomas reversed it on 2026-11-28 in
+    [plan-projects-sizing-burndown](plan-projects-sizing-burndown.md): the unit was never built, effort lives in
+    Projects' size field, and hours wait for a later timesheets module. Splitting (who owes whom) is always available.
+    Categories are seeded per template; the module's name may read Budget or Time.
 22. **Maps** stays one module. A template seeds its categories (the owner may add) and turns real maps and picture maps
     on or off. Games has both; Project, Learning and Mentoring use a normal map for clients, meetings, field work or
     visits. Travel as today.
@@ -712,7 +713,7 @@ name "Planner - Projects" (decision 43).
 | Template | Its planner (name shown) | Planner settings | Other modules and their settings |
 |---|---|---|---|
 | **Travel** | Planner - Travel, `travel` (shown "Itinerary", as today) | none | As today: To-do, Budget (money), Maps, Calendar, Documents, Research, Polls, Vault (named Vault, decision 51), Whiteboard, AI Assistant |
-| **Project** | Schedule outline ("Project plan") | `datesRequired` true, `dependencies` true | To-do (owners, `inCalendar` on), Calendar (Meeting, Deadline), Budget ("Effort", unit `effort`, money optional), Documents (a project brief), Maps (a normal map), Research, Polls, Whiteboard, Vault |
+| **Project** | Schedule outline ("Project plan") | `datesRequired` true, `dependencies` true | To-do (owners, `inCalendar` on), Calendar (Meeting, Deadline), Budget (money), Documents (a project brief), Maps (a normal map), Research, Polls, Whiteboard, Vault |
 | **Learning** | Goal outline ("Learning plan") | `dates` optional, `progressBy` steps | To-do (exercises tied to a goal), Documents (a learning journal), Research, Calendar (Session), Budget ("Time", unit `hours`), Maps (visits) |
 | **Mentoring** | Goal outline ("Development plan") | `dates` optional, `progressBy` steps; `owner` reads "mentee" | To-do (the mentee owns tasks), Calendar (Check-in), Documents (a meeting log), Research, Budget ("Time", unit `hours`) |
 | **Games** | Schedule outline ("Campaign", decision 42) | `datesRequired` false, `dependencies` false; `milestone` reads "session", `work` "scene", `tag` "story thread" | Maps (real and picture maps), Research, Documents (session notes, a handout), Budget (money), To-do (preparation), Calendar (Session), AI Assistant |
