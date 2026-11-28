@@ -6089,6 +6089,38 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 }
 /* board:end */
 
+/* ================= Burndown (host.ui.burndown) =================
+   What is left over time, drawn by the script as an SVG at the width of its box, so the words on it stay readable. The piece holds three
+   parts, one --gap-in apart; a part with nothing in it is not shown.
+     .sdk-burndown         the container; .sdk-burndown-chart holds the SVG
+     .sdk-burndown-band    a phase behind the lines, in the phase's own colour (the accent when it has none), faint
+     .sdk-burndown-grid    a guide (the total, its half, 0); .sdk-burndown-zero the 0 line when the chart goes under it; .sdk-burndown-axis
+     .sdk-burndown-today   the Today line
+     .sdk-burndown-line    a step line: .is-solid (with a .sdk-burndown-dot on each step) or .is-dashed, both in the accent
+     .sdk-burndown-legend  the key (hidden from a screen reader: the words say the same); .sdk-burndown-key and its .sdk-burndown-swatch
+     .sdk-burndown-words   the sentence under it, which is also the chart's accessible text */
+/* burndown:start */
+.sdk-burndown { display: flex; flex-direction: column; gap: var(--gap-in); min-width: 0; }
+.sdk-burndown-chart { width: 100%; overflow: hidden; }
+.sdk-burndown-chart:empty, .sdk-burndown-legend:empty, .sdk-burndown-words:empty { display: none; }
+.sdk-burndown-chart svg { display: block; width: 100%; height: auto; }
+.sdk-burndown-chart text { fill: var(--text-muted); font-size: var(--text-11); font-family: inherit; }
+.sdk-burndown-band { fill: var(--accent-fill); opacity: 0.16; }
+.sdk-burndown-axis { stroke: color-mix(in srgb, var(--text-primary) 25%, transparent); stroke-width: 1; fill: none; }
+.sdk-burndown-grid { stroke: color-mix(in srgb, var(--text-primary) 10%, transparent); stroke-width: 1; fill: none; }
+.sdk-burndown-zero { stroke: var(--status-danger-fill); stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+.sdk-burndown-today { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 3; fill: none; }
+.sdk-burndown-line { stroke: var(--accent-fill); fill: none; stroke-linejoin: round; }
+.sdk-burndown-line.is-solid { stroke-width: 2.5; }
+.sdk-burndown-line.is-dashed { stroke-width: 1.75; stroke-dasharray: 5 4; opacity: 0.7; }
+.sdk-burndown-dot { fill: var(--accent-fill); }
+.sdk-burndown-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; color: var(--text-muted); font-size: var(--text-12); }
+.sdk-burndown-key { display: inline-flex; align-items: center; gap: var(--space-2); }
+.sdk-burndown-swatch { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--accent-fill); }
+.sdk-burndown-key.is-dashed .sdk-burndown-swatch { border-top: 2px dashed var(--accent-fill); opacity: 0.7; }
+.sdk-burndown-words { margin: 0; color: var(--text-muted); font-size: var(--text-12); }
+/* burndown:end */
+
 /* ================= Choice rows (design system step 27) =================
    Source: public/design-system/proposed-choices.css, without the .ds-proposed prefix. This is the row .sdk-check was: a whole-row choice,
    the tick box or radio (the Fields box) on the left, the words, and a description if there is one. The whole row is the target: --check-h high
