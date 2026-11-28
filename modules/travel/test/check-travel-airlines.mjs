@@ -179,9 +179,10 @@ test('airlineLinks says which links belong on the card now', () => {
   assert.deepEqual(airlineLinks(flight(), at(10, 18)).soon, { checkIn: false, status: true });
 });
 
-test('the Bookings view puts a flight\'s links in its row, by the card\'s rule', () => {
+test('the Bookings view always puts a flight\'s links in its row; the card keeps its 48-hour rule', () => {
   const js = read('travel.js');
-  assert.ok(js.includes("if (kind === 'journey') airlineRowInto(r.querySelector('.decision-main'), i);"), 'a journey row gets the links row');
+  assert.ok(js.includes("if (kind === 'journey') airlineRowInto(r.querySelector('.decision-main'), i, true);"), 'a journey row gets the links row, always');
+  assert.ok(js.includes('const shown = (key) => (always ? !!links[key] : links.soon[key]);'), 'the card still uses the window');
   assert.ok(/function row\(list[\s\S]*?return r;\s*\}/.test(js), 'row hands its element back');
   assert.ok(/\.decision-main > \.card-airline \{/.test(read('travel.css')), 'the links row is styled inside a Bookings row');
 });
